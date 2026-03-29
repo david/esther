@@ -94,9 +94,16 @@ export async function executeCommand<
   }
 
   const storedEvents = appendResult.value.events;
-  let outputContext: unknown = context;
 
-  // 7. Run inline projectors
+  // 7. Re-resolve state so output reflects the newly appended events
+  const { context: postAppendContext } = await slice.resolveState.resolve(
+    input,
+    eventStore,
+    readModelStore,
+  );
+  let outputContext: unknown = postAppendContext;
+
+  // 8. Run inline projectors
   for (const projectorFn of slice.projectors) {
     for (const event of storedEvents) {
       const result = projectorFn(event);
@@ -109,7 +116,7 @@ export async function executeCommand<
     }
   }
 
-  // 8. Run inline processors
+  // 9. Run inline processors
   for (const processorFn of slice.processors) {
     for (const event of storedEvents) {
       const result = processorFn(event);
@@ -120,7 +127,7 @@ export async function executeCommand<
     }
   }
 
-  // 9. Parse output — Zod guarantees TOutput
+  // 10. Parse output — Zod guarantees TOutput
   const outputParse = slice.outputSchema.safeParse(outputContext);
   if (!outputParse.success) {
     throw new Error(

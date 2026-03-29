@@ -161,28 +161,26 @@ function buildApp() {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("command pipeline", () => {
-  test("deposit succeeds and returns pre-append state", async () => {
+  test("deposit succeeds and returns post-append state", async () => {
     const { app } = buildApp();
 
-    // First deposit: no prior events, so balance at decision time is 0
     const result = await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual({ account: { balance: 0 } });
+      expect(result.value).toEqual({ account: { balance: 100 } });
     }
   });
 
-  test("multiple deposits accumulate in state", async () => {
+  test("multiple deposits accumulate", async () => {
     const { app } = buildApp();
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 50 });
     await app.dispatch("deposit", { accountId: "acc-1", amount: 30 });
-    // Third deposit: fold sees first two (50+30=80)
     const result = await app.dispatch("deposit", { accountId: "acc-1", amount: 20 });
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual({ account: { balance: 80 } });
+      expect(result.value).toEqual({ account: { balance: 100 } });
     }
   });
 
@@ -201,16 +199,15 @@ describe("command pipeline", () => {
     }
   });
 
-  test("successful withdrawal returns pre-append state", async () => {
+  test("successful withdrawal returns post-append state", async () => {
     const { app } = buildApp();
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
-    // Withdraw: fold sees deposit (balance=100), validation passes, state at decision time is 100
     const result = await app.dispatch("withdraw", { accountId: "acc-1", amount: 40 });
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual({ account: { balance: 100 } });
+      expect(result.value).toEqual({ account: { balance: 60 } });
     }
   });
 
