@@ -2,30 +2,22 @@
 
 > DCB-based event sourcing for TypeScript. No aggregates, tag-based event queries, optimistic locking.
 
-## Quick start
+## Imports
 
 ```typescript
 import { z } from "zod";
 import { ok, err } from "neverthrow";
 import {
-  state,
-  tagQuery,
-  projection,
-  defineCommandSlice,
-  defineQuerySlice,
-  createApp,
-  createInMemoryEventStore,
-  createInMemoryReadModelStore,
-  createInMemoryAdapter,
+  state, tagQuery, projection,
+  defineCommandSlice, defineQuerySlice,
+  createApp, createInMemoryEventStore, createInMemoryReadModelStore, createInMemoryAdapter,
 } from "esther";
 import type { DomainEvent, StoredEvent } from "esther";
 ```
 
-## Core concepts
+## Events
 
-### Events
-
-Events have `type`, `tags` (string array), and `payload`. Tags are the DCB query mechanism — no aggregates, no streams. Define concrete event types:
+`type`, `tags` (string[]), `payload`. Define concrete types:
 
 ```typescript
 type OrderPlaced = DomainEvent<"OrderPlaced", {
@@ -35,143 +27,73 @@ type OrderPlaced = DomainEvent<"OrderPlaced", {
 }>;
 ```
 
-### Tags
+## Tags
 
-Tags are plain strings. Use prefixed patterns for scoping:
+Plain strings queried by intersection. Use prefixed patterns:
 
 ```typescript
 ["order", `order:${orderId}`, `customer:${customerId}`]
 ```
 
-The event store queries by tag intersection — "give me all events tagged with ALL of these tags."
+## State pipeline
 
-### Slices
-
-A slice groups everything for one command or query. Two kinds:
-
-**Command slice** — writes events:
-- `inputSchema` / `outputSchema` — Zod schemas (shared contracts)
-- `state` — typed pipeline: `state<Input>().pipe(tagQuery(...)).pipe(projection(...))`
-- `validate` — pure, returns `Result<Validated, ValidationError>`
-- `handle` — pure, returns `Result<Event[], ValidationError>`
-- `projectors` — inline after append, return `{ type: "projection", key, value }`
-- `processors` — inline after append, return `{ type: "effect", ... }`
-
-**Query slice** — reads only:
-- `inputSchema` / `outputSchema` / `state` / `handle`
-
-### State pipeline
-
-Build with `state<T>()` and chain `.pipe()` calls. Each step enriches the context type:
+`state<T>()` creates a resolver. `.pipe()` enriches the context type:
 
 ```typescript
-state: state<CreateOrderInput>()
+state: state<Input>()
   .pipe(tagQuery({
-    key: "orderHistory" as const,
-    tags: (ctx) => ["order", `customer:${ctx.customerId}`],
-    fold: (events): OrderHistory => events.reduce(orderReducer, initial),
+    key: "inventory" as const,
+    tags: (ctx) => ["product", `product:${ctx.productId}`],
+    fold: (events): InventoryState => events.reduce(reducer, initial),
   }))
-  .pipe(projection<"customer", { customerId: string }, CustomerProfile>({
-    key: "customer",
-    name: "customer-profiles",
-    id: (ctx) => ctx.customerId,
+  .pipe(projection<"settings", { tenantId: string }, TenantSettings>({
+    key: "settings",
+    name: "tenant-settings",
+    id: (ctx) => ctx.tenantId,
   }))
 ```
 
-After this, `validate` receives `CreateOrderInput & { orderHistory: OrderHistory } & { customer: CustomerProfile }`.
+- `tagQuery`: queries events by tag intersection, folds to state. Framework tracks position for optimistic locking.
+- `projection`: fetches a named read model by id. Third type param is the value type.
 
-### tagQuery
+## validate and handle
 
-Queries the event store for events matching ALL given tags. The `fold` receives the full event array and returns state. The framework records the stream position for optimistic locking.
-
-```typescript
-tagQuery({
-  key: "inventory" as const,     // context key
-  tags: (ctx) => [               // dynamic tags from context
-    "product",
-    `product:${ctx.productId}`,
-  ],
-  fold: (events): InventoryState =>  // reduce events to state
-    events.reduce(inventoryReducer, { quantity: 0 }),
-})
-```
-
-### projection
-
-Fetches a named read model by id. The third type parameter specifies the expected value type:
-
-```typescript
-projection<"settings", { tenantId: string }, TenantSettings>({
-  key: "settings",
-  name: "tenant-settings",
-  id: (ctx) => ctx.tenantId,
-})
-```
-
-### validate and handle
-
-Both are pure functions returning `Result`. Domain errors are `{ code: string, message: string }`:
+Pure functions returning `Result`. Errors are `{ code: string, message: string }`:
 
 ```typescript
 validate: (ctx) => {
-  if (ctx.inventory.quantity < ctx.requestedQuantity) {
-    return err({ code: "INSUFFICIENT_STOCK", message: "Not enough inventory" });
-  }
+  if (ctx.inventory.quantity < ctx.amount)
+    return err({ code: "OUT_OF_STOCK", message: "Not enough" });
   return ok(ctx);
 },
 
 handle: (validated) => ok<ReadonlyArray<OrderPlaced>, never>([{
   type: "OrderPlaced",
   tags: ["order", `customer:${validated.customerId}`],
-  payload: {
-    orderId: crypto.randomUUID(),
-    customerId: validated.customerId,
-    total: validated.total,
-  },
+  payload: { orderId: crypto.randomUUID(), customerId: validated.customerId, total: validated.total },
 }]),
 ```
 
-### Projectors and processors
+## Projectors and processors
 
-Inline functions that run after event append:
+Inline functions after append. Projectors update read models, processors emit effect descriptors:
 
 ```typescript
-projectors: [
-  (event) => ({
-    type: "projection" as const,
-    key: event.payload.orderId,
-    value: { status: "placed", total: event.payload.total },
-  }),
-],
-
-processors: [
-  (event) => ({
-    type: "effect" as const,
-    email: {
-      to: event.payload.customerEmail,
-      subject: "Order confirmed",
-      body: `Order ${event.payload.orderId} placed.`,
-    },
-  }),
-],
+projectors: [(event) => ({ type: "projection" as const, key: "order-count", value: count })],
+processors: [(event) => ({ type: "effect" as const, email: { to, subject, body } })],
 ```
 
-### Effect adapters
-
-Processors return effect descriptors. Effect adapters execute them:
+Effect adapters execute processor descriptors:
 
 ```typescript
 const emailAdapter: EffectAdapter = {
   name: "email",
   match: (effect) => "email" in effect,
-  execute: async (effect) => {
-    await sendEmail(effect.email);
-    return { emailSent: true };
-  },
+  execute: async (effect) => { await sendEmail(effect.email); return { emailSent: true }; },
 };
 ```
 
-### Wiring it up
+## Wiring
 
 ```typescript
 const readModelStore = createInMemoryReadModelStore();
@@ -187,98 +109,60 @@ const app = createApp({
 });
 
 await app.start();
-const result = await app.dispatch("place-order", { customerId: "...", ... });
+const result = await app.dispatch("place-order", { ... });
 ```
 
-### Event store hooks
+For HTTP: `import { createHttpAdapter } from "esther/http"` → `createHttpAdapter({ port: 3000 })`.
+For Postgres: `import { createPostgresEventStore, createPostgresReadModelStore, migratePostgresSchema } from "esther/postgres"`.
 
-Register projectors/processors at the event store level:
+## Event store hooks
 
 ```typescript
-eventStore.onAfterInsert(
-  { eventTypes: ["OrderPlaced"] },
-  (event) => ({
-    type: "projection" as const,
-    key: `order-count`,
-    value: { /* ... */ },
-  }),
-);
+eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, (event) => ({
+  type: "projection" as const, key: "order-count", value: { ... },
+}));
 ```
 
-## Rules for writing slices
+Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`.
 
-1. **All functions return `Result`** — `validate`, `handle` return `Result`. Never throw in user code.
-2. **Define event types explicitly** — `type MyEvent = DomainEvent<"MyEvent", { ... }>`. Use the type in `handle`'s return: `ok<ReadonlyArray<MyEvent>, never>([...])`.
-3. **Schemas are shared contracts** — `inputSchema` and `outputSchema` should be importable by clients.
-4. **Tags are your query model** — design tags for the queries you need. No aggregate IDs.
-5. **`key: "foo" as const`** — use `as const` on tagQuery/projection keys so TypeScript infers the literal string type.
-6. **Start state with `state<T>()`** — where `T` is `z.output<typeof inputSchema>`. Chain `.pipe()` for each state step.
-7. **Projection type parameter** — `projection<Key, InputCtx, ValueType>(...)` — the third param types the value.
-8. **Pure projectors/processors** — they receive events and return descriptors. Side effects happen in effect adapters.
+## Rules
 
-## Adapters
+1. All user functions return `Result` — never throw.
+2. Define event types explicitly: `type MyEvent = DomainEvent<"MyEvent", { ... }>`.
+3. Use `ok<ReadonlyArray<MyEvent>, never>([...])` in handle return.
+4. Use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
+5. Start state with `state<z.output<typeof inputSchema>>()`.
+6. Schemas (`inputSchema`/`outputSchema`) are shared contracts — define externally for client reuse.
+7. Projectors/processors are pure — side effects go in effect adapters.
+8. Tags are your query model — design them for the queries you need.
+9. The command output reflects post-append state (state is re-resolved after events are stored).
 
-### Event store
-- `createInMemoryEventStore(readModelStore)` — for testing
-- `createPostgresEventStore({ sql, readModelStore })` — for production (import from `esther/postgres`)
-
-### Read model store
-- `createInMemoryReadModelStore()` — for testing
-- `createPostgresReadModelStore({ sql })` — for production (import from `esther/postgres`)
-
-### Input adapters
-- `createInMemoryAdapter()` — direct `dispatch()` calls, for testing
-- `createHttpAdapter({ port })` — HTTP via `Bun.serve` (import from `esther/http`)
-
-### Postgres migration
+## Full example
 
 ```typescript
-import { migratePostgresSchema } from "esther/postgres";
-await migratePostgresSchema(sql);
-```
-
-## Full command slice example
-
-```typescript
-import { z } from "zod";
-import { ok, err } from "neverthrow";
-import { state, tagQuery, defineCommandSlice } from "esther";
-import type { DomainEvent, StoredEvent } from "esther";
-
-// Contracts (share with client)
 const transferInputSchema = z.object({
   fromAccountId: z.string().uuid(),
   toAccountId: z.string().uuid(),
   amount: z.number().positive(),
 });
-
 type TransferInput = z.output<typeof transferInputSchema>;
 
-const transferOutputSchema = z.object({
-  transferId: z.string().uuid(),
-});
+const transferOutputSchema = z.object({ transferId: z.string().uuid() });
 
-// Events
 type MoneyTransferred = DomainEvent<"MoneyTransferred", {
-  transferId: string;
-  fromAccountId: string;
-  toAccountId: string;
-  amount: number;
+  transferId: string; fromAccountId: string; toAccountId: string; amount: number;
 }>;
 
-// State
 type AccountBalance = { balance: number };
 
 const balanceReducer = (bal: AccountBalance, event: StoredEvent): AccountBalance => {
   if (event.type === "MoneyTransferred") {
     const p = event.payload as MoneyTransferred["payload"];
-    // simplified — real logic would check from/to
     return { balance: bal.balance - p.amount };
   }
   return bal;
 };
 
-// Slice
 export const transferSlice = defineCommandSlice({
   name: "transfer-money",
   inputSchema: transferInputSchema,
@@ -288,24 +172,18 @@ export const transferSlice = defineCommandSlice({
     .pipe(tagQuery({
       key: "fromBalance" as const,
       tags: (ctx) => ["account", `account:${ctx.fromAccountId}`],
-      fold: (events): AccountBalance =>
-        events.reduce(balanceReducer, { balance: 0 }),
+      fold: (events): AccountBalance => events.reduce(balanceReducer, { balance: 0 }),
     })),
 
   validate: (ctx) => {
-    if (ctx.fromBalance.balance < ctx.amount) {
+    if (ctx.fromBalance.balance < ctx.amount)
       return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
-    }
     return ok(ctx);
   },
 
   handle: (validated) => ok<ReadonlyArray<MoneyTransferred>, never>([{
     type: "MoneyTransferred",
-    tags: [
-      "transfer",
-      `account:${validated.fromAccountId}`,
-      `account:${validated.toAccountId}`,
-    ],
+    tags: ["transfer", `account:${validated.fromAccountId}`, `account:${validated.toAccountId}`],
     payload: {
       transferId: crypto.randomUUID(),
       fromAccountId: validated.fromAccountId,
