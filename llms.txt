@@ -1,0 +1,198 @@
+# Esther — Event Sourcing Framework
+
+> DCB-based event sourcing for TypeScript. No aggregates, tag-based event queries, optimistic locking.
+
+## Imports
+
+```typescript
+import { z } from "zod";
+import { ok, err } from "neverthrow";
+import {
+  state, tagQuery, projection,
+  defineCommandSlice, defineQuerySlice,
+  createApp, createInMemoryEventStore, createInMemoryReadModelStore, createInMemoryAdapter,
+} from "esther";
+import type { DomainEvent, StoredEvent } from "esther";
+```
+
+## Events
+
+`type`, `tags` (string[]), `payload`. Define concrete types:
+
+```typescript
+type OrderPlaced = DomainEvent<"OrderPlaced", {
+  orderId: string;
+  customerId: string;
+  total: number;
+}>;
+```
+
+## Tags
+
+Plain strings queried by intersection. Use prefixed patterns:
+
+```typescript
+["order", `order:${orderId}`, `customer:${customerId}`]
+```
+
+## State pipeline
+
+`state<T>()` creates a resolver. `.pipe()` enriches the context type:
+
+```typescript
+state: state<Input>()
+  .pipe(tagQuery({
+    key: "inventory" as const,
+    tags: (ctx) => ["product", `product:${ctx.productId}`],
+    fold: (events): InventoryState => events.reduce(reducer, initial),
+  }))
+  .pipe(projection<"settings", { tenantId: string }, TenantSettings>({
+    key: "settings",
+    name: "tenant-settings",
+    id: (ctx) => ctx.tenantId,
+  }))
+```
+
+- `tagQuery`: queries events by tag intersection, folds to state. Framework tracks position for optimistic locking.
+- `projection`: fetches a named read model by id. Third type param is the value type.
+
+## validate and handle
+
+Pure functions returning `Result`. Errors are `{ code: string, message: string }`:
+
+```typescript
+validate: (ctx) => {
+  if (ctx.inventory.quantity < ctx.amount)
+    return err({ code: "OUT_OF_STOCK", message: "Not enough" });
+  return ok(ctx);
+},
+
+handle: (validated) => ok<ReadonlyArray<OrderPlaced>, never>([{
+  type: "OrderPlaced",
+  tags: ["order", `customer:${validated.customerId}`],
+  payload: { orderId: crypto.randomUUID(), customerId: validated.customerId, total: validated.total },
+}]),
+```
+
+## Projectors and processors
+
+Inline functions after append. Projectors update read models, processors emit effect descriptors:
+
+```typescript
+projectors: [(event) => ({ type: "projection" as const, key: "order-count", value: count })],
+processors: [(event) => ({ type: "effect" as const, email: { to, subject, body } })],
+```
+
+Effect adapters execute processor descriptors:
+
+```typescript
+const emailAdapter: EffectAdapter = {
+  name: "email",
+  match: (effect) => "email" in effect,
+  execute: async (effect) => { await sendEmail(effect.email); return { emailSent: true }; },
+};
+```
+
+## Wiring
+
+```typescript
+const readModelStore = createInMemoryReadModelStore();
+const eventStore = createInMemoryEventStore(readModelStore);
+const { adapter, bind } = createInMemoryAdapter();
+
+const app = createApp({
+  eventStore,
+  readModelStore,
+  inputAdapter: { adapter, bind },
+  effectAdapters: [emailAdapter],
+  slices: [placeOrderSlice, getOrderSlice],
+});
+
+await app.start();
+const result = await app.dispatch("place-order", { ... });
+```
+
+For HTTP: `import { createHttpAdapter } from "esther/http"` → `createHttpAdapter({ port: 3000 })`.
+For Postgres: `import { createPostgresEventStore, createPostgresReadModelStore, migratePostgresSchema } from "esther/postgres"`.
+
+## Event store hooks
+
+```typescript
+eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, (event) => ({
+  type: "projection" as const, key: "order-count", value: { ... },
+}));
+```
+
+Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`.
+
+## Rules
+
+1. All user functions return `Result` — never throw.
+2. Define event types explicitly: `type MyEvent = DomainEvent<"MyEvent", { ... }>`.
+3. Use `ok<ReadonlyArray<MyEvent>, never>([...])` in handle return.
+4. Use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
+5. Start state with `state<z.output<typeof inputSchema>>()`.
+6. Schemas (`inputSchema`/`outputSchema`) are shared contracts — define externally for client reuse.
+7. Projectors/processors are pure — side effects go in effect adapters.
+8. Tags are your query model — design them for the queries you need.
+9. The command output reflects post-append state (state is re-resolved after events are stored).
+
+## Full example
+
+```typescript
+const transferInputSchema = z.object({
+  fromAccountId: z.string().uuid(),
+  toAccountId: z.string().uuid(),
+  amount: z.number().positive(),
+});
+type TransferInput = z.output<typeof transferInputSchema>;
+
+const transferOutputSchema = z.object({ transferId: z.string().uuid() });
+
+type MoneyTransferred = DomainEvent<"MoneyTransferred", {
+  transferId: string; fromAccountId: string; toAccountId: string; amount: number;
+}>;
+
+type AccountBalance = { balance: number };
+
+const balanceReducer = (bal: AccountBalance, event: StoredEvent): AccountBalance => {
+  if (event.type === "MoneyTransferred") {
+    const p = event.payload as MoneyTransferred["payload"];
+    return { balance: bal.balance - p.amount };
+  }
+  return bal;
+};
+
+export const transferSlice = defineCommandSlice({
+  name: "transfer-money",
+  inputSchema: transferInputSchema,
+  outputSchema: transferOutputSchema,
+
+  state: state<TransferInput>()
+    .pipe(tagQuery({
+      key: "fromBalance" as const,
+      tags: (ctx) => ["account", `account:${ctx.fromAccountId}`],
+      fold: (events): AccountBalance => events.reduce(balanceReducer, { balance: 0 }),
+    })),
+
+  validate: (ctx) => {
+    if (ctx.fromBalance.balance < ctx.amount)
+      return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
+    return ok(ctx);
+  },
+
+  handle: (validated) => ok<ReadonlyArray<MoneyTransferred>, never>([{
+    type: "MoneyTransferred",
+    tags: ["transfer", `account:${validated.fromAccountId}`, `account:${validated.toAccountId}`],
+    payload: {
+      transferId: crypto.randomUUID(),
+      fromAccountId: validated.fromAccountId,
+      toAccountId: validated.toAccountId,
+      amount: validated.amount,
+    },
+  }]),
+
+  projectors: [],
+  processors: [],
+});
+```
