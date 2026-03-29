@@ -1,18 +1,13 @@
-import { ok, err } from "neverthrow";
-import type {
-  EventStore,
-  EventFilter,
-  OnAfterInsertHandler,
-  BeforeInsertHook,
-} from "../../core/event-store.js";
+import { err, ok } from "neverthrow";
+import type { EventFilter, EventStore, OnAfterInsertHandler } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
 import type { ReadModelStore } from "../../core/read-model-store.js";
 import {
-  EventId,
-  StreamPosition,
   ConcurrencyError,
   type DomainEvent,
+  EventId,
   type StoredEvent,
+  StreamPosition,
 } from "../../core/types.js";
 
 type AfterInsertRegistration = {
@@ -20,9 +15,7 @@ type AfterInsertRegistration = {
   readonly handler: OnAfterInsertHandler;
 };
 
-export function createInMemoryEventStore(
-  readModelStore: ReadModelStore,
-): EventStore {
+export function createInMemoryEventStore(readModelStore: ReadModelStore): EventStore {
   const events: Array<StoredEvent> = [];
   const afterInsertHandlers: Array<AfterInsertRegistration> = [];
 
@@ -63,11 +56,7 @@ export function createInMemoryEventStore(
           if (matchesFilter(storedEvent, registration.filter)) {
             const result = registration.handler(storedEvent);
             if (result.type === "projection") {
-              await readModelStore.set(
-                "store-projection",
-                result.key,
-                result.value,
-              );
+              await readModelStore.set("store-projection", result.key, result.value);
             }
           }
         }
@@ -80,9 +69,7 @@ export function createInMemoryEventStore(
     },
 
     async queryByTags(tags, fold) {
-      const matching = events.filter((event) =>
-        tags.every((tag) => event.tags.includes(tag)),
-      );
+      const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
       const state = fold(matching);
       return {
         state,

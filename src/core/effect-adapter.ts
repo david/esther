@@ -27,9 +27,7 @@ export function createEffectAdapterRegistry(): EffectAdapterRegistry {
     async execute(effect: EffectResult): Promise<unknown> {
       const adapter = adapters.find((a) => a.match(effect));
       if (!adapter) {
-        throw new Error(
-          `No effect adapter found for effect: ${JSON.stringify(effect)}`,
-        );
+        throw new Error(`No effect adapter found for effect: ${JSON.stringify(effect)}`);
       }
       return adapter.execute(effect);
     },

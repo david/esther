@@ -10,24 +10,20 @@ export type EventId = Brand<string, "EventId">;
 export type StreamPosition = Brand<bigint, "StreamPosition">;
 
 export const EventId = (value: string): EventId => value as EventId;
-export const StreamPosition = (value: bigint): StreamPosition =>
-  value as StreamPosition;
+export const StreamPosition = (value: bigint): StreamPosition => value as StreamPosition;
 
 // ── Events ─────────────────────────────────────────────────────────────
 
-export type DomainEvent<
-  TType extends string = string,
-  TPayload = unknown,
-> = {
+export type DomainEvent<TType extends string = string, TPayload = unknown> = {
   readonly type: TType;
   readonly tags: ReadonlyArray<string>;
   readonly payload: TPayload;
 };
 
-export type StoredEvent<
-  TType extends string = string,
-  TPayload = unknown,
-> = DomainEvent<TType, TPayload> & {
+export type StoredEvent<TType extends string = string, TPayload = unknown> = DomainEvent<
+  TType,
+  TPayload
+> & {
   readonly id: EventId;
   readonly position: StreamPosition;
   readonly timestamp: Date;
@@ -63,10 +59,7 @@ export type SchemaError = {
   readonly issues: ReadonlyArray<string>;
 };
 
-export const SchemaError = (
-  message: string,
-  issues: ReadonlyArray<string> = [],
-): SchemaError => ({
+export const SchemaError = (message: string, issues: ReadonlyArray<string> = []): SchemaError => ({
   _tag: "SchemaError",
   message,
   issues,

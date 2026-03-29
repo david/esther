@@ -39,16 +39,10 @@ export type EventStore = {
     readonly position: StreamPosition;
   }>;
 
-  readonly onAfterInsert: (
-    filter: EventFilter,
-    handler: OnAfterInsertHandler,
-  ) => void;
+  readonly onAfterInsert: (filter: EventFilter, handler: OnAfterInsertHandler) => void;
 };
 
-export function matchesFilter(
-  event: StoredEvent,
-  filter: EventFilter,
-): boolean {
+export function matchesFilter(event: StoredEvent, filter: EventFilter): boolean {
   if ("eventTypes" in filter) {
     return filter.eventTypes.includes(event.type);
   }

@@ -1,32 +1,15 @@
-import { ok, err } from "neverthrow";
-import type {
-  EventStore,
-  EventFilter,
-  OnAfterInsertHandler,
-} from "../../core/event-store.js";
+import { err, ok } from "neverthrow";
+import type { EventFilter, EventStore, OnAfterInsertHandler } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import {
-  ReadModelNotFound,
-  type ReadModelStore,
-} from "../../core/read-model-store.js";
-import {
-  EventId,
-  StreamPosition,
-  ConcurrencyError,
-  type StoredEvent,
-} from "../../core/types.js";
+import { ReadModelNotFound, type ReadModelStore } from "../../core/read-model-store.js";
+import { ConcurrencyError, EventId, type StoredEvent, StreamPosition } from "../../core/types.js";
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
 
 type PostgresClient = {
-  readonly begin: <T>(
-    fn: (sql: PostgresClient) => Promise<T>,
-  ) => Promise<T>;
+  readonly begin: <T>(fn: (sql: PostgresClient) => Promise<T>) => Promise<T>;
   readonly unsafe: (query: string, params?: unknown[]) => Promise<unknown[]>;
-  (
-    template: TemplateStringsArray,
-    ...values: unknown[]
-  ): Promise<unknown[]>;
+  (template: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
 };
 
 type AfterInsertRegistration = {
@@ -50,9 +33,7 @@ export type PostgresEventStoreConfig = {
   readonly readModelStore: ReadModelStore;
 };
 
-export function createPostgresEventStore(
-  config: PostgresEventStoreConfig,
-): EventStore {
+export function createPostgresEventStore(config: PostgresEventStoreConfig): EventStore {
   const { sql, readModelStore } = config;
   const afterInsertHandlers: Array<AfterInsertRegistration> = [];
 
@@ -71,9 +52,9 @@ export function createPostgresEventStore(
       try {
         const stored = await sql.begin(async (tx) => {
           // Check current max position with advisory lock
-          const posResult = queryRows<{ pos: string }>(await tx.unsafe(
-            `SELECT COALESCE(MAX(position), -1) as pos FROM events FOR UPDATE`,
-          ));
+          const posResult = queryRows<{ pos: string }>(
+            await tx.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events FOR UPDATE`),
+          );
 
           const currentPos = BigInt(posResult[0]?.pos ?? "-1") + 1n;
           if (currentPos !== BigInt(expectedPosition)) {
@@ -123,20 +104,15 @@ export function createPostgresEventStore(
             if (matchesFilter(storedEvent, registration.filter)) {
               const result = registration.handler(storedEvent);
               if (result.type === "projection") {
-                await readModelStore.set(
-                  "store-projection",
-                  result.key,
-                  result.value,
-                );
+                await readModelStore.set("store-projection", result.key, result.value);
               }
             }
           }
         }
 
         return ok({
-          position: StreamPosition(
-            BigInt(stored[stored.length - 1]!.position) + 1n,
-          ),
+          // biome-ignore lint/style/noNonNullAssertion: stored is guaranteed non-empty after the insert loop
+          position: StreamPosition(BigInt(stored[stored.length - 1]!.position) + 1n),
           events: stored,
         });
       } catch (e: unknown) {
@@ -154,9 +130,9 @@ export function createPostgresEventStore(
 
     async queryByTags(tags, fold) {
       if (tags.length === 0) {
-        const posResult = queryRows<{ pos: string }>(await sql.unsafe(
-          `SELECT COALESCE(MAX(position), -1) as pos FROM events`,
-        ));
+        const posResult = queryRows<{ pos: string }>(
+          await sql.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
+        );
         return {
           state: fold([]),
           position: StreamPosition(BigInt(posResult[0]?.pos ?? "-1") + 1n),
@@ -164,9 +140,7 @@ export function createPostgresEventStore(
       }
 
       // Build tag filter: each tag must be contained in the tags array
-      const tagConditions = tags.map(
-        (_, i) => `tags @> $${i + 1}::jsonb`,
-      );
+      const tagConditions = tags.map((_, i) => `tags @> $${i + 1}::jsonb`);
       const tagParams = tags.map((t) => JSON.stringify([t]));
 
       const rows = queryRows<{
@@ -176,24 +150,22 @@ export function createPostgresEventStore(
         payload: string;
         position: string;
         timestamp: Date;
-      }>(await sql.unsafe(
-        `SELECT id, type, tags, payload, position, timestamp
+      }>(
+        await sql.unsafe(
+          `SELECT id, type, tags, payload, position, timestamp
          FROM events
          WHERE ${tagConditions.join(" AND ")}
          ORDER BY position ASC`,
-        tagParams,
-      ));
+          tagParams,
+        ),
+      );
 
       const events: StoredEvent[] = rows.map((row) => ({
         id: EventId(row.id),
         type: row.type,
-        tags: JSON.parse(
-          typeof row.tags === "string" ? row.tags : JSON.stringify(row.tags),
-        ),
+        tags: JSON.parse(typeof row.tags === "string" ? row.tags : JSON.stringify(row.tags)),
         payload: JSON.parse(
-          typeof row.payload === "string"
-            ? row.payload
-            : JSON.stringify(row.payload),
+          typeof row.payload === "string" ? row.payload : JSON.stringify(row.payload),
         ),
         position: StreamPosition(BigInt(row.position)),
         timestamp: new Date(row.timestamp),
@@ -202,9 +174,9 @@ export function createPostgresEventStore(
       const state = fold(events);
 
       // Get the global max position for optimistic locking
-      const posResult = queryRows<{ pos: string }>(await sql.unsafe(
-        `SELECT COALESCE(MAX(position), -1) as pos FROM events`,
-      ));
+      const posResult = queryRows<{ pos: string }>(
+        await sql.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
+      );
 
       return {
         state,
@@ -224,26 +196,21 @@ export type PostgresReadModelStoreConfig = {
   readonly sql: PostgresClient;
 };
 
-export function createPostgresReadModelStore(
-  config: PostgresReadModelStoreConfig,
-): ReadModelStore {
+export function createPostgresReadModelStore(config: PostgresReadModelStoreConfig): ReadModelStore {
   const { sql } = config;
 
   return {
     async get<T>(name: string, id: string) {
-      const rows = queryRows<{ value: string }>(await sql.unsafe(
-        `SELECT value FROM read_models WHERE name = $1 AND id = $2`,
-        [name, id],
-      ));
+      const rows = queryRows<{ value: string }>(
+        await sql.unsafe(`SELECT value FROM read_models WHERE name = $1 AND id = $2`, [name, id]),
+      );
 
       if (rows.length === 0) {
         return err(ReadModelNotFound(name, id));
       }
 
       const parsed = JSON.parse(
-        typeof rows[0]!.value === "string"
-          ? rows[0]!.value
-          : JSON.stringify(rows[0]!.value),
+        typeof rows[0]?.value === "string" ? rows[0]?.value : JSON.stringify(rows[0]?.value),
       ) as T;
       return ok(parsed);
     },
@@ -258,19 +225,14 @@ export function createPostgresReadModelStore(
     },
 
     async delete(name, id) {
-      await sql.unsafe(
-        `DELETE FROM read_models WHERE name = $1 AND id = $2`,
-        [name, id],
-      );
+      await sql.unsafe(`DELETE FROM read_models WHERE name = $1 AND id = $2`, [name, id]);
     },
   };
 }
 
 // ── Schema migration helper ────────────────────────────────────────────
 
-export async function migratePostgresSchema(
-  sql: PostgresClient,
-): Promise<void> {
+export async function migratePostgresSchema(sql: PostgresClient): Promise<void> {
   await sql.unsafe(`
     CREATE TABLE IF NOT EXISTS events (
       id UUID PRIMARY KEY,

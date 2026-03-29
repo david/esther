@@ -1,4 +1,4 @@
-import type { InputAdapter, DispatchFn } from "../in-memory/input-adapter.js";
+import type { DispatchFn, InputAdapter } from "../in-memory/input-adapter.js";
 
 export type HttpAdapterConfig = {
   readonly port: number;
@@ -43,10 +43,7 @@ export function createHttpAdapter(config: HttpAdapterConfig): {
           const pathParts = url.pathname.split("/").filter(Boolean);
 
           if (pathParts.length < 1) {
-            return Response.json(
-              { error: "Missing slice name in URL path" },
-              { status: 400 },
-            );
+            return Response.json({ error: "Missing slice name in URL path" }, { status: 400 });
           }
 
           const sliceName = pathParts.join("/");
@@ -58,10 +55,7 @@ export function createHttpAdapter(config: HttpAdapterConfig): {
             try {
               input = await req.json();
             } catch {
-              return Response.json(
-                { error: "Invalid JSON body" },
-                { status: 400 },
-              );
+              return Response.json({ error: "Invalid JSON body" }, { status: 400 });
             }
           }
 

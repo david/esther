@@ -1,7 +1,7 @@
 export { createInMemoryEventStore } from "./event-store.js";
-export { createInMemoryReadModelStore } from "./read-model-store.js";
 export {
   createInMemoryAdapter,
-  type InMemoryInputAdapter,
   type DispatchFn,
+  type InMemoryInputAdapter,
 } from "./input-adapter.js";
+export { createInMemoryReadModelStore } from "./read-model-store.js";

@@ -3,16 +3,10 @@
  * It mirrors the booking example to verify types flow through.
  */
 
+import { err, ok } from "neverthrow";
 import { z } from "zod";
-import { ok, err } from "neverthrow";
-import {
-  state,
-  defineCommandSlice,
-  defineQuerySlice,
-  tagQuery,
-  projection,
-} from "../index.js";
 import type { DomainEvent, StoredEvent } from "../index.js";
+import { defineCommandSlice, defineQuerySlice, projection, state, tagQuery } from "../index.js";
 
 // ── Shared contracts ───────────────────────────────────────────────────
 
@@ -46,10 +40,7 @@ type TenantCredit = {
   creditScore: number;
 };
 
-const propertyReducer = (
-  state: PropertyState,
-  event: StoredEvent,
-): PropertyState => {
+const propertyReducer = (state: PropertyState, event: StoredEvent): PropertyState => {
   switch (event.type) {
     case "BookingCreated":
       return {
@@ -92,8 +83,7 @@ const _createBookingSlice = defineCommandSlice({
       tagQuery({
         key: "property" as const,
         tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-        fold: (events): PropertyState =>
-          events.reduce(propertyReducer, initialPropertyState),
+        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
       }),
     )
     .pipe(
@@ -129,11 +119,7 @@ const _createBookingSlice = defineCommandSlice({
     ok<ReadonlyArray<BookingCreated>, never>([
       {
         type: "BookingCreated",
-        tags: [
-          "booking",
-          `property:${input.propertyId}`,
-          `tenant:${input.tenantId}`,
-        ],
+        tags: ["booking", `property:${input.propertyId}`, `tenant:${input.tenantId}`],
         payload: {
           bookingId: crypto.randomUUID(),
           propertyId: input.propertyId,
@@ -171,8 +157,7 @@ const _getPropertySlice = defineQuerySlice({
     tagQuery({
       key: "property" as const,
       tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-      fold: (events): PropertyState =>
-        events.reduce(propertyReducer, initialPropertyState),
+      fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
     }),
   ),
 

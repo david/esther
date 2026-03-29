@@ -1,15 +1,15 @@
-import { type Result, ok, err } from "neverthrow";
+import { err, ok, type Result } from "neverthrow";
+import type { EffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
 import type { ReadModelStore } from "./read-model-store.js";
-import type { EffectAdapterRegistry } from "./effect-adapter.js";
 import type { CommandSlice, QuerySlice } from "./slice.js";
 import {
-  SchemaError,
-  StreamPosition,
   type DomainEvent,
   type EffectResult,
   type ProjectionResult,
+  SchemaError,
   type SliceError,
+  StreamPosition,
 } from "./types.js";
 
 // ── Type guards ────────────────────────────────────────────────────────
@@ -26,7 +26,13 @@ function isEffectResult(r: unknown): r is EffectResult {
 
 // ── Command pipeline ───────────────────────────────────────────────────
 
-export async function executeCommand<TInput, TContext, TValidated, TOutput, TEvent extends DomainEvent>(
+export async function executeCommand<
+  TInput,
+  TContext,
+  TValidated,
+  TOutput,
+  TEvent extends DomainEvent,
+>(
   slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent>,
   rawInput: unknown,
   eventStore: EventStore,
@@ -36,9 +42,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
   // 1. Parse input — Zod guarantees TInput
   const parseResult = slice.inputSchema.safeParse(rawInput);
   if (!parseResult.success) {
-    return err(
-      SchemaError("Input validation failed", [parseResult.error.message]),
-    );
+    return err(SchemaError("Input validation failed", [parseResult.error.message]));
   }
   const input: TInput = parseResult.data;
 
@@ -84,11 +88,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
   }
 
   // 6. Append events (optimistic locking)
-  const appendResult = await eventStore.append(
-    finalEvents,
-    StreamPosition(maxPosition),
-    undefined,
-  );
+  const appendResult = await eventStore.append(finalEvents, StreamPosition(maxPosition), undefined);
   if (appendResult.isErr()) {
     return err(appendResult.error);
   }
@@ -115,11 +115,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
       const result = processorFn(event);
       if (isEffectResult(result)) {
         const effectOutput = await effectRegistry.execute(result);
-        outputContext = Object.assign(
-          Object.create(null),
-          outputContext,
-          effectOutput,
-        );
+        outputContext = Object.assign(Object.create(null), outputContext, effectOutput);
       }
     }
   }
@@ -145,18 +141,12 @@ export async function executeQuery<TInput, TContext, TOutput>(
   // 1. Parse input
   const parseResult = slice.inputSchema.safeParse(rawInput);
   if (!parseResult.success) {
-    return err(
-      SchemaError("Input validation failed", [parseResult.error.message]),
-    );
+    return err(SchemaError("Input validation failed", [parseResult.error.message]));
   }
   const input: TInput = parseResult.data;
 
   // 2. Resolve state — fully typed, no casts
-  const { context } = await slice.resolveState.resolve(
-    input,
-    eventStore,
-    readModelStore,
-  );
+  const { context } = await slice.resolveState.resolve(input, eventStore, readModelStore);
 
   // 3. Handle — fully typed
   const handleResult = slice.handle(context);

@@ -1,5 +1,8 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
+import type { EffectAdapterRegistry } from "./effect-adapter.js";
+import type { EventStore } from "./event-store.js";
+import type { ReadModelStore } from "./read-model-store.js";
 import type {
   ConcurrencyError,
   DomainEvent,
@@ -8,9 +11,6 @@ import type {
   StoredEvent,
   ValidationError,
 } from "./types.js";
-import type { EventStore } from "./event-store.js";
-import type { ReadModelStore } from "./read-model-store.js";
-import type { EffectAdapterRegistry } from "./effect-adapter.js";
 
 // ── addField — the ONE computed-key cast in the codebase ───────────────
 // TypeScript cannot infer { ...obj, [key]: value } when key is a variable.
@@ -57,8 +57,10 @@ function buildResolver<TInput, TContext>(
   return {
     resolve: resolveFn,
 
-    pipe(step: TagQueryStep<string, TContext, unknown> | ProjectionStep<string, TContext, unknown>) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pipe(
+      step: TagQueryStep<string, TContext, unknown> | ProjectionStep<string, TContext, unknown>,
+    ) {
+      // biome-ignore lint/suspicious/noExplicitAny: pipe overloads carry the correct accumulated type to callers; the body can't express TContext & { [K in TKey]: TState } without the concrete TKey/TState
       return buildResolver<TInput, any>(async (input, eventStore, readModelStore) => {
         const prev = await resolveFn(input, eventStore, readModelStore);
 
@@ -76,11 +78,7 @@ function buildResolver<TInput, TContext>(
         const id = step.id(prev.context);
         const result = await readModelStore.get(step.name, id);
         return {
-          context: addField(
-            prev.context,
-            step.key,
-            result.isOk() ? result.value : undefined,
-          ),
+          context: addField(prev.context, step.key, result.isOk() ? result.value : undefined),
           maxPosition: prev.maxPosition,
         };
       });
@@ -112,20 +110,18 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
   return { _tag: "tagQuery", ...descriptor };
 }
 
-export type ProjectionStep<TKey extends string, TInput, TValue> = {
+export type ProjectionStep<TKey extends string, TInput, _TValue> = {
   readonly _tag: "projection";
   readonly key: TKey;
   readonly name: string;
   readonly id: (ctx: TInput) => string;
 };
 
-export function projection<TKey extends string, TInput, TValue = unknown>(
-  descriptor: {
-    readonly key: TKey;
-    readonly name: string;
-    readonly id: (ctx: TInput) => string;
-  },
-): ProjectionStep<TKey, TInput, TValue> {
+export function projection<TKey extends string, TInput, TValue = unknown>(descriptor: {
+  readonly key: TKey;
+  readonly name: string;
+  readonly id: (ctx: TInput) => string;
+}): ProjectionStep<TKey, TInput, TValue> {
   return { _tag: "projection", ...descriptor };
 }
 
@@ -138,9 +134,7 @@ export type SliceProcessorFn = (event: StoredEvent) => InlineResult;
 
 export type CompiledSlice = {
   readonly name: string;
-  readonly execute: (
-    rawInput: unknown,
-  ) => Promise<Result<unknown, SliceError>>;
+  readonly execute: (rawInput: unknown) => Promise<Result<unknown, SliceError>>;
 };
 
 // ── Registerable slice ─────────────────────────────────────────────────
@@ -169,25 +163,17 @@ export type CommandSlice<
   readonly outputSchema: z.ZodType<TOutput>;
   readonly resolveState: StateResolver<TInput, TContext>;
   readonly validate: (context: TContext) => Result<TValidated, ValidationError>;
-  readonly handle: (
-    validated: TValidated,
-  ) => Result<ReadonlyArray<TEvent>, ValidationError>;
+  readonly handle: (validated: TValidated) => Result<ReadonlyArray<TEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
   readonly beforeInsert?:
-    | ((
-        events: ReadonlyArray<TEvent>,
-      ) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
+    | ((events: ReadonlyArray<TEvent>) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
     | undefined;
 };
 
 // ── Query slice (fully generic) ────────────────────────────────────────
 
-export type QuerySlice<
-  TInput,
-  TContext,
-  TOutput,
-> = RegisterableSlice & {
+export type QuerySlice<TInput, TContext, TOutput> = RegisterableSlice & {
   readonly _tag: "query";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
@@ -211,15 +197,11 @@ export function defineCommandSlice<
   readonly outputSchema: TOutputSchema;
   readonly state: StateResolver<TInput, TContext>;
   readonly validate: (ctx: TContext) => Result<TValidated, ValidationError>;
-  readonly handle: (
-    validated: TValidated,
-  ) => Result<ReadonlyArray<TEvent>, ValidationError>;
+  readonly handle: (validated: TValidated) => Result<ReadonlyArray<TEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
   readonly beforeInsert?:
-    | ((
-        events: ReadonlyArray<TEvent>,
-      ) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
+    | ((events: ReadonlyArray<TEvent>) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
     | undefined;
 }): CommandSlice<TInput, TContext, TValidated, TOutput, TEvent> {
   const slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent> = {
@@ -276,12 +258,7 @@ export function defineQuerySlice<
       name: slice.name,
       execute: async (rawInput) => {
         const { executeQuery } = await import("./pipeline.js");
-        return executeQuery(
-          slice,
-          rawInput,
-          deps.eventStore,
-          deps.readModelStore,
-        );
+        return executeQuery(slice, rawInput, deps.eventStore, deps.readModelStore);
       },
     }),
   };

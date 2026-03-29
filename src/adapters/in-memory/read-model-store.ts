@@ -1,8 +1,5 @@
-import { ok, err } from "neverthrow";
-import {
-  ReadModelNotFound,
-  type ReadModelStore,
-} from "../../core/read-model-store.js";
+import { err, ok } from "neverthrow";
+import { ReadModelNotFound, type ReadModelStore } from "../../core/read-model-store.js";
 
 export function createInMemoryReadModelStore(): ReadModelStore {
   const store = new Map<string, unknown>();

@@ -1,9 +1,9 @@
 import type { Result } from "neverthrow";
-import type { EventStore } from "./event-store.js";
-import type { ReadModelStore } from "./read-model-store.js";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
-import type { RegisterableSlice, CompiledSlice } from "./slice.js";
+import type { EventStore } from "./event-store.js";
+import type { ReadModelStore } from "./read-model-store.js";
+import type { CompiledSlice, RegisterableSlice } from "./slice.js";
 import type { SliceError } from "./types.js";
 
 // ── App config ─────────────────────────────────────────────────────────
@@ -18,10 +18,7 @@ export type AppConfig = {
       readonly stop: () => Promise<void>;
     };
     readonly bind: (
-      dispatch: (
-        sliceName: string,
-        input: unknown,
-      ) => Promise<Result<unknown, SliceError>>,
+      dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, SliceError>>,
     ) => void;
   };
   readonly slices: ReadonlyArray<RegisterableSlice>;
@@ -32,10 +29,7 @@ export type AppConfig = {
 export type App = {
   readonly start: () => Promise<void>;
   readonly stop: () => Promise<void>;
-  readonly dispatch: (
-    sliceName: string,
-    input: unknown,
-  ) => Promise<Result<unknown, SliceError>>;
+  readonly dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, SliceError>>;
 };
 
 // ── Create app ─────────────────────────────────────────────────────────
@@ -57,10 +51,7 @@ export function createApp(config: AppConfig): App {
     compiled.set(slice.name, slice.compile(deps));
   }
 
-  async function dispatch(
-    sliceName: string,
-    input: unknown,
-  ): Promise<Result<unknown, SliceError>> {
+  async function dispatch(sliceName: string, input: unknown): Promise<Result<unknown, SliceError>> {
     const entry = compiled.get(sliceName);
     if (!entry) {
       throw new Error(`Unknown slice: ${sliceName}`);
