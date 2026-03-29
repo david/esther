@@ -5,7 +5,7 @@ import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { RegisterableSlice, CommandSlice, QuerySlice } from "./slice.js";
 import { executeCommand, executeQuery } from "./pipeline.js";
-import type { SliceError } from "./types.js";
+import type { DomainEvent, SliceError } from "./types.js";
 
 // ── Compiled slice ─────────────────────────────────────────────────────
 // Each slice is compiled into a closure that captures its full generic
@@ -19,8 +19,8 @@ type CompiledSlice = {
   ) => Promise<Result<unknown, SliceError>>;
 };
 
-function compileCommand<TInput, TContext, TValidated, TOutput>(
-  slice: CommandSlice<TInput, TContext, TValidated, TOutput>,
+function compileCommand<TInput, TContext, TValidated, TOutput, TEvent extends DomainEvent>(
+  slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent>,
   eventStore: EventStore,
   readModelStore: ReadModelStore,
   effectRegistry: EffectAdapterRegistry,
@@ -98,7 +98,8 @@ export function createApp(config: AppConfig): App {
           unknown,
           unknown,
           unknown,
-          unknown
+          unknown,
+          DomainEvent
         >;
         compiled.set(
           cmd.name,

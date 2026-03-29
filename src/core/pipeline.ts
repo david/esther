@@ -6,6 +6,7 @@ import type { CommandSlice, QuerySlice, RuntimeStateStep } from "./slice.js";
 import {
   SchemaError,
   StreamPosition,
+  type DomainEvent,
   type EffectResult,
   type ProjectionResult,
   type SliceError,
@@ -75,8 +76,8 @@ function isEffectResult(r: unknown): r is EffectResult {
 
 // ── Command pipeline ───────────────────────────────────────────────────
 
-export async function executeCommand<TInput, TContext, TValidated, TOutput>(
-  slice: CommandSlice<TInput, TContext, TValidated, TOutput>,
+export async function executeCommand<TInput, TContext, TValidated, TOutput, TEvent extends DomainEvent>(
+  slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent>,
   rawInput: unknown,
   eventStore: EventStore,
   readModelStore: ReadModelStore,
@@ -130,10 +131,14 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput>(
   }
 
   // 5. Append events (optimistic locking)
+  const beforeInsert = slice.beforeInsert
+    ? (domainEvents: ReadonlyArray<DomainEvent>) =>
+        slice.beforeInsert!(domainEvents as ReadonlyArray<TEvent>)
+    : undefined;
   const appendResult = await eventStore.append(
     events,
     StreamPosition(maxPosition),
-    slice.beforeInsert,
+    beforeInsert,
   );
   if (appendResult.isErr()) {
     return err(appendResult.error);

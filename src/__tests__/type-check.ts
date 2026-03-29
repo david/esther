@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { ok, err } from "neverthrow";
 import { defineCommandSlice, defineQuerySlice, tagQuery, projection } from "../index.js";
-import type { StoredEvent } from "../index.js";
+import type { DomainEvent, StoredEvent } from "../index.js";
 
 // ── Shared contracts ───────────────────────────────────────────────────
 
@@ -59,6 +59,19 @@ const propertyReducer = (
   }
 };
 
+// ── Typed domain event ─────────────────────────────────────────────────
+
+type BookingCreated = DomainEvent<
+  "BookingCreated",
+  {
+    bookingId: string;
+    propertyId: string;
+    tenantId: string;
+    checkIn: string;
+    checkOut: string;
+  }
+>;
+
 // ── Command slice — types should flow from schemas + state steps ───────
 
 const _createBookingSlice = defineCommandSlice({
@@ -105,7 +118,7 @@ const _createBookingSlice = defineCommandSlice({
   },
 
   handle: (input) =>
-    ok([
+    ok<ReadonlyArray<BookingCreated>, never>([
       {
         type: "BookingCreated",
         tags: [

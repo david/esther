@@ -123,6 +123,7 @@ export type CommandSlice<
   TContext,
   TValidated,
   TOutput,
+  TEvent extends DomainEvent = DomainEvent,
 > = RegisterableSlice & {
   readonly _tag: "command";
   readonly inputSchema: z.ZodType<TInput>;
@@ -131,13 +132,13 @@ export type CommandSlice<
   readonly validate: (context: TContext) => Result<TValidated, ValidationError>;
   readonly handle: (
     validated: TValidated,
-  ) => Result<ReadonlyArray<DomainEvent>, ValidationError>;
+  ) => Result<ReadonlyArray<TEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
   readonly beforeInsert?:
     | ((
-        events: ReadonlyArray<DomainEvent>,
-      ) => Result<ReadonlyArray<DomainEvent>, ConcurrencyError>)
+        events: ReadonlyArray<TEvent>,
+      ) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
     | undefined;
 };
 
@@ -161,6 +162,7 @@ export function defineCommandSlice<
   TInputSchema extends z.ZodTypeAny,
   TOutputSchema extends z.ZodTypeAny,
   TSteps extends ReadonlyArray<AnyStateStep>,
+  TEvent extends DomainEvent = DomainEvent,
   TContext = z.output<TInputSchema> & InferStateContext<TSteps>,
   TValidated = TContext,
 >(definition: {
@@ -171,15 +173,15 @@ export function defineCommandSlice<
   readonly validate: (ctx: TContext) => Result<TValidated, ValidationError>;
   readonly handle: (
     validated: TValidated,
-  ) => Result<ReadonlyArray<DomainEvent>, ValidationError>;
+  ) => Result<ReadonlyArray<TEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
   readonly beforeInsert?:
     | ((
-        events: ReadonlyArray<DomainEvent>,
-      ) => Result<ReadonlyArray<DomainEvent>, ConcurrencyError>)
+        events: ReadonlyArray<TEvent>,
+      ) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
     | undefined;
-}): CommandSlice<z.output<TInputSchema>, TContext, TValidated, z.output<TOutputSchema>> {
+}): CommandSlice<z.output<TInputSchema>, TContext, TValidated, z.output<TOutputSchema>, TEvent> {
   return {
     [__registerable]: true as const,
     _tag: "command" as const,

@@ -17,7 +17,7 @@ export const StreamPosition = (value: bigint): StreamPosition =>
 
 export type DomainEvent<
   TType extends string = string,
-  TPayload extends Record<string, unknown> = Record<string, unknown>,
+  TPayload = unknown,
 > = {
   readonly type: TType;
   readonly tags: ReadonlyArray<string>;
@@ -26,7 +26,7 @@ export type DomainEvent<
 
 export type StoredEvent<
   TType extends string = string,
-  TPayload extends Record<string, unknown> = Record<string, unknown>,
+  TPayload = unknown,
 > = DomainEvent<TType, TPayload> & {
   readonly id: EventId;
   readonly position: StreamPosition;
