@@ -9,6 +9,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./postgres": "./src/adapters/postgres/index.ts",
+    "./fastify": "./src/adapters/fastify/index.ts",
     "./http": "./src/adapters/http/index.ts",
     "./test": "./src/adapters/in-memory/index.ts"
   },
@@ -30,9 +31,13 @@
     "typescript": "^5.7.3"
   },
   "peerDependencies": {
+    "fastify": "^5.8.4",
     "postgres": "^3.4.5"
   },
   "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     }
