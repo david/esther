@@ -41,8 +41,12 @@ async function resolveState(
       }
       case "projection": {
         const id = step.id(context);
-        const value = await readModelStore.get(step.name, id);
-        context = { ...context, [step.key]: value };
+        const result = await readModelStore.get<unknown>(step.name, id);
+        if (result.isErr()) {
+          context = { ...context, [step.key]: undefined };
+        } else {
+          context = { ...context, [step.key]: result.value };
+        }
         break;
       }
     }

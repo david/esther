@@ -5,7 +5,10 @@ import type {
   OnAfterInsertHandler,
 } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import type { ReadModelStore } from "../../core/read-model-store.js";
+import {
+  ReadModelNotFound,
+  type ReadModelStore,
+} from "../../core/read-model-store.js";
 import {
   EventId,
   StreamPosition,
@@ -222,21 +225,22 @@ export function createPostgresReadModelStore(
   const { sql } = config;
 
   return {
-    async get(name, id) {
+    async get<T>(name: string, id: string) {
       const rows = (await sql.unsafe(
         `SELECT value FROM read_models WHERE name = $1 AND id = $2`,
         [name, id],
       )) as Array<{ value: string }>;
 
       if (rows.length === 0) {
-        return undefined;
+        return err(ReadModelNotFound(name, id));
       }
 
-      return JSON.parse(
+      const parsed = JSON.parse(
         typeof rows[0]!.value === "string"
           ? rows[0]!.value
           : JSON.stringify(rows[0]!.value),
-      );
+      ) as T;
+      return ok(parsed);
     },
 
     async set(name, id, value) {

@@ -25,7 +25,10 @@ export {
 } from "./core/event-store.js";
 
 // ── Read model store ───────────────────────────────────────────────────
-export { type ReadModelStore } from "./core/read-model-store.js";
+export {
+  type ReadModelStore,
+  ReadModelNotFound,
+} from "./core/read-model-store.js";
 
 // ── Effect adapters ────────────────────────────────────────────────────
 export {

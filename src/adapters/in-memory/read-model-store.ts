@@ -1,4 +1,8 @@
-import type { ReadModelStore } from "../../core/read-model-store.js";
+import { ok, err } from "neverthrow";
+import {
+  ReadModelNotFound,
+  type ReadModelStore,
+} from "../../core/read-model-store.js";
 
 export function createInMemoryReadModelStore(): ReadModelStore {
   const store = new Map<string, unknown>();
@@ -8,8 +12,12 @@ export function createInMemoryReadModelStore(): ReadModelStore {
   }
 
   return {
-    async get(name, id) {
-      return store.get(makeKey(name, id));
+    async get<T>(name: string, id: string) {
+      const key = makeKey(name, id);
+      if (!store.has(key)) {
+        return err(ReadModelNotFound(name, id));
+      }
+      return ok(store.get(key) as T);
     },
 
     async set(name, id, value) {
