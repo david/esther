@@ -18,7 +18,6 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "noEmit": true,
     "outDir": "dist",
     "rootDir": "src"
   },

@@ -13,7 +13,7 @@
     "./test": "./src/adapters/in-memory/index.ts"
   },
   "scripts": {
-    "typecheck": "tsgo -config tsconfig.json",
+    "typecheck": "tsgo --noEmit",
     "test": "bun test",
     "build": "bun build src/index.ts --outdir dist --target node"
   },
@@ -22,8 +22,8 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@rslint/tsgo": "^0.3.3",
     "@types/bun": "^1.2.4",
+    "@typescript/native-preview": "^7.0.0-dev.20260329.1",
     "typescript": "^5.7.3"
   },
   "peerDependencies": {
