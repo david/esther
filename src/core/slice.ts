@@ -4,9 +4,13 @@ import type {
   ConcurrencyError,
   DomainEvent,
   InlineResult,
+  SliceError,
   StoredEvent,
   ValidationError,
 } from "./types.js";
+import type { EventStore } from "./event-store.js";
+import type { ReadModelStore } from "./read-model-store.js";
+import type { EffectAdapterRegistry } from "./effect-adapter.js";
 
 // ── State builder: tagQuery ────────────────────────────────────────────
 
@@ -81,21 +85,23 @@ export type InferStateContext<
   : unknown;
 
 // ── Runtime state step (type-erased for pipeline internals) ────────────
-// This is what the pipeline iterates over at runtime. The type parameters
-// are erased — safety comes from the typed closure that wraps the pipeline.
+// Callback params are `unknown` so the pipeline can pass the dynamically
+// built context without casting. AnyStateStep (with `any` params) is
+// assignable to this because (ctx: any) => X is assignable to
+// (ctx: unknown) => X.
 
 export type RuntimeStateStep =
   | {
       readonly _tag: "tagQuery";
       readonly key: string;
-      readonly tags: (ctx: never) => ReadonlyArray<string>;
+      readonly tags: (ctx: unknown) => ReadonlyArray<string>;
       readonly fold: (events: ReadonlyArray<StoredEvent>) => unknown;
     }
   | {
       readonly _tag: "projection";
       readonly key: string;
       readonly name: string;
-      readonly id: (ctx: never) => string;
+      readonly id: (ctx: unknown) => string;
     };
 
 // ── Slice-level projector / processor ──────────────────────────────────
@@ -103,17 +109,29 @@ export type RuntimeStateStep =
 export type SliceProjectorFn = (event: StoredEvent) => InlineResult;
 export type SliceProcessorFn = (event: StoredEvent) => InlineResult;
 
-// ── Registerable slice (opaque, for heterogeneous arrays) ──────────────
-// Both defineCommandSlice and defineQuerySlice return this alongside
-// their fully typed form. The app accepts ReadonlyArray<RegisterableSlice>
-// so differently-typed slices can coexist without `any` or `never`.
+// ── Compiled slice ─────────────────────────────────────────────────────
+// The app stores these. Each is a closure that captured its full generic
+// types at definition time. No casts needed at dispatch.
 
-declare const __registerable: unique symbol;
+export type CompiledSlice = {
+  readonly name: string;
+  readonly execute: (
+    rawInput: unknown,
+  ) => Promise<Result<unknown, SliceError>>;
+};
+
+// ── Registerable slice ─────────────────────────────────────────────────
+// Returned by defineCommandSlice / defineQuerySlice. The `compile` method
+// captures the generics in a closure so createApp never needs to cast.
 
 export type RegisterableSlice = {
-  readonly [__registerable]: true;
   readonly name: string;
   readonly _tag: "command" | "query";
+  readonly compile: (deps: {
+    readonly eventStore: EventStore;
+    readonly readModelStore: ReadModelStore;
+    readonly effectRegistry: EffectAdapterRegistry;
+  }) => CompiledSlice;
 };
 
 // ── Command slice (fully generic) ──────────────────────────────────────
@@ -182,19 +200,27 @@ export function defineCommandSlice<
       ) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
     | undefined;
 }): CommandSlice<z.output<TInputSchema>, TContext, TValidated, z.output<TOutputSchema>, TEvent> {
-  return {
-    [__registerable]: true as const,
-    _tag: "command" as const,
+  // Import executeCommand lazily to avoid circular deps
+  const slice: CommandSlice<z.output<TInputSchema>, TContext, TValidated, z.output<TOutputSchema>, TEvent> = {
+    _tag: "command",
     name: definition.name ?? "anonymous-command",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
-    state: definition.state as ReadonlyArray<RuntimeStateStep>,
+    state: definition.state,
     validate: definition.validate,
     handle: definition.handle,
     projectors: definition.projectors,
     processors: definition.processors,
     beforeInsert: definition.beforeInsert,
+    compile: (deps) => ({
+      name: slice.name,
+      execute: async (rawInput) => {
+        const { executeCommand } = await import("./pipeline.js");
+        return executeCommand(slice, rawInput, deps.eventStore, deps.readModelStore, deps.effectRegistry);
+      },
+    }),
   };
+  return slice;
 }
 
 // ── defineQuerySlice — user-facing, fully inferred ─────────────────────
@@ -211,13 +237,20 @@ export function defineQuerySlice<
   readonly state: TSteps;
   readonly handle: (ctx: TContext) => Result<z.output<TOutputSchema>, ValidationError>;
 }): QuerySlice<z.output<TInputSchema>, TContext, z.output<TOutputSchema>> {
-  return {
-    [__registerable]: true as const,
-    _tag: "query" as const,
+  const slice: QuerySlice<z.output<TInputSchema>, TContext, z.output<TOutputSchema>> = {
+    _tag: "query",
     name: definition.name ?? "anonymous-query",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
-    state: definition.state as ReadonlyArray<RuntimeStateStep>,
+    state: definition.state,
     handle: definition.handle,
+    compile: (deps) => ({
+      name: slice.name,
+      execute: async (rawInput) => {
+        const { executeQuery } = await import("./pipeline.js");
+        return executeQuery(slice, rawInput, deps.eventStore, deps.readModelStore);
+      },
+    }),
   };
+  return slice;
 }

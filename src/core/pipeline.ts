@@ -29,7 +29,7 @@ async function resolveState(
   for (const step of steps) {
     switch (step._tag) {
       case "tagQuery": {
-        const tags = step.tags(context as never);
+        const tags = step.tags(context);
         const result = await eventStore.queryByTags(tags, step.fold);
         context = Object.assign(Object.create(null), context, {
           [step.key]: result.state,
@@ -41,7 +41,7 @@ async function resolveState(
         break;
       }
       case "projection": {
-        const id = step.id(context as never);
+        const id = step.id(context);
         const result = await readModelStore.get(step.name, id);
         context = Object.assign(Object.create(null), context, {
           [step.key]: result.isOk() ? result.value : undefined,
@@ -57,21 +57,13 @@ async function resolveState(
 // ── Type guards ────────────────────────────────────────────────────────
 
 function isProjectionResult(r: unknown): r is ProjectionResult {
-  return (
-    typeof r === "object" &&
-    r !== null &&
-    "type" in r &&
-    (r as { type: unknown }).type === "projection"
-  );
+  if (typeof r !== "object" || r === null || !("type" in r)) return false;
+  return r.type === "projection";
 }
 
 function isEffectResult(r: unknown): r is EffectResult {
-  return (
-    typeof r === "object" &&
-    r !== null &&
-    "type" in r &&
-    (r as { type: unknown }).type === "effect"
-  );
+  if (typeof r !== "object" || r === null || !("type" in r)) return false;
+  return r.type === "effect";
 }
 
 // ── Command pipeline ───────────────────────────────────────────────────
@@ -103,7 +95,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
   // ── Type boundary ────────────────────────────────────────────────────
   // The framework guarantees that the state steps produce exactly the
   // fields that TContext expects on top of TInput. This is the single
-  // point where we assert from the dynamically-built context.
+  // point where we cross from the dynamically-built context to typed code.
   const context = rawContext as TContext;
 
   // 3. Validate — fully typed from here
@@ -130,15 +122,21 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
     return ok(outputParse.data);
   }
 
-  // 5. Append events (optimistic locking)
-  const beforeInsert = slice.beforeInsert
-    ? (domainEvents: ReadonlyArray<DomainEvent>) =>
-        slice.beforeInsert!(domainEvents as ReadonlyArray<TEvent>)
-    : undefined;
+  // 5. Run beforeInsert hook while events are still typed as TEvent
+  let finalEvents: ReadonlyArray<DomainEvent> = events;
+  if (slice.beforeInsert) {
+    const hookResult = slice.beforeInsert(events);
+    if (hookResult.isErr()) {
+      return err(hookResult.error);
+    }
+    finalEvents = hookResult.value;
+  }
+
+  // 6. Append events (optimistic locking)
   const appendResult = await eventStore.append(
-    events,
+    finalEvents,
     StreamPosition(maxPosition),
-    beforeInsert,
+    undefined,
   );
   if (appendResult.isErr()) {
     return err(appendResult.error);
@@ -147,7 +145,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
   const storedEvents = appendResult.value.events;
   let outputContext: unknown = rawContext;
 
-  // 6. Run inline projectors
+  // 7. Run inline projectors
   for (const projectorFn of slice.projectors) {
     for (const event of storedEvents) {
       const result = projectorFn(event);
@@ -160,7 +158,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
     }
   }
 
-  // 7. Run inline processors
+  // 8. Run inline processors
   for (const processorFn of slice.processors) {
     for (const event of storedEvents) {
       const result = processorFn(event);
@@ -175,7 +173,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
     }
   }
 
-  // 8. Parse output — Zod guarantees TOutput
+  // 9. Parse output — Zod guarantees TOutput
   const outputParse = slice.outputSchema.safeParse(outputContext);
   if (!outputParse.success) {
     throw new Error(

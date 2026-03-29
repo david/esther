@@ -34,6 +34,15 @@ type AfterInsertRegistration = {
   readonly handler: OnAfterInsertHandler;
 };
 
+// ── SQL boundary ───────────────────────────────────────────────────────
+// sql.unsafe returns unknown[]. This is the single place where we assert
+// the row shape. Every query in this module goes through this helper.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function queryRows<T>(raw: unknown[]): T[] {
+  return raw as T[];
+}
+
 // ── Postgres event store ───────────────────────────────────────────────
 
 export type PostgresEventStoreConfig = {
@@ -62,9 +71,9 @@ export function createPostgresEventStore(
       try {
         const stored = await sql.begin(async (tx) => {
           // Check current max position with advisory lock
-          const posResult = (await tx.unsafe(
+          const posResult = queryRows<{ pos: string }>(await tx.unsafe(
             `SELECT COALESCE(MAX(position), -1) as pos FROM events FOR UPDATE`,
-          )) as Array<{ pos: string }>;
+          ));
 
           const currentPos = BigInt(posResult[0]?.pos ?? "-1") + 1n;
           if (currentPos !== BigInt(expectedPosition)) {
@@ -131,27 +140,23 @@ export function createPostgresEventStore(
           events: stored,
         });
       } catch (e: unknown) {
-        if (
-          typeof e === "object" &&
-          e !== null &&
-          "_tag" in e &&
-          (e as { _tag: unknown })._tag === "ConcurrencyError"
-        ) {
-          const ce = e as unknown as {
-            expected: import("../../core/types.js").StreamPosition;
-            actual: import("../../core/types.js").StreamPosition;
-          };
-          return err(ConcurrencyError(ce.expected, ce.actual));
-        }
-        throw e;
+        if (typeof e !== "object" || e === null || !("_tag" in e)) throw e;
+        if (e._tag !== "ConcurrencyError") throw e;
+        if (!("expected" in e) || !("actual" in e)) throw e;
+        return err(
+          ConcurrencyError(
+            e.expected as import("../../core/types.js").StreamPosition,
+            e.actual as import("../../core/types.js").StreamPosition,
+          ),
+        );
       }
     },
 
     async queryByTags(tags, fold) {
       if (tags.length === 0) {
-        const posResult = (await sql.unsafe(
+        const posResult = queryRows<{ pos: string }>(await sql.unsafe(
           `SELECT COALESCE(MAX(position), -1) as pos FROM events`,
-        )) as Array<{ pos: string }>;
+        ));
         return {
           state: fold([]),
           position: StreamPosition(BigInt(posResult[0]?.pos ?? "-1") + 1n),
@@ -164,20 +169,20 @@ export function createPostgresEventStore(
       );
       const tagParams = tags.map((t) => JSON.stringify([t]));
 
-      const rows = (await sql.unsafe(
-        `SELECT id, type, tags, payload, position, timestamp
-         FROM events
-         WHERE ${tagConditions.join(" AND ")}
-         ORDER BY position ASC`,
-        tagParams,
-      )) as Array<{
+      const rows = queryRows<{
         id: string;
         type: string;
         tags: string;
         payload: string;
         position: string;
         timestamp: Date;
-      }>;
+      }>(await sql.unsafe(
+        `SELECT id, type, tags, payload, position, timestamp
+         FROM events
+         WHERE ${tagConditions.join(" AND ")}
+         ORDER BY position ASC`,
+        tagParams,
+      ));
 
       const events: StoredEvent[] = rows.map((row) => ({
         id: EventId(row.id),
@@ -197,9 +202,9 @@ export function createPostgresEventStore(
       const state = fold(events);
 
       // Get the global max position for optimistic locking
-      const posResult = (await sql.unsafe(
+      const posResult = queryRows<{ pos: string }>(await sql.unsafe(
         `SELECT COALESCE(MAX(position), -1) as pos FROM events`,
-      )) as Array<{ pos: string }>;
+      ));
 
       return {
         state,
@@ -226,10 +231,10 @@ export function createPostgresReadModelStore(
 
   return {
     async get<T>(name: string, id: string) {
-      const rows = (await sql.unsafe(
+      const rows = queryRows<{ value: string }>(await sql.unsafe(
         `SELECT value FROM read_models WHERE name = $1 AND id = $2`,
         [name, id],
-      )) as Array<{ value: string }>;
+      ));
 
       if (rows.length === 0) {
         return err(ReadModelNotFound(name, id));

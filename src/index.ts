@@ -46,6 +46,7 @@ export {
   type CommandSlice,
   type QuerySlice,
   type RegisterableSlice,
+  type CompiledSlice,
   type AnyStateStep,
   type TagQueryStep,
   type ProjectionStep,
