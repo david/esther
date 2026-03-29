@@ -2,7 +2,7 @@ import { type Result, ok, err } from "neverthrow";
 import type { EventStore } from "./event-store.js";
 import type { ReadModelStore } from "./read-model-store.js";
 import type { EffectAdapterRegistry } from "./effect-adapter.js";
-import type { CommandSlice, QuerySlice, StateStep } from "./slice.js";
+import type { CommandSlice, QuerySlice, RuntimeStateStep } from "./slice.js";
 import {
   SchemaError,
   StreamPosition,
@@ -19,7 +19,7 @@ type StateResolution = {
 };
 
 async function resolveState(
-  steps: ReadonlyArray<StateStep>,
+  steps: ReadonlyArray<RuntimeStateStep>,
   input: Record<string, unknown>,
   eventStore: EventStore,
   readModelStore: ReadModelStore,
@@ -30,8 +30,8 @@ async function resolveState(
   for (const step of steps) {
     switch (step._tag) {
       case "tagQuery": {
-        const tags = step.tags(context);
-        const result = await eventStore.queryByTags(tags, step.fold);
+        const tags = step.tags!(context);
+        const result = await eventStore.queryByTags(tags, step.fold!);
         context = { ...context, [step.key]: result.state };
         const pos = BigInt(result.position);
         if (pos > maxPosition) {
@@ -40,8 +40,8 @@ async function resolveState(
         break;
       }
       case "projection": {
-        const id = step.id(context);
-        const result = await readModelStore.get<unknown>(step.name, id);
+        const id = step.id!(context);
+        const result = await readModelStore.get<unknown>(step.name!, id);
         if (result.isErr()) {
           context = { ...context, [step.key]: undefined };
         } else {

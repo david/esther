@@ -45,9 +45,10 @@ export {
   defineQuerySlice,
   type CommandSlice,
   type QuerySlice,
-  type StateStep,
+  type AnyStateStep,
   type TagQueryStep,
   type ProjectionStep,
+  type InferStateContext,
   type SliceProjectorFn,
   type SliceProcessorFn,
 } from "./core/slice.js";
