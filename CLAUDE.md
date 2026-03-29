@@ -44,7 +44,7 @@ src/
 │   └── app.ts            # createApp
 ├── adapters/
 │   ├── in-memory/        # In-memory event store, read model store, input adapter
-│   ├── http/             # Bun.serve HTTP input adapter
+│   ├── fastify/          # Fastify input adapter (input.ts) and effect adapter (effect.ts)
 │   └── postgres/         # Postgres event store, read model store, migration
 └── index.ts              # Re-exports
 ```

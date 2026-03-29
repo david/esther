@@ -10,7 +10,6 @@
     ".": "./src/index.ts",
     "./postgres": "./src/adapters/postgres/index.ts",
     "./fastify": "./src/adapters/fastify/index.ts",
-    "./http": "./src/adapters/http/index.ts",
     "./test": "./src/adapters/in-memory/index.ts"
   },
   "scripts": {
