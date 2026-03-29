@@ -39,18 +39,18 @@ export {
 
 // ── Slice definitions ──────────────────────────────────────────────────
 export {
+  state,
   tagQuery,
   projection,
   defineCommandSlice,
   defineQuerySlice,
+  type StateResolver,
   type CommandSlice,
   type QuerySlice,
   type RegisterableSlice,
   type CompiledSlice,
-  type AnyStateStep,
   type TagQueryStep,
   type ProjectionStep,
-  type InferStateContext,
   type SliceProjectorFn,
   type SliceProcessorFn,
 } from "./core/slice.js";

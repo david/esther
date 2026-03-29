@@ -1,11 +1,17 @@
 /**
  * This file is not executed — it only needs to type-check.
- * It mirrors the user's booking example to verify types flow through.
+ * It mirrors the booking example to verify types flow through.
  */
 
 import { z } from "zod";
 import { ok, err } from "neverthrow";
-import { defineCommandSlice, defineQuerySlice, tagQuery, projection } from "../index.js";
+import {
+  state,
+  defineCommandSlice,
+  defineQuerySlice,
+  tagQuery,
+  projection,
+} from "../index.js";
 import type { DomainEvent, StoredEvent } from "../index.js";
 
 // ── Shared contracts ───────────────────────────────────────────────────
@@ -16,6 +22,8 @@ const createBookingInputSchema = z.object({
   checkIn: z.string().date(),
   checkOut: z.string().date(),
 });
+
+type CreateBookingInput = z.output<typeof createBookingInputSchema>;
 
 const createBookingOutputSchema = z.object({
   bookingId: z.string().uuid(),
@@ -72,32 +80,32 @@ type BookingCreated = DomainEvent<
   }
 >;
 
-// ── Command slice — types should flow from schemas + state steps ───────
+// ── Command slice — pipe() composes typed state, no `unknown` anywhere ─
 
 const _createBookingSlice = defineCommandSlice({
   name: "create-booking",
   inputSchema: createBookingInputSchema,
   outputSchema: createBookingOutputSchema,
 
-  state: [
-    tagQuery({
-      key: "property" as const,
-      tags: (ctx: { propertyId: string }) => [
-        "property",
-        `property:${ctx.propertyId}`,
-      ],
-      fold: (events): PropertyState =>
-        events.reduce(propertyReducer, initialPropertyState),
-    }),
-    projection<"tenant", { tenantId: string }, TenantCredit>({
-      key: "tenant",
-      name: "tenant-credit",
-      id: (ctx) => ctx.tenantId,
-    }),
-  ] as const,
+  state: state<CreateBookingInput>()
+    .pipe(
+      tagQuery({
+        key: "property" as const,
+        tags: (ctx) => ["property", `property:${ctx.propertyId}`],
+        fold: (events): PropertyState =>
+          events.reduce(propertyReducer, initialPropertyState),
+      }),
+    )
+    .pipe(
+      projection<"tenant", { tenantId: string }, TenantCredit>({
+        key: "tenant",
+        name: "tenant-credit",
+        id: (ctx) => ctx.tenantId,
+      }),
+    ),
 
   validate: (ctx) => {
-    // ctx should have: propertyId, tenantId, checkIn, checkOut, property, tenant
+    // ctx is fully typed: CreateBookingInput & { property: PropertyState } & { tenant: TenantCredit }
     const _propertyCheck: PropertyState = ctx.property;
     const _tenantCheck: TenantCredit = ctx.tenant;
     const _inputCheck: string = ctx.propertyId;
@@ -146,6 +154,8 @@ const getPropertyInputSchema = z.object({
   propertyId: z.string().uuid(),
 });
 
+type GetPropertyInput = z.output<typeof getPropertyInputSchema>;
+
 const getPropertyOutputSchema = z.object({
   propertyId: z.string().uuid(),
   available: z.boolean(),
@@ -157,17 +167,14 @@ const _getPropertySlice = defineQuerySlice({
   inputSchema: getPropertyInputSchema,
   outputSchema: getPropertyOutputSchema,
 
-  state: [
+  state: state<GetPropertyInput>().pipe(
     tagQuery({
       key: "property" as const,
-      tags: (ctx: { propertyId: string }) => [
-        "property",
-        `property:${ctx.propertyId}`,
-      ],
+      tags: (ctx) => ["property", `property:${ctx.propertyId}`],
       fold: (events): PropertyState =>
         events.reduce(propertyReducer, initialPropertyState),
     }),
-  ] as const,
+  ),
 
   handle: (ctx) => {
     const _check: PropertyState = ctx.property;

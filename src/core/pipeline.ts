@@ -2,7 +2,7 @@ import { type Result, ok, err } from "neverthrow";
 import type { EventStore } from "./event-store.js";
 import type { ReadModelStore } from "./read-model-store.js";
 import type { EffectAdapterRegistry } from "./effect-adapter.js";
-import type { CommandSlice, QuerySlice, RuntimeStateStep } from "./slice.js";
+import type { CommandSlice, QuerySlice } from "./slice.js";
 import {
   SchemaError,
   StreamPosition,
@@ -11,48 +11,6 @@ import {
   type ProjectionResult,
   type SliceError,
 } from "./types.js";
-
-// ── State resolution ───────────────────────────────────────────────────
-// Builds the context object dynamically from state steps.
-// Returns `unknown` — the single honest boundary between the
-// dynamically-constructed context and the typed world.
-
-async function resolveState(
-  steps: ReadonlyArray<RuntimeStateStep>,
-  input: unknown,
-  eventStore: EventStore,
-  readModelStore: ReadModelStore,
-): Promise<{ readonly context: unknown; readonly maxPosition: bigint }> {
-  let context = input;
-  let maxPosition = 0n;
-
-  for (const step of steps) {
-    switch (step._tag) {
-      case "tagQuery": {
-        const tags = step.tags(context);
-        const result = await eventStore.queryByTags(tags, step.fold);
-        context = Object.assign(Object.create(null), context, {
-          [step.key]: result.state,
-        });
-        const pos = BigInt(result.position);
-        if (pos > maxPosition) {
-          maxPosition = pos;
-        }
-        break;
-      }
-      case "projection": {
-        const id = step.id(context);
-        const result = await readModelStore.get(step.name, id);
-        context = Object.assign(Object.create(null), context, {
-          [step.key]: result.isOk() ? result.value : undefined,
-        });
-        break;
-      }
-    }
-  }
-
-  return { context, maxPosition };
-}
 
 // ── Type guards ────────────────────────────────────────────────────────
 
@@ -84,21 +42,14 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
   }
   const input: TInput = parseResult.data;
 
-  // 2. Resolve state → unknown
-  const { context: rawContext, maxPosition } = await resolveState(
-    slice.state,
+  // 2. Resolve state — fully typed, no casts
+  const { context, maxPosition } = await slice.resolveState.resolve(
     input,
     eventStore,
     readModelStore,
   );
 
-  // ── Type boundary ────────────────────────────────────────────────────
-  // The framework guarantees that the state steps produce exactly the
-  // fields that TContext expects on top of TInput. This is the single
-  // point where we cross from the dynamically-built context to typed code.
-  const context = rawContext as TContext;
-
-  // 3. Validate — fully typed from here
+  // 3. Validate — fully typed
   const validateResult = slice.validate(context);
   if (validateResult.isErr()) {
     return err(validateResult.error);
@@ -113,7 +64,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
   const events = handleResult.value;
 
   if (events.length === 0) {
-    const outputParse = slice.outputSchema.safeParse(rawContext);
+    const outputParse = slice.outputSchema.safeParse(context);
     if (!outputParse.success) {
       throw new Error(
         `Output schema validation failed (framework bug): ${outputParse.error.message}`,
@@ -143,7 +94,7 @@ export async function executeCommand<TInput, TContext, TValidated, TOutput, TEve
   }
 
   const storedEvents = appendResult.value.events;
-  let outputContext: unknown = rawContext;
+  let outputContext: unknown = context;
 
   // 7. Run inline projectors
   for (const projectorFn of slice.projectors) {
@@ -200,16 +151,12 @@ export async function executeQuery<TInput, TContext, TOutput>(
   }
   const input: TInput = parseResult.data;
 
-  // 2. Resolve state → unknown
-  const { context: rawContext } = await resolveState(
-    slice.state,
+  // 2. Resolve state — fully typed, no casts
+  const { context } = await slice.resolveState.resolve(
     input,
     eventStore,
     readModelStore,
   );
-
-  // ── Type boundary ──────────────────────────────────────────────────
-  const context = rawContext as TContext;
 
   // 3. Handle — fully typed
   const handleResult = slice.handle(context);
