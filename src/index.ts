@@ -45,6 +45,7 @@ export {
   defineQuerySlice,
   type CommandSlice,
   type QuerySlice,
+  type RegisterableSlice,
   type AnyStateStep,
   type TagQueryStep,
   type ProjectionStep,

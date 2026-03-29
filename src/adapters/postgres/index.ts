@@ -135,7 +135,7 @@ export function createPostgresEventStore(
           typeof e === "object" &&
           e !== null &&
           "_tag" in e &&
-          (e as Record<string, unknown>)._tag === "ConcurrencyError"
+          (e as { _tag: unknown })._tag === "ConcurrencyError"
         ) {
           const ce = e as unknown as {
             expected: import("../../core/types.js").StreamPosition;

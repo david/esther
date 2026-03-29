@@ -12,7 +12,7 @@ import type {
 
 export type TagQueryStep<
   TKey extends string,
-  TInput extends Record<string, unknown>,
+  TInput,
   TState,
 > = {
   readonly _tag: "tagQuery";
@@ -23,7 +23,7 @@ export type TagQueryStep<
 
 export function tagQuery<
   TKey extends string,
-  TInput extends Record<string, unknown>,
+  TInput,
   TState,
 >(descriptor: {
   readonly key: TKey;
@@ -37,7 +37,7 @@ export function tagQuery<
 
 export type ProjectionStep<
   TKey extends string,
-  TInput extends Record<string, unknown>,
+  TInput,
   TValue,
 > = {
   readonly _tag: "projection";
@@ -48,7 +48,7 @@ export type ProjectionStep<
 
 export function projection<
   TKey extends string,
-  TInput extends Record<string, unknown>,
+  TInput,
   TValue = unknown,
 >(descriptor: {
   readonly key: TKey;
@@ -60,11 +60,16 @@ export function projection<
 
 // ── Infer context from state steps ─────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyStateStep =
+  | TagQueryStep<string, any, any>
+  | ProjectionStep<string, any, any>;
+
 type StepResult<S> = S extends TagQueryStep<infer K, never, infer V>
   ? { readonly [P in K]: V }
   : S extends ProjectionStep<infer K, never, infer V>
     ? { readonly [P in K]: V }
-    : Record<string, never>;
+    : never;
 
 export type InferStateContext<
   TSteps extends ReadonlyArray<AnyStateStep>,
@@ -72,45 +77,60 @@ export type InferStateContext<
   ? StepResult<Head> &
       (Tail extends ReadonlyArray<AnyStateStep>
         ? InferStateContext<Tail>
-        : Record<string, never>)
-  : Record<string, never>;
+        : unknown)
+  : unknown;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyStateStep =
-  | TagQueryStep<string, any, any>
-  | ProjectionStep<string, any, any>;
+// ── Runtime state step (type-erased for pipeline internals) ────────────
+// This is what the pipeline iterates over at runtime. The type parameters
+// are erased — safety comes from the typed closure that wraps the pipeline.
 
-// ── Runtime state step (erased, for pipeline internals) ────────────────
+export type RuntimeStateStep =
+  | {
+      readonly _tag: "tagQuery";
+      readonly key: string;
+      readonly tags: (ctx: never) => ReadonlyArray<string>;
+      readonly fold: (events: ReadonlyArray<StoredEvent>) => unknown;
+    }
+  | {
+      readonly _tag: "projection";
+      readonly key: string;
+      readonly name: string;
+      readonly id: (ctx: never) => string;
+    };
 
-export type RuntimeStateStep = {
-  readonly _tag: "tagQuery" | "projection";
-  readonly key: string;
-  readonly tags?: (ctx: Record<string, unknown>) => ReadonlyArray<string>;
-  readonly fold?: (events: ReadonlyArray<StoredEvent>) => unknown;
-  readonly name?: string;
-  readonly id?: (ctx: Record<string, unknown>) => string;
-};
-
-// ── Slice-level projector (function per event) ─────────────────────────
+// ── Slice-level projector / processor ──────────────────────────────────
 
 export type SliceProjectorFn = (event: StoredEvent) => InlineResult;
-
-// ── Slice-level processor (function per event) ─────────────────────────
-
 export type SliceProcessorFn = (event: StoredEvent) => InlineResult;
 
-// ── Command slice (internal, type-erased for pipeline) ─────────────────
+// ── Registerable slice (opaque, for heterogeneous arrays) ──────────────
+// Both defineCommandSlice and defineQuerySlice return this alongside
+// their fully typed form. The app accepts ReadonlyArray<RegisterableSlice>
+// so differently-typed slices can coexist without `any` or `never`.
 
-export type CommandSlice = {
+declare const __registerable: unique symbol;
+
+export type RegisterableSlice = {
+  readonly [__registerable]: true;
   readonly name: string;
-  readonly inputSchema: z.ZodTypeAny;
-  readonly outputSchema: z.ZodTypeAny;
+  readonly _tag: "command" | "query";
+};
+
+// ── Command slice (fully generic) ──────────────────────────────────────
+
+export type CommandSlice<
+  TInput,
+  TContext,
+  TValidated,
+  TOutput,
+> = RegisterableSlice & {
+  readonly _tag: "command";
+  readonly inputSchema: z.ZodType<TInput>;
+  readonly outputSchema: z.ZodType<TOutput>;
   readonly state: ReadonlyArray<RuntimeStateStep>;
-  readonly validate: (
-    context: Record<string, unknown>,
-  ) => Result<Record<string, unknown>, ValidationError>;
+  readonly validate: (context: TContext) => Result<TValidated, ValidationError>;
   readonly handle: (
-    validated: Record<string, unknown>,
+    validated: TValidated,
   ) => Result<ReadonlyArray<DomainEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
@@ -121,29 +141,30 @@ export type CommandSlice = {
     | undefined;
 };
 
-// ── Query slice (internal, type-erased for pipeline) ───────────────────
+// ── Query slice (fully generic) ────────────────────────────────────────
 
-export type QuerySlice = {
-  readonly name: string;
-  readonly inputSchema: z.ZodTypeAny;
-  readonly outputSchema: z.ZodTypeAny;
+export type QuerySlice<
+  TInput,
+  TContext,
+  TOutput,
+> = RegisterableSlice & {
+  readonly _tag: "query";
+  readonly inputSchema: z.ZodType<TInput>;
+  readonly outputSchema: z.ZodType<TOutput>;
   readonly state: ReadonlyArray<RuntimeStateStep>;
-  readonly handle: (
-    context: Record<string, unknown>,
-  ) => Result<unknown, ValidationError>;
+  readonly handle: (context: TContext) => Result<TOutput, ValidationError>;
 };
 
-// ── defineCommandSlice — fully typed user-facing API ───────────────────
+// ── defineCommandSlice — user-facing, fully inferred ───────────────────
 
 export function defineCommandSlice<
   TInputSchema extends z.ZodTypeAny,
   TOutputSchema extends z.ZodTypeAny,
   TSteps extends ReadonlyArray<AnyStateStep>,
-  TContext extends Record<string, unknown> = z.output<TInputSchema> &
-    InferStateContext<TSteps>,
-  TValidated extends Record<string, unknown> = TContext,
+  TContext = z.output<TInputSchema> & InferStateContext<TSteps>,
+  TValidated = TContext,
 >(definition: {
-  readonly name?: string;
+  readonly name?: string | undefined;
   readonly inputSchema: TInputSchema;
   readonly outputSchema: TOutputSchema;
   readonly state: TSteps;
@@ -153,44 +174,48 @@ export function defineCommandSlice<
   ) => Result<ReadonlyArray<DomainEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
-  readonly beforeInsert?: (
-    events: ReadonlyArray<DomainEvent>,
-  ) => Result<ReadonlyArray<DomainEvent>, ConcurrencyError>;
-}): CommandSlice {
+  readonly beforeInsert?:
+    | ((
+        events: ReadonlyArray<DomainEvent>,
+      ) => Result<ReadonlyArray<DomainEvent>, ConcurrencyError>)
+    | undefined;
+}): CommandSlice<z.output<TInputSchema>, TContext, TValidated, z.output<TOutputSchema>> {
   return {
+    [__registerable]: true as const,
+    _tag: "command" as const,
     name: definition.name ?? "anonymous-command",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
     state: definition.state as ReadonlyArray<RuntimeStateStep>,
-    validate: definition.validate as CommandSlice["validate"],
-    handle: definition.handle as CommandSlice["handle"],
+    validate: definition.validate,
+    handle: definition.handle,
     projectors: definition.projectors,
     processors: definition.processors,
     beforeInsert: definition.beforeInsert,
   };
 }
 
-// ── defineQuerySlice — fully typed user-facing API ─────────────────────
+// ── defineQuerySlice — user-facing, fully inferred ─────────────────────
 
 export function defineQuerySlice<
   TInputSchema extends z.ZodTypeAny,
   TOutputSchema extends z.ZodTypeAny,
   TSteps extends ReadonlyArray<AnyStateStep>,
-  TContext extends Record<string, unknown> = z.output<TInputSchema> &
-    InferStateContext<TSteps>,
-  TResult = z.output<TOutputSchema>,
+  TContext = z.output<TInputSchema> & InferStateContext<TSteps>,
 >(definition: {
-  readonly name?: string;
+  readonly name?: string | undefined;
   readonly inputSchema: TInputSchema;
   readonly outputSchema: TOutputSchema;
   readonly state: TSteps;
-  readonly handle: (ctx: TContext) => Result<TResult, ValidationError>;
-}): QuerySlice {
+  readonly handle: (ctx: TContext) => Result<z.output<TOutputSchema>, ValidationError>;
+}): QuerySlice<z.output<TInputSchema>, TContext, z.output<TOutputSchema>> {
   return {
+    [__registerable]: true as const,
+    _tag: "query" as const,
     name: definition.name ?? "anonymous-query",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
     state: definition.state as ReadonlyArray<RuntimeStateStep>,
-    handle: definition.handle as QuerySlice["handle"],
+    handle: definition.handle,
   };
 }

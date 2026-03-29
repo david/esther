@@ -3,22 +3,53 @@ import type { EventStore } from "./event-store.js";
 import type { ReadModelStore } from "./read-model-store.js";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
-import type { CommandSlice, QuerySlice } from "./slice.js";
+import type { RegisterableSlice, CommandSlice, QuerySlice } from "./slice.js";
 import { executeCommand, executeQuery } from "./pipeline.js";
 import type { SliceError } from "./types.js";
 
-// ── Registered slice with tag ──────────────────────────────────────────
+// ── Compiled slice ─────────────────────────────────────────────────────
+// Each slice is compiled into a closure that captures its full generic
+// types. The map stores only the name + execute function. The generics
+// live inside the closure — no `any`, no `Record<string, unknown>`.
 
-type RegisteredSlice =
-  | { readonly _tag: "command"; readonly slice: CommandSlice }
-  | { readonly _tag: "query"; readonly slice: QuerySlice };
+type CompiledSlice = {
+  readonly name: string;
+  readonly execute: (
+    rawInput: unknown,
+  ) => Promise<Result<unknown, SliceError>>;
+};
+
+function compileCommand<TInput, TContext, TValidated, TOutput>(
+  slice: CommandSlice<TInput, TContext, TValidated, TOutput>,
+  eventStore: EventStore,
+  readModelStore: ReadModelStore,
+  effectRegistry: EffectAdapterRegistry,
+): CompiledSlice {
+  return {
+    name: slice.name,
+    execute: (rawInput) =>
+      executeCommand(slice, rawInput, eventStore, readModelStore, effectRegistry),
+  };
+}
+
+function compileQuery<TInput, TContext, TOutput>(
+  slice: QuerySlice<TInput, TContext, TOutput>,
+  eventStore: EventStore,
+  readModelStore: ReadModelStore,
+): CompiledSlice {
+  return {
+    name: slice.name,
+    execute: (rawInput) =>
+      executeQuery(slice, rawInput, eventStore, readModelStore),
+  };
+}
 
 // ── App config ─────────────────────────────────────────────────────────
 
 export type AppConfig = {
   readonly eventStore: EventStore;
   readonly readModelStore: ReadModelStore;
-  readonly effectAdapters?: ReadonlyArray<EffectAdapter>;
+  readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
   readonly inputAdapter: {
     readonly adapter: {
       readonly start: () => Promise<void>;
@@ -31,7 +62,7 @@ export type AppConfig = {
       ) => Promise<Result<unknown, SliceError>>,
     ) => void;
   };
-  readonly slices: ReadonlyArray<CommandSlice | QuerySlice>;
+  readonly slices: ReadonlyArray<RegisterableSlice>;
 };
 
 // ── App instance ───────────────────────────────────────────────────────
@@ -48,81 +79,64 @@ export type App = {
 // ── Create app ─────────────────────────────────────────────────────────
 
 export function createApp(config: AppConfig): App {
-  const {
-    eventStore,
-    readModelStore,
-    inputAdapter,
-    slices,
-    effectAdapters = [],
-  } = config;
+  const { eventStore, readModelStore, inputAdapter, slices } = config;
 
-  // Build effect adapter registry
   const effectRegistry: EffectAdapterRegistry = createEffectAdapterRegistry();
-  for (const adapter of effectAdapters) {
+  for (const adapter of config.effectAdapters ?? []) {
     effectRegistry.register(adapter);
   }
 
-  // Register slices by name
-  const sliceMap = new Map<string, RegisteredSlice>();
+  // Compile each slice into a typed closure
+  const compiled = new Map<string, CompiledSlice>();
 
   for (const slice of slices) {
-    const isCommand = "validate" in slice && "handle" in slice;
-    const isQuery = "handle" in slice && !("validate" in slice);
-
-    if (isCommand) {
-      sliceMap.set(slice.name, {
-        _tag: "command",
-        slice: slice as CommandSlice,
-      });
-    } else if (isQuery) {
-      sliceMap.set(slice.name, {
-        _tag: "query",
-        slice: slice as QuerySlice,
-      });
+    switch (slice._tag) {
+      case "command": {
+        // The RegisterableSlice is actually a CommandSlice — the branded
+        // type ensures only defineCommandSlice/defineQuerySlice produce these.
+        const cmd = slice as unknown as CommandSlice<
+          unknown,
+          unknown,
+          unknown,
+          unknown
+        >;
+        compiled.set(
+          cmd.name,
+          compileCommand(cmd, eventStore, readModelStore, effectRegistry),
+        );
+        break;
+      }
+      case "query": {
+        const qry = slice as unknown as QuerySlice<unknown, unknown, unknown>;
+        compiled.set(
+          qry.name,
+          compileQuery(qry, eventStore, readModelStore),
+        );
+        break;
+      }
     }
   }
 
-  // Dispatch function
   async function dispatch(
     sliceName: string,
     input: unknown,
   ): Promise<Result<unknown, SliceError>> {
-    const registered = sliceMap.get(sliceName);
-    if (!registered) {
+    const entry = compiled.get(sliceName);
+    if (!entry) {
       throw new Error(`Unknown slice: ${sliceName}`);
     }
-
-    switch (registered._tag) {
-      case "command":
-        return executeCommand(
-          registered.slice,
-          input,
-          eventStore,
-          readModelStore,
-          effectRegistry,
-        );
-      case "query":
-        return executeQuery(
-          registered.slice,
-          input,
-          eventStore,
-          readModelStore,
-        );
-    }
+    return entry.execute(input);
   }
 
-  // Bind dispatch to input adapter
   inputAdapter.bind(dispatch);
 
   return {
     async start() {
       await inputAdapter.adapter.start();
     },
-
     async stop() {
       await inputAdapter.adapter.stop();
     },
-
     dispatch,
   };
 }
