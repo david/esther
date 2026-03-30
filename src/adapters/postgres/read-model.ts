@@ -4,6 +4,7 @@ import type {
   ProjectionAdapter,
   ProjectionResult,
   ReadModelHandle,
+  ReadModelViewHandle,
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
 
@@ -76,11 +77,60 @@ DROP TABLE "${name}";
 `;
 }
 
-// ── Postgres projection adapter ────────────────────────────────────────
+// ── Stored entry ──────────────────────────────────────────────────────
 
 type StoredEntry<T> = {
   readonly value: T;
 };
+
+// ── generateCreateViewDDL ─────────────────────────────────────────────
+
+export function generateCreateViewDDL<T>(
+  view: ReadModelViewHandle<T>,
+  base: ReadModelHandle<T>,
+): string {
+  return `-- migrate:up
+CREATE VIEW "${view.name}" AS SELECT * FROM "${base.name}";
+
+-- migrate:down
+DROP VIEW "${view.name}";
+`;
+}
+
+// ── createPostgresViewGet ─────────────────────────────────────────────
+
+export function createPostgresViewGet<T>(
+  sql: PostgresClient,
+  view: ReadModelViewHandle<T>,
+  base: ReadModelHandle<T>,
+): (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
+  const columns = Object.keys(base.schema.shape);
+  const selectColumns = columns.map((c) => `"${c}"`).join(", ");
+
+  return async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
+    const rows = queryRows<Record<string, unknown>>(
+      await sql.unsafe(`SELECT ${selectColumns} FROM "${view.name}" WHERE "${view.key}" = $1`, [
+        id,
+      ]),
+    );
+
+    if (rows.length === 0) {
+      return err(ReadModelNotFound(view.name, id));
+    }
+
+    const row = rows[0] as Record<string, unknown>;
+    const valueObj: Record<string, unknown> = {};
+    for (const col of columns) {
+      valueObj[col] = row[col];
+    }
+
+    return ok({
+      value: valueObj as T,
+    });
+  };
+}
+
+// ── Postgres projection adapter ────────────────────────────────────────
 
 type PostgresProjectionAdapterResult<T> = {
   readonly adapter: ProjectionAdapter<T>;

@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { defineReadModel } from "../../core/read-model.js";
-import { generateCreateTableDDL } from "./read-model.js";
+import { defineReadModel, defineReadModelView } from "../../core/read-model.js";
+import {
+  createPostgresViewGet,
+  generateCreateTableDDL,
+  generateCreateViewDDL,
+} from "./read-model.js";
 
 // ── generateCreateTableDDL ─────────────────────────────────────────
 
@@ -122,5 +126,100 @@ describe("generateCreateTableDDL", () => {
     expect(downIndex).toBeGreaterThan(upIndex);
     expect(ddl.indexOf("CREATE TABLE")).toBeGreaterThan(upIndex);
     expect(ddl.indexOf("DROP TABLE")).toBeGreaterThan(downIndex);
+  });
+});
+
+// ── generateCreateViewDDL ─────────────────────────────────────────
+
+describe("generateCreateViewDDL", () => {
+  const usersHandle = defineReadModel({
+    name: "users",
+    key: "userId",
+    schema: z.object({
+      userId: z.string().uuid(),
+      email: z.string(),
+      name: z.string(),
+    }),
+  });
+
+  const viewHandle = defineReadModelView({
+    name: "users_by_email",
+    source: usersHandle,
+    key: "email",
+  });
+
+  test("generates CREATE VIEW with SELECT * FROM base table", () => {
+    const ddl = generateCreateViewDDL(viewHandle, usersHandle);
+
+    expect(ddl).toContain('CREATE VIEW "users_by_email" AS SELECT * FROM "users"');
+  });
+
+  test("includes migrate:up and migrate:down markers", () => {
+    const ddl = generateCreateViewDDL(viewHandle, usersHandle);
+
+    const upIndex = ddl.indexOf("-- migrate:up");
+    const downIndex = ddl.indexOf("-- migrate:down");
+    expect(upIndex).toBeGreaterThanOrEqual(0);
+    expect(downIndex).toBeGreaterThan(upIndex);
+    expect(ddl.indexOf("CREATE VIEW")).toBeGreaterThan(upIndex);
+    expect(ddl.indexOf("DROP VIEW")).toBeGreaterThan(downIndex);
+  });
+
+  test("includes DROP VIEW statement", () => {
+    const ddl = generateCreateViewDDL(viewHandle, usersHandle);
+
+    expect(ddl).toContain('DROP VIEW "users_by_email"');
+  });
+});
+
+// ── createPostgresViewGet ─────────────────────────────────────────
+
+describe("createPostgresViewGet", () => {
+  const usersHandle = defineReadModel({
+    name: "users",
+    key: "userId",
+    schema: z.object({
+      userId: z.string().uuid(),
+      email: z.string(),
+      name: z.string(),
+    }),
+  });
+
+  const viewHandle = defineReadModelView({
+    name: "users_by_email",
+    source: usersHandle,
+    key: "email",
+  });
+
+  // PostgresClient is a private type in the adapter module. createPostgresViewGet
+  // only uses sql.unsafe, so a minimal stub suffices. The cast is at the test
+  // boundary — same category as queryRows in the adapter itself.
+  // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
+  function createMockSql(rows: Record<string, unknown>[]): any {
+    return { unsafe: async () => rows };
+  }
+
+  test("returns record when row exists", async () => {
+    const row = { userId: "abc-123", email: "alice@example.com", name: "Alice" };
+    const sql = createMockSql([row]);
+    const get = createPostgresViewGet(sql, viewHandle, usersHandle);
+
+    const result = await get("alice@example.com");
+
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().value).toEqual(row);
+  });
+
+  test("returns ReadModelNotFound when no rows match", async () => {
+    const sql = createMockSql([]);
+    const get = createPostgresViewGet(sql, viewHandle, usersHandle);
+
+    const result = await get("nobody@example.com");
+
+    expect(result.isErr()).toBe(true);
+    const error = result._unsafeUnwrapErr();
+    expect(error._tag).toBe("ReadModelNotFound");
+    expect(error.name).toBe("users_by_email");
+    expect(error.id).toBe("nobody@example.com");
   });
 });

@@ -9,13 +9,22 @@ import type { SliceError } from "./types.js";
 
 // ── App config ─────────────────────────────────────────────────────────
 
-export type ProjectionAdapterEntry = {
+export type ProjectionAdapterTableEntry = {
+  readonly kind: "table";
   // biome-ignore lint/suspicious/noExplicitAny: projection adapter result types are erased at the registry level
   readonly adapter: ProjectionAdapter<any>;
   readonly get: (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
   readonly constraints: Constraints;
   readonly tableName: string;
 };
+
+export type ProjectionAdapterViewEntry = {
+  readonly kind: "view";
+  readonly name: string;
+  readonly get: (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
+};
+
+export type ProjectionAdapterEntry = ProjectionAdapterTableEntry | ProjectionAdapterViewEntry;
 
 export type AppConfig = {
   readonly eventStore: EventStore;
@@ -53,13 +62,24 @@ export function createApp(config: AppConfig): App {
     string,
     (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>
   >();
+  // Cross-kind name collision detection
+  const allNames = new Set<string>();
   for (const entry of config.projectionAdapters ?? []) {
-    const name = entry.adapter.name;
-    if (projectionAdapterRegistry.has(name)) {
+    const name = entry.kind === "table" ? entry.adapter.name : entry.name;
+    if (allNames.has(name)) {
       throw new Error(`Duplicate projection adapter name: "${name}"`);
     }
-    projectionAdapterRegistry.set(name, entry.adapter);
-    projectionGetters.set(name, entry.get);
+    allNames.add(name);
+  }
+
+  // Route by kind: table → both maps, view → read map only
+  for (const entry of config.projectionAdapters ?? []) {
+    if (entry.kind === "table") {
+      projectionAdapterRegistry.set(entry.adapter.name, entry.adapter);
+      projectionGetters.set(entry.adapter.name, entry.get);
+    } else {
+      projectionGetters.set(entry.name, entry.get);
+    }
   }
 
   const projectionStore: ProjectionStore = {
@@ -75,11 +95,13 @@ export function createApp(config: AppConfig): App {
   // Register constraint metadata on event store
   if (eventStore.registerConstraintMetadata) {
     for (const entry of config.projectionAdapters ?? []) {
-      for (const cols of entry.constraints.unique ?? []) {
-        const name = `${entry.tableName}_${cols.join("_")}_unique`;
-        eventStore.registerConstraintMetadata({
-          [name]: { columns: [...cols], table: entry.tableName },
-        });
+      if (entry.kind === "table") {
+        for (const cols of entry.constraints.unique ?? []) {
+          const name = `${entry.tableName}_${cols.join("_")}_unique`;
+          eventStore.registerConstraintMetadata({
+            [name]: { columns: [...cols], table: entry.tableName },
+          });
+        }
       }
     }
   }

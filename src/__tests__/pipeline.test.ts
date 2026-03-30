@@ -10,6 +10,7 @@ import {
   defineCommandSlice,
   defineQuerySlice,
   defineReadModel,
+  defineReadModelView,
   projection,
   ReadModelNotFound,
   state,
@@ -425,6 +426,7 @@ describe("constraint metadata registration", () => {
       eventStore: testStore,
       projectionAdapters: [
         {
+          kind: "table",
           adapter: projAdapter,
           get,
           constraints: { unique: [["accountId"]] },
@@ -513,7 +515,9 @@ describe("dispatch via onAfterInsert", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [{ adapter: projAdapter, get, constraints: {}, tableName: "accounts" }],
+      projectionAdapters: [
+        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "accounts" },
+      ],
       inputAdapter: { adapter, bind },
       slices: [projectorSlice],
     });
@@ -686,8 +690,20 @@ describe("dispatch via onAfterInsert", () => {
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { adapter: accountAdapter, get: getAccount, constraints: {}, tableName: "accounts" },
-        { adapter: ledgerAdapter, get: getLedger, constraints: {}, tableName: "ledger" },
+        {
+          kind: "table",
+          adapter: accountAdapter,
+          get: getAccount,
+          constraints: {},
+          tableName: "accounts",
+        },
+        {
+          kind: "table",
+          adapter: ledgerAdapter,
+          get: getLedger,
+          constraints: {},
+          tableName: "ledger",
+        },
       ],
       inputAdapter: { adapter, bind },
       slices: [dualProjectorSlice],
@@ -734,13 +750,91 @@ describe("duplicate model names at createApp", () => {
       createApp({
         eventStore,
         projectionAdapters: [
-          { adapter: adapter1.adapter, get: adapter1.get, constraints: {}, tableName: "accounts" },
-          { adapter: adapter2.adapter, get: adapter2.get, constraints: {}, tableName: "accounts" },
+          {
+            kind: "table",
+            adapter: adapter1.adapter,
+            get: adapter1.get,
+            constraints: {},
+            tableName: "accounts",
+          },
+          {
+            kind: "table",
+            adapter: adapter2.adapter,
+            get: adapter2.get,
+            constraints: {},
+            tableName: "accounts",
+          },
         ],
         inputAdapter: { adapter, bind },
         slices: [],
       }),
     ).toThrow('Duplicate projection adapter name: "accounts"');
+  });
+
+  test("throws when view name collides with table name", () => {
+    const model = defineReadModel({
+      name: "accounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+    const view = defineReadModelView({
+      name: "accounts",
+      source: model,
+      key: "accountId",
+    });
+
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(model);
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    expect(() =>
+      createApp({
+        eventStore,
+        projectionAdapters: [
+          { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "accounts" },
+          {
+            kind: "view",
+            name: view.name,
+            get: async (id: string) => err(ReadModelNotFound("accounts", id)),
+          },
+        ],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).toThrow('Duplicate projection adapter name: "accounts"');
+  });
+
+  test("createApp accepts view entries (kind: view)", () => {
+    const model = defineReadModel({
+      name: "accounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+    const view = defineReadModelView({
+      name: "accountsByBalance",
+      source: model,
+      key: "balance",
+    });
+
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(model);
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    expect(() =>
+      createApp({
+        eventStore,
+        projectionAdapters: [
+          { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "accounts" },
+          {
+            kind: "view",
+            name: view.name,
+            get: async (id: string) => err(ReadModelNotFound("accountsByBalance", id)),
+          },
+        ],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -934,7 +1028,9 @@ describe("projection step", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [{ adapter: projAdapter, get, constraints: {}, tableName: "accounts" }],
+      projectionAdapters: [
+        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "accounts" },
+      ],
       inputAdapter: { adapter, bind },
       slices: [depositWithProjection, queryOptional, queryRequired, projectionOnlySlice],
     });
@@ -1055,7 +1151,7 @@ describe("replay", () => {
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { adapter: projAdapter, get, constraints: {}, tableName: "replayAccounts" },
+        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "replayAccounts" },
       ],
       inputAdapter: { adapter, bind },
       slices: [replayDepositSlice],
@@ -1233,7 +1329,9 @@ describe("end-to-end integration", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [{ adapter: projAdapter, get, constraints: {}, tableName: "balances" }],
+      projectionAdapters: [
+        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "balances" },
+      ],
       inputAdapter: { adapter, bind },
       slices: [depositSliceE2E, getBalanceE2E],
     });
@@ -1266,6 +1364,177 @@ describe("end-to-end integration", () => {
     expect(queryResult2.isOk()).toBe(true);
     if (queryResult2.isOk()) {
       expect(queryResult2.value).toEqual({ accountId: "acc-1", balance: 500 });
+    }
+  });
+});
+
+// ── Read model views ──────────────────────────────────────────────────
+
+describe("read model views", () => {
+  // Users model keyed by userId, with a view keyed by email
+  const usersModel = defineReadModel({
+    name: "users",
+    schema: z.object({
+      userId: z.string(),
+      email: z.string(),
+      name: z.string(),
+    }),
+    key: "userId",
+  });
+
+  const usersByEmail = defineReadModelView({
+    name: "users_by_email",
+    source: usersModel,
+    key: "email",
+  });
+
+  type User = { userId: string; email: string; name: string };
+  type UserRegistered = DomainEvent<
+    "UserRegistered",
+    { userId: string; email: string; name: string }
+  >;
+
+  const registerUserInputSchema = z.object({
+    userId: z.string(),
+    email: z.string(),
+    name: z.string(),
+  });
+
+  const registerUserOutputSchema = z.object({
+    userId: z.string(),
+  });
+
+  const lookupByEmailInputSchema = z.object({
+    email: z.string(),
+  });
+
+  const lookupByEmailOutputSchema = z.object({
+    userId: z.string(),
+    email: z.string(),
+    name: z.string(),
+  });
+
+  function buildViewApp() {
+    const eventStore = createInMemoryEventStore();
+    const {
+      adapter: projAdapter,
+      get,
+      views,
+    } = createInMemoryProjectionAdapter(usersModel, [{ name: "users_by_email", key: "email" }]);
+    const [viewAccessor] = views;
+    if (!viewAccessor) throw new Error("Expected view accessor");
+    const viewGet = viewAccessor.get;
+    const { adapter, bind } = createInMemoryAdapter();
+
+    // Command slice that registers a user (projects to base model)
+    const registerUserSlice = defineCommandSlice({
+      name: "register-user",
+      inputSchema: registerUserInputSchema,
+      outputSchema: registerUserOutputSchema,
+
+      state: state<{ userId: string; email: string; name: string }>(),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<UserRegistered>, never>([
+          {
+            type: "UserRegistered",
+            tags: [`user:${validated.userId}`],
+            payload: {
+              userId: validated.userId,
+              email: validated.email,
+              name: validated.name,
+            },
+          },
+        ]),
+
+      projectors: [
+        (event: StoredEvent) => {
+          if (event.type === "UserRegistered") {
+            const payload = event.payload as User;
+            return usersModel.project({
+              userId: payload.userId,
+              email: payload.email,
+              name: payload.name,
+            });
+          }
+          return { type: "effect" as const };
+        },
+      ],
+      processors: [],
+    });
+
+    // Query slice that looks up a user by email via the view
+    const lookupByEmailSlice = defineQuerySlice({
+      name: "lookup-by-email",
+      inputSchema: lookupByEmailInputSchema,
+      outputSchema: lookupByEmailOutputSchema,
+
+      state: state<{ email: string }>().pipe(
+        projection({
+          key: "user" as const,
+          model: usersByEmail,
+          id: (ctx: { email: string }) => ctx.email,
+          required: true,
+        }),
+      ),
+
+      handle: (ctx) =>
+        ok({
+          userId: (ctx.user as User).userId,
+          email: (ctx.user as User).email,
+          name: (ctx.user as User).name,
+        }),
+    });
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [
+        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "users" },
+        { kind: "view", name: usersByEmail.name, get: viewGet },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [registerUserSlice, lookupByEmailSlice],
+    });
+
+    return { app };
+  }
+
+  test("projection resolves by view key (alternate lookup)", async () => {
+    const { app } = buildViewApp();
+
+    // Register a user via the base model projector
+    const registerResult = await app.dispatch("register-user", {
+      userId: "u-1",
+      email: "alice@example.com",
+      name: "Alice",
+    });
+    expect(registerResult.isOk()).toBe(true);
+
+    // Look up by email via the view
+    const lookupResult = await app.dispatch("lookup-by-email", {
+      email: "alice@example.com",
+    });
+    expect(lookupResult.isOk()).toBe(true);
+    if (lookupResult.isOk()) {
+      expect(lookupResult.value).toEqual({
+        userId: "u-1",
+        email: "alice@example.com",
+        name: "Alice",
+      });
+    }
+  });
+
+  test("view get returns ReadModelNotFound for missing key", async () => {
+    const { app } = buildViewApp();
+
+    const lookupResult = await app.dispatch("lookup-by-email", {
+      email: "nobody@example.com",
+    });
+    expect(lookupResult.isErr()).toBe(true);
+    if (lookupResult.isErr()) {
+      expect(lookupResult.error).toEqual(ReadModelNotFound("users_by_email", "nobody@example.com"));
     }
   });
 });

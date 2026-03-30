@@ -10,7 +10,14 @@ export {
 // ── In-memory projection adapter ──────────────────────────────────────
 export { createInMemoryProjectionAdapter } from "./adapters/in-memory/read-model.js";
 // ── App ────────────────────────────────────────────────────────────────
-export { type App, type AppConfig, createApp, type ProjectionAdapterEntry } from "./core/app.js";
+export {
+  type App,
+  type AppConfig,
+  createApp,
+  type ProjectionAdapterEntry,
+  type ProjectionAdapterTableEntry,
+  type ProjectionAdapterViewEntry,
+} from "./core/app.js";
 // ── Effect adapters ────────────────────────────────────────────────────
 export {
   createEffectAdapterRegistry,
@@ -31,11 +38,13 @@ export { executeCommand, executeQuery } from "./core/pipeline.js";
 export {
   type Constraints,
   defineReadModel,
+  defineReadModelView,
   type Operation,
   type ProjectionAdapter,
   type ProjectionResult,
   type ReadModelHandle,
   ReadModelNotFound,
+  type ReadModelViewHandle,
 } from "./core/read-model.js";
 // ── Slice definitions ──────────────────────────────────────────────────
 export {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { defineReadModel } from "./read-model.js";
+import { defineReadModel, defineReadModelView, type ReadModelViewHandle } from "./read-model.js";
 
 // ── Valid schema for testing ────────────────────────────────────────
 
@@ -199,6 +199,67 @@ describe("defineReadModel constraints", () => {
         key: "id",
         schema: memberSchema,
         constraints: { unique: [["bad-field"]] },
+      }),
+    ).toThrow();
+  });
+});
+
+// ── defineReadModelView ────────────────────────────────────────────────
+
+describe("defineReadModelView", () => {
+  const source = defineReadModel({
+    name: "member",
+    key: "id",
+    schema: memberSchema,
+  });
+
+  test("valid view definition returns handle with correct tag, name, and key", () => {
+    const handle = defineReadModelView({
+      name: "users_by_email",
+      source,
+      key: "name",
+    });
+
+    expect(handle._tag).toBe("ReadModelViewHandle");
+    expect(handle.name).toBe("users_by_email");
+    expect(handle.key).toBe("name");
+  });
+
+  test("throws on invalid name", () => {
+    expect(() =>
+      defineReadModelView({
+        name: "bad-name",
+        source,
+        key: "name",
+      }),
+    ).toThrow();
+  });
+
+  test("throws when key is not in source schema", () => {
+    expect(() =>
+      defineReadModelView({
+        name: "member_by_missing",
+        source,
+        // biome-ignore lint/suspicious/noExplicitAny: intentionally testing runtime validation with invalid key
+        key: "nonexistent" as any,
+      }),
+    ).toThrow();
+  });
+
+  test("throws on view-on-view", () => {
+    // biome-ignore lint/suspicious/noExplicitAny: intentionally constructing a view handle to test view-on-view rejection
+    const viewHandle: ReadModelViewHandle<any> = {
+      _tag: "ReadModelViewHandle",
+      name: "some_view",
+      key: "name",
+    };
+
+    expect(() =>
+      defineReadModelView({
+        name: "nested_view",
+        // biome-ignore lint/suspicious/noExplicitAny: intentionally passing wrong type to test runtime validation
+        source: viewHandle as any,
+        key: "name",
       }),
     ).toThrow();
   });
