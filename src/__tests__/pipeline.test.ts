@@ -399,7 +399,7 @@ describe("dispatch via onAfterInsert", () => {
     // First deposit — event position 0
     await app.dispatch("deposit-with-projection", { accountId: "acc-1", amount: 100 });
 
-    const result1 = get("acc-1");
+    const result1 = await get("acc-1");
     expect(result1.isOk()).toBe(true);
     if (result1.isOk()) {
       expect(result1.value.value).toEqual({ accountId: "acc-1", balance: 100 });
@@ -409,7 +409,7 @@ describe("dispatch via onAfterInsert", () => {
     // Second deposit — event position 1, verifies position stamping overwrites default 0n
     await app.dispatch("deposit-with-projection", { accountId: "acc-1", amount: 200 });
 
-    const result2 = get("acc-1");
+    const result2 = await get("acc-1");
     expect(result2.isOk()).toBe(true);
     if (result2.isOk()) {
       expect(result2.value.value).toEqual({ accountId: "acc-1", balance: 200 });
@@ -575,17 +575,106 @@ describe("dispatch via onAfterInsert", () => {
 
     await app.dispatch("deposit-dual", { accountId: "acc-1", amount: 100 });
 
-    const accountResult = getAccount("acc-1");
+    const accountResult = await getAccount("acc-1");
     expect(accountResult.isOk()).toBe(true);
     if (accountResult.isOk()) {
       expect(accountResult.value.value).toEqual({ accountId: "acc-1", balance: 100 });
     }
 
-    const ledgerResult = getLedger("entry-acc-1");
+    const ledgerResult = await getLedger("entry-acc-1");
     expect(ledgerResult.isOk()).toBe(true);
     if (ledgerResult.isOk()) {
       expect(ledgerResult.value.value).toEqual({ entryId: "entry-acc-1", amount: 100 });
     }
+  });
+});
+
+// ── Duplicate model names ───────────────────────────────────────────
+
+describe("duplicate model names at createApp", () => {
+  test("throws when two projection adapters share the same model name", () => {
+    const model1 = defineReadModel({
+      name: "accounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+    const model2 = defineReadModel({
+      name: "accounts",
+      schema: z.object({ accountId: z.string(), name: z.string() }),
+      key: "accountId",
+    });
+
+    const adapter1 = createInMemoryProjectionAdapter(model1);
+    const adapter2 = createInMemoryProjectionAdapter(model2);
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    expect(() =>
+      createApp({
+        eventStore,
+        projectionAdapters: [
+          { adapter: adapter1.adapter, get: adapter1.get },
+          { adapter: adapter2.adapter, get: adapter2.get },
+        ],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).toThrow('Duplicate projection adapter name: "accounts"');
+  });
+});
+
+// ── Unknown model name routing ─────────────────────────────────────
+
+describe("unknown model name in projector result", () => {
+  test("throws when projector returns result for unregistered model", async () => {
+    const unregisteredModel = defineReadModel({
+      name: "ghost",
+      schema: z.object({ id: z.string(), value: z.number() }),
+      key: "id",
+    });
+
+    const sliceWithBadProjector = defineCommandSlice({
+      name: "bad-projector",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [(_event: StoredEvent) => unregisteredModel.project({ id: "x", value: 1 })],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    // No projection adapters registered at all
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [sliceWithBadProjector],
+    });
+
+    await expect(
+      app.dispatch("bad-projector", { accountId: "acc-1", amount: 100 }),
+    ).rejects.toThrow('No projection adapter registered for model "ghost"');
   });
 });
 
@@ -809,5 +898,285 @@ describe("projection step", () => {
     // Its maxPosition comes from the projection watermark
     const result = await app.dispatch("projection-only-cmd", { accountId: "acc-2" });
     expect(result.isOk()).toBe(true);
+  });
+});
+
+// ── Replay tests ───────────────────────────────────────────────────
+
+describe("replay", () => {
+  const accountModel = defineReadModel({
+    name: "replayAccounts",
+    schema: z.object({
+      accountId: z.string(),
+      balance: z.number(),
+    }),
+    key: "accountId",
+  });
+
+  function makeProjector(model: typeof accountModel) {
+    return (event: StoredEvent) => {
+      if (event.type === "Deposited") {
+        const payload = event.payload as { accountId: string; amount: number };
+        return model.project({
+          accountId: payload.accountId,
+          balance: payload.amount,
+        });
+      }
+      return { type: "effect" as const };
+    };
+  }
+
+  function buildReplayApp() {
+    const eventStore = createInMemoryEventStore();
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const replayDepositSlice = defineCommandSlice({
+      name: "replay-deposit",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [makeProjector(accountModel)],
+      processors: [],
+    });
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [{ adapter: projAdapter, get }],
+      inputAdapter: { adapter, bind },
+      slices: [replayDepositSlice],
+    });
+
+    return { app, eventStore, get, projAdapter };
+  }
+
+  test("full replay after truncate rebuilds correct read model state", async () => {
+    const { app, eventStore, get } = buildReplayApp();
+
+    // Populate the read model through normal dispatch
+    await app.dispatch("replay-deposit", { accountId: "acc-1", amount: 100 });
+    await app.dispatch("replay-deposit", { accountId: "acc-2", amount: 200 });
+
+    // Verify initial state
+    expect((await get("acc-1")).isOk()).toBe(true);
+    expect((await get("acc-2")).isOk()).toBe(true);
+
+    // Simulate replay: create a fresh projection adapter (simulates truncate)
+    const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
+
+    // Re-process all events through the projector manually
+    // Query all events by using a tag that matches everything — we use queryByTags
+    // with a broad fold. Since the in-memory event store stores all events linearly,
+    // we replay by processing through the projector function.
+    const projector = makeProjector(accountModel);
+
+    // Get all events from the store via queryByTags with empty tags (matches everything)
+    const queryResult = await eventStore.queryByTags([], (events) => events);
+    const allEvents = queryResult.state as ReadonlyArray<StoredEvent>;
+
+    for (const event of allEvents) {
+      const result = projector(event);
+      if (result.type === "projection") {
+        await freshAdapter.execute({
+          ...result,
+          position: BigInt(event.position),
+        });
+      }
+    }
+
+    // Verify rebuilt state matches
+    const acc1 = await freshGet("acc-1");
+    expect(acc1.isOk()).toBe(true);
+    if (acc1.isOk()) {
+      expect(acc1.value.value).toEqual({ accountId: "acc-1", balance: 100 });
+    }
+
+    const acc2 = await freshGet("acc-2");
+    expect(acc2.isOk()).toBe(true);
+    if (acc2.isOk()) {
+      expect(acc2.value.value).toEqual({ accountId: "acc-2", balance: 200 });
+    }
+  });
+
+  test("watermark positions are rebuilt from event positions after replay", async () => {
+    const { app, eventStore } = buildReplayApp();
+
+    // Dispatch three events
+    await app.dispatch("replay-deposit", { accountId: "acc-1", amount: 10 });
+    await app.dispatch("replay-deposit", { accountId: "acc-1", amount: 20 });
+    await app.dispatch("replay-deposit", { accountId: "acc-2", amount: 30 });
+
+    // Simulate replay onto fresh adapter
+    const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
+
+    const projector = makeProjector(accountModel);
+    const queryResult = await eventStore.queryByTags([], (events) => events);
+    const allEvents = queryResult.state as ReadonlyArray<StoredEvent>;
+
+    for (const event of allEvents) {
+      const result = projector(event);
+      if (result.type === "projection") {
+        await freshAdapter.execute({
+          ...result,
+          position: BigInt(event.position),
+        });
+      }
+    }
+
+    // acc-1 was last written at event position 1 (second deposit)
+    const acc1 = await freshGet("acc-1");
+    expect(acc1.isOk()).toBe(true);
+    if (acc1.isOk()) {
+      expect(acc1.value.position).toBe(1n);
+    }
+
+    // acc-2 was written at event position 2 (third deposit)
+    const acc2 = await freshGet("acc-2");
+    expect(acc2.isOk()).toBe(true);
+    if (acc2.isOk()) {
+      expect(acc2.value.position).toBe(2n);
+    }
+  });
+});
+
+// ── End-to-end integration ─────────────────────────────────────────
+
+describe("end-to-end integration", () => {
+  test("define model, define slice with projector, dispatch command, projector fires, read model populated, projection step reads it back", async () => {
+    // Step 1: Define the read model
+    const balanceModel = defineReadModel({
+      name: "balances",
+      schema: z.object({
+        accountId: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+    });
+
+    // Step 2: Create projection adapter
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(balanceModel);
+
+    // Step 3: Define a command slice with a projector that accumulates balance
+    const depositSliceE2E = defineCommandSlice({
+      name: "deposit-e2e",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            const payload = event.payload as { accountId: string; amount: number };
+            // Use upsert so repeated deposits overwrite (projector gets latest amount only)
+            return balanceModel.project({
+              accountId: payload.accountId,
+              balance: payload.amount,
+            });
+          }
+          return { type: "effect" as const };
+        },
+      ],
+      processors: [],
+    });
+
+    // Step 4: Define a query slice that reads from the read model via projection step
+    const getBalanceE2E = defineQuerySlice({
+      name: "get-balance-e2e",
+      inputSchema: z.object({ accountId: z.string() }),
+      outputSchema: z.object({ accountId: z.string(), balance: z.number() }),
+
+      state: state<{ accountId: string }>().pipe(
+        projection({
+          key: "balanceRow" as const,
+          model: balanceModel,
+          id: (ctx: { accountId: string }) => ctx.accountId,
+          required: true,
+        }),
+      ),
+
+      handle: (ctx) =>
+        ok({
+          accountId: ctx.balanceRow.accountId,
+          balance: ctx.balanceRow.balance,
+        }),
+    });
+
+    // Step 5: Wire up the app
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [{ adapter: projAdapter, get }],
+      inputAdapter: { adapter, bind },
+      slices: [depositSliceE2E, getBalanceE2E],
+    });
+
+    // Step 6: Dispatch a command — projector fires via onAfterInsert
+    const depositResult = await app.dispatch("deposit-e2e", {
+      accountId: "acc-1",
+      amount: 250,
+    });
+    expect(depositResult.isOk()).toBe(true);
+
+    // Step 7: Verify the read model was populated
+    const rawGet = await get("acc-1");
+    expect(rawGet.isOk()).toBe(true);
+    if (rawGet.isOk()) {
+      expect(rawGet.value.value).toEqual({ accountId: "acc-1", balance: 250 });
+    }
+
+    // Step 8: Read it back via a query slice using a projection step
+    const queryResult = await app.dispatch("get-balance-e2e", { accountId: "acc-1" });
+    expect(queryResult.isOk()).toBe(true);
+    if (queryResult.isOk()) {
+      expect(queryResult.value).toEqual({ accountId: "acc-1", balance: 250 });
+    }
+
+    // Step 9: Dispatch another command and verify the query reads the updated value
+    await app.dispatch("deposit-e2e", { accountId: "acc-1", amount: 500 });
+
+    const queryResult2 = await app.dispatch("get-balance-e2e", { accountId: "acc-1" });
+    expect(queryResult2.isOk()).toBe(true);
+    if (queryResult2.isOk()) {
+      expect(queryResult2.value).toEqual({ accountId: "acc-1", balance: 500 });
+    }
   });
 });

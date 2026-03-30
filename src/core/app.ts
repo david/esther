@@ -12,7 +12,9 @@ import type { SliceError } from "./types.js";
 export type ProjectionAdapterEntry = {
   // biome-ignore lint/suspicious/noExplicitAny: projection adapter result types are erased at the registry level
   readonly adapter: ProjectionAdapter<any>;
-  readonly get: (id: string) => Result<{ value: unknown; position: bigint }, ReadModelNotFound>;
+  readonly get: (
+    id: string,
+  ) => Promise<Result<{ value: unknown; position: bigint }, ReadModelNotFound>>;
 };
 
 export type AppConfig = {
@@ -49,7 +51,7 @@ export function createApp(config: AppConfig): App {
   const projectionAdapterRegistry = new Map<string, ProjectionAdapter<any>>();
   const projectionGetters = new Map<
     string,
-    (id: string) => Result<{ value: unknown; position: bigint }, ReadModelNotFound>
+    (id: string) => Promise<Result<{ value: unknown; position: bigint }, ReadModelNotFound>>
   >();
   for (const entry of config.projectionAdapters ?? []) {
     const name = entry.adapter.name;
@@ -66,7 +68,7 @@ export function createApp(config: AppConfig): App {
       if (!getter) {
         return err(mkReadModelNotFound(name, id));
       }
-      return getter(id);
+      return await getter(id);
     },
   };
 

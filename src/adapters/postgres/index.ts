@@ -1,7 +1,6 @@
 import { err, ok } from "neverthrow";
 import type { EventFilter, EventStore, OnAfterInsertHandler } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import { ReadModelNotFound, type ReadModelStore } from "../../core/read-model.js";
 import { ConcurrencyError, EventId, type StoredEvent, StreamPosition } from "../../core/types.js";
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
@@ -186,69 +185,6 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
   };
 }
 
-// ── Postgres read model store ──────────────────────────────────────────
+// ── Postgres projection adapter (re-export) ───────────────────────────
 
-export type PostgresReadModelStoreConfig = {
-  readonly sql: PostgresClient;
-};
-
-export function createPostgresReadModelStore(config: PostgresReadModelStoreConfig): ReadModelStore {
-  const { sql } = config;
-
-  return {
-    async get<T>(name: string, id: string) {
-      const rows = queryRows<{ value: string }>(
-        await sql.unsafe(`SELECT value FROM read_models WHERE name = $1 AND id = $2`, [name, id]),
-      );
-
-      if (rows.length === 0) {
-        return err(ReadModelNotFound(name, id));
-      }
-
-      const parsed = JSON.parse(
-        typeof rows[0]?.value === "string" ? rows[0]?.value : JSON.stringify(rows[0]?.value),
-      ) as T;
-      return ok(parsed);
-    },
-
-    async set(name, id, value) {
-      await sql.unsafe(
-        `INSERT INTO read_models (name, id, value, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (name, id) DO UPDATE SET value = $3, updated_at = NOW()`,
-        [name, id, JSON.stringify(value)],
-      );
-    },
-
-    async delete(name, id) {
-      await sql.unsafe(`DELETE FROM read_models WHERE name = $1 AND id = $2`, [name, id]);
-    },
-  };
-}
-
-// ── Schema migration helper ────────────────────────────────────────────
-
-export async function migratePostgresSchema(sql: PostgresClient): Promise<void> {
-  await sql.unsafe(`
-    CREATE TABLE IF NOT EXISTS events (
-      id UUID PRIMARY KEY,
-      type TEXT NOT NULL,
-      tags JSONB NOT NULL DEFAULT '[]',
-      payload JSONB NOT NULL DEFAULT '{}',
-      position BIGINT NOT NULL UNIQUE,
-      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_events_position ON events (position);
-    CREATE INDEX IF NOT EXISTS idx_events_type ON events (type);
-    CREATE INDEX IF NOT EXISTS idx_events_tags ON events USING GIN (tags);
-
-    CREATE TABLE IF NOT EXISTS read_models (
-      name TEXT NOT NULL,
-      id TEXT NOT NULL,
-      value JSONB NOT NULL DEFAULT '{}',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (name, id)
-    );
-  `);
-}
+export { createPostgresProjectionAdapter, generateCreateTableDDL } from "./read-model.js";

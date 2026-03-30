@@ -1,4 +1,3 @@
-import type { Result } from "neverthrow";
 import type { z } from "zod";
 
 // ── Read model not found ───────────────────────────────────────────────
@@ -14,14 +13,6 @@ export const ReadModelNotFound = (name: string, id: string): ReadModelNotFound =
   name,
   id,
 });
-
-// ── Read model store interface (kept for postgres adapter, removed in task 04) ──
-
-export type ReadModelStore = {
-  readonly get: <T>(name: string, id: string) => Promise<Result<T, ReadModelNotFound>>;
-  readonly set: (name: string, id: string, value: unknown) => Promise<void>;
-  readonly delete: (name: string, id: string) => Promise<void>;
-};
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -52,21 +43,13 @@ export type ProjectionAdapter<T> = {
 
 const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
+// ZodString covers z.string(), z.string().uuid(), and z.string().datetime()
+// (datetime/uuid are ZodString with checks, not separate types)
 const SUPPORTED_ZOD_TYPES = new Set(["ZodString", "ZodNumber", "ZodBoolean"]);
 
 function isSupportedZodType(zodType: z.ZodTypeAny): boolean {
   const typeName = zodType._def.typeName as string;
-
-  if (SUPPORTED_ZOD_TYPES.has(typeName)) {
-    return true;
-  }
-
-  // z.string().datetime() and z.string().uuid() are ZodString with checks
-  if (typeName === "ZodString") {
-    return true;
-  }
-
-  return false;
+  return SUPPORTED_ZOD_TYPES.has(typeName);
 }
 
 // ── defineReadModel ─────────────────────────────────────────────────

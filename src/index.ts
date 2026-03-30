@@ -34,7 +34,6 @@ export {
   type ProjectionResult,
   type ReadModelHandle,
   ReadModelNotFound,
-  type ReadModelStore,
 } from "./core/read-model.js";
 // ── Slice definitions ──────────────────────────────────────────────────
 export {

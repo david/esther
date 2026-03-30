@@ -9,10 +9,12 @@ import { z } from "zod";
 import { ok, err } from "neverthrow";
 import {
   state, tagQuery, projection,
+  defineReadModel,
   defineCommandSlice, defineQuerySlice,
-  createApp, createInMemoryEventStore, createInMemoryReadModelStore, createInMemoryAdapter,
+  createApp,
+  createInMemoryEventStore, createInMemoryProjectionAdapter, createInMemoryAdapter,
 } from "esther";
-import type { DomainEvent, StoredEvent } from "esther";
+import type { DomainEvent, StoredEvent, ReadModelHandle } from "esther";
 ```
 
 ## Events
@@ -35,6 +37,41 @@ Plain strings queried by intersection. Use prefixed patterns:
 ["order", `order:${orderId}`, `customer:${customerId}`]
 ```
 
+## Read models
+
+Define a read model with `defineReadModel`. Returns a `ReadModelHandle<T>` used in projectors and state resolution:
+
+```typescript
+const orderSummaryModel = defineReadModel({
+  name: "order_summary",
+  key: "orderId",
+  schema: z.object({
+    orderId: z.string().uuid(),
+    customerId: z.string().uuid(),
+    total: z.number(),
+  }),
+});
+```
+
+Schema fields must be `z.string()`, `z.number()`, `z.boolean()`, `z.string().uuid()`, or `z.string().datetime()`. The `key` must reference a field in the schema. The `name` must match `[a-zA-Z][a-zA-Z0-9_]*`.
+
+Use `handle.project(value, operation?)` in projectors to build a `ProjectionResult`:
+
+```typescript
+projectors: [(event) => {
+  if (event.type === "OrderPlaced") {
+    const p = event.payload as OrderPlaced["payload"];
+    return orderSummaryModel.project({
+      orderId: p.orderId,
+      customerId: p.customerId,
+      total: p.total,
+    });
+  }
+}],
+```
+
+The `operation` parameter defaults to `"upsert"`. Other options: `"insert"`, `"update"`, `"delete"`.
+
 ## State pipeline
 
 `state<T>()` creates a resolver. `.pipe()` enriches the context type:
@@ -46,15 +83,16 @@ state: state<Input>()
     tags: (ctx) => ["product", `product:${ctx.productId}`],
     fold: (events): InventoryState => events.reduce(reducer, initial),
   }))
-  .pipe(projection<"settings", { tenantId: string }, TenantSettings>({
-    key: "settings",
-    name: "tenant-settings",
+  .pipe(projection({
+    key: "settings" as const,
+    model: tenantSettingsModel,
     id: (ctx) => ctx.tenantId,
+    required: true,
   }))
 ```
 
 - `tagQuery`: queries events by tag intersection, folds to state. Framework tracks position for optimistic locking.
-- `projection`: fetches a named read model by id. Third type param is the value type.
+- `projection`: fetches a read model by id using the `ReadModelHandle`. With `required: true`, a missing row fails the command. With `required: false` (default), the value is wrapped as `Result<T, ReadModelNotFound>`.
 
 ## validate and handle
 
@@ -76,10 +114,15 @@ handle: (validated) => ok<ReadonlyArray<OrderPlaced>, never>([{
 
 ## Projectors and processors
 
-Inline functions after append. Projectors update read models, processors emit effect descriptors:
+Inline functions after append. Projectors update read models via `model.project()`, processors emit effect descriptors:
 
 ```typescript
-projectors: [(event) => ({ type: "projection" as const, key: "order-count", value: count })],
+projectors: [(event) => {
+  if (event.type === "OrderPlaced") {
+    const p = event.payload as OrderPlaced["payload"];
+    return orderSummaryModel.project({ orderId: p.orderId, customerId: p.customerId, total: p.total });
+  }
+}],
 processors: [(event) => ({ type: "effect" as const, email: { to, subject, body } })],
 ```
 
@@ -95,14 +138,17 @@ const emailAdapter: EffectAdapter = {
 
 ## Wiring
 
+Projection adapters are created per read model and passed to `createApp`:
+
 ```typescript
-const readModelStore = createInMemoryReadModelStore();
-const eventStore = createInMemoryEventStore(readModelStore);
+const eventStore = createInMemoryEventStore();
 const { adapter, bind } = createInMemoryAdapter();
+
+const orderSummaryProjection = createInMemoryProjectionAdapter(orderSummaryModel);
 
 const app = createApp({
   eventStore,
-  readModelStore,
+  projectionAdapters: [orderSummaryProjection],
   inputAdapter: { adapter, bind },
   effectAdapters: [emailAdapter],
   slices: [placeOrderSlice, getOrderSlice],
@@ -112,30 +158,49 @@ await app.start();
 const result = await app.dispatch("place-order", { ... });
 ```
 
-For HTTP: `import { createHttpAdapter } from "esther/http"` → `createHttpAdapter({ port: 3000 })`.
-For Postgres: `import { createPostgresEventStore, createPostgresReadModelStore, migratePostgresSchema } from "esther/postgres"`.
+Each projection adapter entry has an `adapter` (receives projection results) and a `get` function (reads rows for state resolution).
+
+For HTTP: `import { createFastifyAdapter } from "esther/fastify"`.
+For Postgres:
+
+```typescript
+import {
+  createPostgresEventStore,
+  createPostgresProjectionAdapter,
+  generateCreateTableDDL,
+} from "esther/postgres";
+```
+
+Use `generateCreateTableDDL(handle)` to produce a migration for a read model table.
 
 ## Event store hooks
 
 ```typescript
-eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, (event) => ({
-  type: "projection" as const, key: "order-count", value: { ... },
-}));
+eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, async (event) => {
+  const p = event.payload as OrderPlaced["payload"];
+  const result = orderSummaryModel.project({
+    orderId: p.orderId,
+    customerId: p.customerId,
+    total: p.total,
+  });
+  await projectionAdapter.execute({ ...result, position: BigInt(event.position) });
+});
 ```
 
-Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`.
+Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`. Handlers are async and return `Promise<void>`.
 
 ## Rules
 
-1. All user functions return `Result` — never throw.
+1. All user functions return `Result` -- never throw.
 2. Define event types explicitly: `type MyEvent = DomainEvent<"MyEvent", { ... }>`.
 3. Use `ok<ReadonlyArray<MyEvent>, never>([...])` in handle return.
 4. Use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
 5. Start state with `state<z.output<typeof inputSchema>>()`.
-6. Schemas (`inputSchema`/`outputSchema`) are shared contracts — define externally for client reuse.
-7. Projectors/processors are pure — side effects go in effect adapters.
-8. Tags are your query model — design them for the queries you need.
+6. Schemas (`inputSchema`/`outputSchema`) are shared contracts -- define externally for client reuse.
+7. Projectors/processors are pure -- side effects go in effect adapters.
+8. Tags are your query model -- design them for the queries you need.
 9. The command output reflects post-append state (state is re-resolved after events are stored).
+10. Define read models with `defineReadModel` and use the returned handle in both projectors and `projection()` steps.
 
 ## Full example
 

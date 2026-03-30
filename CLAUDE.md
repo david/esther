@@ -16,8 +16,9 @@ Casts (`as`) are only permitted at these boundaries:
 
 1. **Branded type constructors** — `EventId()`, `StreamPosition()`. By definition.
 2. **`addField()`** in `src/core/slice.ts` — TypeScript cannot infer `{ ...obj, [computedKey]: value }`. One function, one cast.
-3. **Storage/serialization boundaries** — `queryRows<T>()` in postgres adapter, `store.get(key) as T` in read model stores. Deserialization is inherently untyped.
+3. **Storage/serialization boundaries** — `queryRows<T>()` in postgres adapter, `extractValues()` record access in postgres projection adapter. Deserialization and dynamic field access are inherently untyped.
 4. **Postgres catch block** — `e.expected as StreamPosition` in the concurrency error path. The thrown object is constructed internally but crosses an untyped catch boundary.
+5. **Zod internals** — `zodType._def.checks as ZodStringCheck[]` in DDL generation. Zod does not expose check types publicly.
 
 **Nowhere else.** If you need a cast, redesign instead. If truly unavoidable, add it to this list with justification.
 
@@ -37,14 +38,16 @@ src/
 ├── core/
 │   ├── types.ts          # Branded types, DomainEvent, StoredEvent, errors
 │   ├── event-store.ts    # EventStore interface, EventFilter, hooks
-│   ├── read-model-store.ts # ReadModelStore interface
+│   ├── read-model.ts     # defineReadModel, ReadModelHandle, ProjectionAdapter, ProjectionResult
 │   ├── effect-adapter.ts # EffectAdapter + registry
-│   ├── slice.ts          # state(), tagQuery(), projection(), defineCommandSlice/QuerySlice
+│   ├── slice.ts          # state(), tagQuery(), projection(), defineCommandSlice/QuerySlice, ProjectionStore
 │   ├── pipeline.ts       # executeCommand, executeQuery
-│   └── app.ts            # createApp
+│   └── app.ts            # createApp, ProjectionAdapterEntry
 ├── adapters/
-│   ├── in-memory/        # In-memory event store, read model store, input adapter
+│   ├── in-memory/        # In-memory event store, projection adapter, input adapter
 │   ├── fastify/          # Fastify input adapter (input.ts) and effect adapter (effect.ts)
-│   └── postgres/         # Postgres event store, read model store, migration
+│   └── postgres/         # Postgres event store, projection adapter, DDL generation
+├── doc/
+│   └── domain-language.md # Glossary of framework terms
 └── index.ts              # Re-exports
 ```

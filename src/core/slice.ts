@@ -298,9 +298,10 @@ function registerHandlers(
           position: BigInt(event.position),
         };
         const adapter = deps.projectionAdapterRegistry.get(withPosition.name);
-        if (adapter) {
-          await adapter.execute(withPosition);
+        if (!adapter) {
+          throw new Error(`No projection adapter registered for model "${withPosition.name}"`);
         }
+        await adapter.execute(withPosition);
       }
     });
   }

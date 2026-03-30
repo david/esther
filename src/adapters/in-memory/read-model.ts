@@ -15,7 +15,7 @@ type StoredEntry<T> = {
 
 type InMemoryProjectionAdapterResult<T> = {
   readonly adapter: ProjectionAdapter<T>;
-  readonly get: (id: string) => Result<StoredEntry<T>, ReadModelNotFound>;
+  readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
 };
 
 export function createInMemoryProjectionAdapter<T>(
@@ -61,7 +61,7 @@ export function createInMemoryProjectionAdapter<T>(
     },
   };
 
-  function get(id: string): Result<StoredEntry<T>, ReadModelNotFound> {
+  async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
     const entry = store.get(id);
     if (entry === undefined) {
       return err(ReadModelNotFound(modelName, id));
