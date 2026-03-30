@@ -7,6 +7,7 @@ import type {
   ProjectionResult,
   ReadModelHandle,
   ReadModelNotFound,
+  ReadModelViewHandle,
 } from "./read-model.js";
 import type {
   DomainEvent,
@@ -172,28 +173,28 @@ export type ProjectionStep<
 > = {
   readonly _tag: "projection";
   readonly key: TKey;
-  readonly model: ReadModelHandle<TValue>;
+  readonly model: ReadModelHandle<TValue> | ReadModelViewHandle<TValue>;
   readonly id: (ctx: TInput) => string;
   readonly required: TRequired;
 };
 
 export function projection<TKey extends string, TInput, TValue>(descriptor: {
   readonly key: TKey;
-  readonly model: ReadModelHandle<TValue>;
+  readonly model: ReadModelHandle<TValue> | ReadModelViewHandle<TValue>;
   readonly id: (ctx: TInput) => string;
   readonly required: true;
 }): ProjectionStep<TKey, TInput, TValue, true>;
 
 export function projection<TKey extends string, TInput, TValue>(descriptor: {
   readonly key: TKey;
-  readonly model: ReadModelHandle<TValue>;
+  readonly model: ReadModelHandle<TValue> | ReadModelViewHandle<TValue>;
   readonly id: (ctx: TInput) => string;
   readonly required?: false | undefined;
 }): ProjectionStep<TKey, TInput, TValue, false>;
 
 export function projection<TKey extends string, TInput, TValue>(descriptor: {
   readonly key: TKey;
-  readonly model: ReadModelHandle<TValue>;
+  readonly model: ReadModelHandle<TValue> | ReadModelViewHandle<TValue>;
   readonly id: (ctx: TInput) => string;
   readonly required?: boolean | undefined;
 }): ProjectionStep<TKey, TInput, TValue, boolean> {
