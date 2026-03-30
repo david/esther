@@ -1,17 +1,23 @@
-import type { Result } from "neverthrow";
+import { err, type Result } from "neverthrow";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { ProjectionAdapter } from "./read-model.js";
-import type { CompiledSlice, RegisterableSlice } from "./slice.js";
+import type { ProjectionAdapter, ReadModelNotFound } from "./read-model.js";
+import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
+import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.js";
 import type { SliceError } from "./types.js";
 
 // ── App config ─────────────────────────────────────────────────────────
 
+export type ProjectionAdapterEntry = {
+  // biome-ignore lint/suspicious/noExplicitAny: projection adapter result types are erased at the registry level
+  readonly adapter: ProjectionAdapter<any>;
+  readonly get: (id: string) => Result<{ value: unknown; position: bigint }, ReadModelNotFound>;
+};
+
 export type AppConfig = {
   readonly eventStore: EventStore;
-  // biome-ignore lint/suspicious/noExplicitAny: projection adapters are typed at creation; the registry erases the type parameter
-  readonly projectionAdapters?: ReadonlyArray<ProjectionAdapter<any>> | undefined;
+  readonly projectionAdapters?: ReadonlyArray<ProjectionAdapterEntry> | undefined;
   readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
   readonly inputAdapter: {
     readonly adapter: {
@@ -38,15 +44,31 @@ export type App = {
 export function createApp(config: AppConfig): App {
   const { eventStore, inputAdapter, slices } = config;
 
-  // Build projection adapter registry
+  // Build projection adapter registry and projection store
   // biome-ignore lint/suspicious/noExplicitAny: type erased at registry level
   const projectionAdapterRegistry = new Map<string, ProjectionAdapter<any>>();
-  for (const adapter of config.projectionAdapters ?? []) {
-    if (projectionAdapterRegistry.has(adapter.name)) {
-      throw new Error(`Duplicate projection adapter name: "${adapter.name}"`);
+  const projectionGetters = new Map<
+    string,
+    (id: string) => Result<{ value: unknown; position: bigint }, ReadModelNotFound>
+  >();
+  for (const entry of config.projectionAdapters ?? []) {
+    const name = entry.adapter.name;
+    if (projectionAdapterRegistry.has(name)) {
+      throw new Error(`Duplicate projection adapter name: "${name}"`);
     }
-    projectionAdapterRegistry.set(adapter.name, adapter);
+    projectionAdapterRegistry.set(name, entry.adapter);
+    projectionGetters.set(name, entry.get);
   }
+
+  const projectionStore: ProjectionStore = {
+    get: async (name, id) => {
+      const getter = projectionGetters.get(name);
+      if (!getter) {
+        return err(mkReadModelNotFound(name, id));
+      }
+      return getter(id);
+    },
+  };
 
   // Build effect adapter registry
   const effectRegistry: EffectAdapterRegistry = createEffectAdapterRegistry();
@@ -57,7 +79,7 @@ export function createApp(config: AppConfig): App {
   // Compile each slice — the compile closure captured the generics
   // at defineCommandSlice/defineQuerySlice time, so no casts here.
   const compiled = new Map<string, CompiledSlice>();
-  const deps = { eventStore, projectionAdapterRegistry, effectRegistry };
+  const deps = { eventStore, projectionAdapterRegistry, projectionStore, effectRegistry };
 
   for (const slice of slices) {
     compiled.set(slice.name, slice.compile(deps));

@@ -1,5 +1,6 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
+import type { ReadModelNotFound } from "./read-model.js";
 
 // ── Branded types ──────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ export const SchemaError = (message: string, issues: ReadonlyArray<string> = [])
   issues,
 });
 
-export type SliceError = ValidationError | ConcurrencyError | SchemaError;
+export type SliceError = ValidationError | ConcurrencyError | SchemaError | ReadModelNotFound;
 
 // ── Effects ────────────────────────────────────────────────────────────
 

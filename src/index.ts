@@ -10,7 +10,7 @@ export {
 // ── In-memory projection adapter ──────────────────────────────────────
 export { createInMemoryProjectionAdapter } from "./adapters/in-memory/read-model.js";
 // ── App ────────────────────────────────────────────────────────────────
-export { type App, type AppConfig, createApp } from "./core/app.js";
+export { type App, type AppConfig, createApp, type ProjectionAdapterEntry } from "./core/app.js";
 // ── Effect adapters ────────────────────────────────────────────────────
 export {
   createEffectAdapterRegistry,
@@ -44,6 +44,7 @@ export {
   defineCommandSlice,
   defineQuerySlice,
   type ProjectionStep,
+  type ProjectionStore,
   projection,
   type QuerySlice,
   type RegisterableSlice,

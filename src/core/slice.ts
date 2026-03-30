@@ -1,8 +1,13 @@
-import type { Result } from "neverthrow";
+import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type { EffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { ProjectionAdapter, ProjectionResult } from "./read-model.js";
+import type {
+  ProjectionAdapter,
+  ProjectionResult,
+  ReadModelHandle,
+  ReadModelNotFound,
+} from "./read-model.js";
 import type {
   ConcurrencyError,
   DomainEvent,
@@ -12,6 +17,15 @@ import type {
   StoredEvent,
   ValidationError,
 } from "./types.js";
+
+// ── ProjectionStore ───────────────────────────────────────────────────
+
+export type ProjectionStore = {
+  readonly get: (
+    name: string,
+    id: string,
+  ) => Promise<Result<{ value: unknown; position: bigint }, ReadModelNotFound>>;
+};
 
 // ── addField — the ONE computed-key cast in the codebase ───────────────
 // TypeScript cannot infer { ...obj, [key]: value } when key is a variable.
@@ -42,20 +56,31 @@ function isEffectResult(r: unknown): r is EffectResult {
 // A function that takes typed input and produces typed enriched context.
 // Built by composing tagQuery / projection steps via pipe().
 
+export type ResolveResult<TContext> = {
+  readonly context: TContext;
+  readonly maxPosition: bigint;
+};
+
 export type StateResolver<TInput, TContext> = {
   readonly resolve: (
     input: TInput,
     eventStore: EventStore,
-  ) => Promise<{ readonly context: TContext; readonly maxPosition: bigint }>;
+    projectionStore: ProjectionStore,
+  ) => Promise<Result<ResolveResult<TContext>, ReadModelNotFound>>;
 
   readonly pipe: {
     <TKey extends string, TState>(
       step: TagQueryStep<TKey, TContext, TState>,
     ): StateResolver<TInput, TContext & { readonly [K in TKey]: TState }>;
 
-    <TKey extends string, TValue>(
-      step: ProjectionStep<TKey, TContext, TValue>,
-    ): StateResolver<TInput, TContext & { readonly [K in TKey]: TValue }>;
+    <TKey extends string, T, TRequired extends boolean>(
+      step: ProjectionStep<TKey, TContext, T, TRequired>,
+    ): StateResolver<
+      TInput,
+      TContext & {
+        readonly [K in TKey]: TRequired extends true ? T : Result<T, ReadModelNotFound>;
+      }
+    >;
   };
 };
 
@@ -63,43 +88,75 @@ function buildResolver<TInput, TContext>(
   resolveFn: (
     input: TInput,
     eventStore: EventStore,
-  ) => Promise<{ readonly context: TContext; readonly maxPosition: bigint }>,
+    projectionStore: ProjectionStore,
+  ) => Promise<Result<ResolveResult<TContext>, ReadModelNotFound>>,
 ): StateResolver<TInput, TContext> {
   return {
     resolve: resolveFn,
 
     pipe(
-      step: TagQueryStep<string, TContext, unknown> | ProjectionStep<string, TContext, unknown>,
+      step:
+        | TagQueryStep<string, TContext, unknown>
+        | ProjectionStep<string, TContext, unknown, boolean>,
     ) {
       // biome-ignore lint/suspicious/noExplicitAny: pipe overloads carry the correct accumulated type to callers; the body can't express TContext & { [K in TKey]: TState } without the concrete TKey/TState
-      return buildResolver<TInput, any>(async (input, eventStore) => {
-        const prev = await resolveFn(input, eventStore);
+      return buildResolver<TInput, any>(async (input, eventStore, projectionStore) => {
+        const prevResult = await resolveFn(input, eventStore, projectionStore);
+        if (prevResult.isErr()) return prevResult;
+        const prev = prevResult.value;
 
         if (step._tag === "tagQuery") {
           const tags = step.tags(prev.context);
           const result = await eventStore.queryByTags(tags, step.fold);
           const pos = BigInt(result.position);
-          return {
+          return ok({
             context: addField(prev.context, step.key, result.state),
             maxPosition: pos > prev.maxPosition ? pos : prev.maxPosition,
-          };
+          });
         }
 
-        // projection — TODO: rewire to use model handles in task 03
-        return {
-          context: addField(prev.context, step.key, undefined),
+        // projection — read from projection store
+        const projStep = step as ProjectionStep<string, TContext, unknown, boolean>;
+        const id = projStep.id(prev.context);
+        const readResult = await projectionStore.get(projStep.model.name, id);
+
+        if (projStep.required) {
+          if (readResult.isErr()) {
+            return err(readResult.error);
+          }
+          // watermark is position + 1 to align with queryByTags which returns event count
+          const watermark = readResult.value.position + 1n;
+          return ok({
+            context: addField(prev.context, step.key, readResult.value.value),
+            maxPosition: watermark > prev.maxPosition ? watermark : prev.maxPosition,
+          });
+        }
+
+        // optional — wrap as Result
+        if (readResult.isOk()) {
+          // watermark is position + 1 to align with queryByTags which returns event count
+          const watermark = readResult.value.position + 1n;
+          return ok({
+            context: addField(prev.context, step.key, ok(readResult.value.value)),
+            maxPosition: watermark > prev.maxPosition ? watermark : prev.maxPosition,
+          });
+        }
+        return ok({
+          context: addField(prev.context, step.key, err(readResult.error)),
           maxPosition: prev.maxPosition,
-        };
+        });
       });
     },
   };
 }
 
 export function state<TInput>(): StateResolver<TInput, TInput> {
-  return buildResolver<TInput, TInput>(async (input) => ({
-    context: input,
-    maxPosition: 0n,
-  }));
+  return buildResolver<TInput, TInput>(async (input, _eventStore, _projectionStore) =>
+    ok({
+      context: input,
+      maxPosition: 0n,
+    }),
+  );
 }
 
 // ── State step types ───────────────────────────────────────────────────
@@ -119,19 +176,46 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
   return { _tag: "tagQuery", ...descriptor };
 }
 
-export type ProjectionStep<TKey extends string, TInput, _TValue> = {
+export type ProjectionStep<
+  TKey extends string,
+  TInput,
+  TValue,
+  TRequired extends boolean = false,
+> = {
   readonly _tag: "projection";
   readonly key: TKey;
-  readonly name: string;
+  readonly model: ReadModelHandle<TValue>;
   readonly id: (ctx: TInput) => string;
+  readonly required: TRequired;
 };
 
-export function projection<TKey extends string, TInput, TValue = unknown>(descriptor: {
+export function projection<TKey extends string, TInput, TValue>(descriptor: {
   readonly key: TKey;
-  readonly name: string;
+  readonly model: ReadModelHandle<TValue>;
   readonly id: (ctx: TInput) => string;
-}): ProjectionStep<TKey, TInput, TValue> {
-  return { _tag: "projection", ...descriptor };
+  readonly required: true;
+}): ProjectionStep<TKey, TInput, TValue, true>;
+
+export function projection<TKey extends string, TInput, TValue>(descriptor: {
+  readonly key: TKey;
+  readonly model: ReadModelHandle<TValue>;
+  readonly id: (ctx: TInput) => string;
+  readonly required?: false | undefined;
+}): ProjectionStep<TKey, TInput, TValue, false>;
+
+export function projection<TKey extends string, TInput, TValue>(descriptor: {
+  readonly key: TKey;
+  readonly model: ReadModelHandle<TValue>;
+  readonly id: (ctx: TInput) => string;
+  readonly required?: boolean | undefined;
+}): ProjectionStep<TKey, TInput, TValue, boolean> {
+  return {
+    _tag: "projection",
+    key: descriptor.key,
+    model: descriptor.model,
+    id: descriptor.id,
+    required: (descriptor.required ?? false) as boolean,
+  };
 }
 
 // ── Slice-level projector / processor ──────────────────────────────────
@@ -152,6 +236,7 @@ export type CompileDeps = {
   readonly eventStore: EventStore;
   // biome-ignore lint/suspicious/noExplicitAny: type erased at registry level
   readonly projectionAdapterRegistry: Map<string, ProjectionAdapter<any>>;
+  readonly projectionStore: ProjectionStore;
   readonly effectRegistry: EffectAdapterRegistry;
 };
 
@@ -270,7 +355,7 @@ export function defineCommandSlice<
         name: slice.name,
         execute: async (rawInput) => {
           const { executeCommand } = await import("./pipeline.js");
-          return executeCommand(slice, rawInput, deps.eventStore);
+          return executeCommand(slice, rawInput, deps.eventStore, deps.projectionStore);
         },
       };
     },
@@ -304,7 +389,7 @@ export function defineQuerySlice<
       name: slice.name,
       execute: async (rawInput) => {
         const { executeQuery } = await import("./pipeline.js");
-        return executeQuery(slice, rawInput, deps.eventStore);
+        return executeQuery(slice, rawInput, deps.eventStore, deps.projectionStore);
       },
     }),
   };

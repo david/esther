@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { EventStore } from "./event-store.js";
-import type { CommandSlice, QuerySlice } from "./slice.js";
+import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice.js";
 import { type DomainEvent, SchemaError, type SliceError, StreamPosition } from "./types.js";
 
 // ── Command pipeline ───────────────────────────────────────────────────
@@ -15,6 +15,7 @@ export async function executeCommand<
   slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent>,
   rawInput: unknown,
   eventStore: EventStore,
+  projectionStore: ProjectionStore,
 ): Promise<Result<TOutput, SliceError>> {
   // 1. Parse input — Zod guarantees TInput
   const parseResult = slice.inputSchema.safeParse(rawInput);
@@ -24,7 +25,9 @@ export async function executeCommand<
   const input: TInput = parseResult.data;
 
   // 2. Resolve state — fully typed, no casts
-  const { context, maxPosition } = await slice.resolveState.resolve(input, eventStore);
+  const resolveResult = await slice.resolveState.resolve(input, eventStore, projectionStore);
+  if (resolveResult.isErr()) return err(resolveResult.error);
+  const { context, maxPosition } = resolveResult.value;
 
   // 3. Validate — fully typed
   const validateResult = slice.validate(context);
@@ -68,7 +71,9 @@ export async function executeCommand<
   }
 
   // 7. Re-resolve state so output reflects the newly appended events
-  const { context: postAppendContext } = await slice.resolveState.resolve(input, eventStore);
+  const postResolve = await slice.resolveState.resolve(input, eventStore, projectionStore);
+  if (postResolve.isErr()) return err(postResolve.error);
+  const { context: postAppendContext } = postResolve.value;
 
   // 8. Parse output — Zod guarantees TOutput
   const outputParse = slice.outputSchema.safeParse(postAppendContext);
@@ -86,6 +91,7 @@ export async function executeQuery<TInput, TContext, TOutput>(
   slice: QuerySlice<TInput, TContext, TOutput>,
   rawInput: unknown,
   eventStore: EventStore,
+  projectionStore: ProjectionStore,
 ): Promise<Result<TOutput, SliceError>> {
   // 1. Parse input
   const parseResult = slice.inputSchema.safeParse(rawInput);
@@ -95,7 +101,9 @@ export async function executeQuery<TInput, TContext, TOutput>(
   const input: TInput = parseResult.data;
 
   // 2. Resolve state — fully typed, no casts
-  const { context } = await slice.resolveState.resolve(input, eventStore);
+  const resolveResult = await slice.resolveState.resolve(input, eventStore, projectionStore);
+  if (resolveResult.isErr()) return err(resolveResult.error);
+  const { context } = resolveResult.value;
 
   // 3. Handle — fully typed
   const handleResult = slice.handle(context);

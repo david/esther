@@ -3,10 +3,18 @@
  * It mirrors the booking example to verify types flow through.
  */
 
-import { err, ok } from "neverthrow";
+import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import type { DomainEvent, StoredEvent } from "../index.js";
-import { defineCommandSlice, defineQuerySlice, state, tagQuery } from "../index.js";
+import {
+  defineCommandSlice,
+  defineQuerySlice,
+  defineReadModel,
+  projection,
+  type ReadModelNotFound,
+  state,
+  tagQuery,
+} from "../index.js";
 
 // ── Shared contracts ───────────────────────────────────────────────────
 
@@ -67,26 +75,48 @@ type BookingCreated = DomainEvent<
   }
 >;
 
+// ── Read model for pricing ──────────────────────────────────────────────
+
+const pricingModel = defineReadModel({
+  name: "pricing",
+  schema: z.object({
+    propertyId: z.string(),
+    pricePerNight: z.number(),
+  }),
+  key: "propertyId",
+});
+
+type PricingRow = { propertyId: string; pricePerNight: number };
+
 // ── Command slice — pipe() composes typed state, no `unknown` anywhere ─
-// NOTE: projection() step commented out — rewired to use model handles in task 03
 
 const _createBookingSlice = defineCommandSlice({
   name: "create-booking",
   inputSchema: createBookingInputSchema,
   outputSchema: createBookingOutputSchema,
 
-  state: state<CreateBookingInput>().pipe(
-    tagQuery({
-      key: "property" as const,
-      tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-      fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
-    }),
-  ),
+  state: state<CreateBookingInput>()
+    .pipe(
+      tagQuery({
+        key: "property" as const,
+        tags: (ctx) => ["property", `property:${ctx.propertyId}`],
+        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+      }),
+    )
+    .pipe(
+      projection({
+        key: "pricing" as const,
+        model: pricingModel,
+        id: (ctx: CreateBookingInput & { property: PropertyState }) => ctx.propertyId,
+      }),
+    ),
 
   validate: (ctx) => {
-    // ctx is fully typed: CreateBookingInput & { property: PropertyState }
+    // ctx is fully typed: CreateBookingInput & { property: PropertyState } & { pricing: Result<PricingRow, ReadModelNotFound> }
     const _propertyCheck: PropertyState = ctx.property;
     const _inputCheck: string = ctx.propertyId;
+    // pricing is optional (default) so it's a Result
+    const _pricingCheck: Result<PricingRow, ReadModelNotFound> = ctx.pricing;
 
     if (!ctx.property.available) {
       return err({
@@ -114,6 +144,33 @@ const _createBookingSlice = defineCommandSlice({
 
   projectors: [],
   processors: [],
+});
+
+// ── Query slice with required projection ─────────────────────────────
+
+const getPricingInputSchema = z.object({ propertyId: z.string() });
+type GetPricingInput = z.output<typeof getPricingInputSchema>;
+const getPricingOutputSchema = z.object({ pricePerNight: z.number() });
+
+const _getPricingSlice = defineQuerySlice({
+  name: "get-pricing",
+  inputSchema: getPricingInputSchema,
+  outputSchema: getPricingOutputSchema,
+
+  state: state<GetPricingInput>().pipe(
+    projection({
+      key: "pricing" as const,
+      model: pricingModel,
+      id: (ctx: GetPricingInput) => ctx.propertyId,
+      required: true,
+    }),
+  ),
+
+  handle: (ctx) => {
+    // required projection — pricing is T directly, not Result
+    const _pricingCheck: PricingRow = ctx.pricing;
+    return ok({ pricePerNight: ctx.pricing.pricePerNight });
+  },
 });
 
 // ── Query slice ────────────────────────────────────────────────────────

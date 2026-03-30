@@ -10,6 +10,8 @@ import {
   defineCommandSlice,
   defineQuerySlice,
   defineReadModel,
+  projection,
+  ReadModelNotFound,
   StreamPosition,
   state,
   tagQuery,
@@ -389,7 +391,7 @@ describe("dispatch via onAfterInsert", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [projAdapter],
+      projectionAdapters: [{ adapter: projAdapter, get }],
       inputAdapter: { adapter, bind },
       slices: [projectorSlice],
     });
@@ -563,7 +565,10 @@ describe("dispatch via onAfterInsert", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [accountAdapter, ledgerAdapter],
+      projectionAdapters: [
+        { adapter: accountAdapter, get: getAccount },
+        { adapter: ledgerAdapter, get: getLedger },
+      ],
       inputAdapter: { adapter, bind },
       slices: [dualProjectorSlice],
     });
@@ -581,5 +586,228 @@ describe("dispatch via onAfterInsert", () => {
     if (ledgerResult.isOk()) {
       expect(ledgerResult.value.value).toEqual({ entryId: "entry-acc-1", amount: 100 });
     }
+  });
+});
+
+// ── Projection step tests ───────────────────────────────────────────
+
+describe("projection step", () => {
+  const accountModel = defineReadModel({
+    name: "accounts",
+    schema: z.object({
+      accountId: z.string(),
+      balance: z.number(),
+    }),
+    key: "accountId",
+  });
+
+  type AccountRow = { accountId: string; balance: number };
+
+  function buildProjectionApp() {
+    const eventStore = createInMemoryEventStore();
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter, bind } = createInMemoryAdapter();
+
+    // Deposit slice that projects to read model
+    const depositWithProjection = defineCommandSlice({
+      name: "deposit-proj",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            const payload = event.payload as { accountId: string; amount: number };
+            return accountModel.project({
+              accountId: payload.accountId,
+              balance: payload.amount,
+            });
+          }
+          return { type: "effect" as const };
+        },
+      ],
+      processors: [],
+    });
+
+    // Query slice that reads via optional projection step
+    const queryOptional = defineQuerySlice({
+      name: "query-optional",
+      inputSchema: z.object({ accountId: z.string() }),
+      outputSchema: z.any(),
+
+      state: state<{ accountId: string }>().pipe(
+        projection({
+          key: "accountRow" as const,
+          model: accountModel,
+          id: (ctx: { accountId: string }) => ctx.accountId,
+        }),
+      ),
+
+      handle: (ctx) => ok(ctx.accountRow),
+    });
+
+    // Query slice that reads via required projection step
+    const queryRequired = defineQuerySlice({
+      name: "query-required",
+      inputSchema: z.object({ accountId: z.string() }),
+      outputSchema: z.any(),
+
+      state: state<{ accountId: string }>().pipe(
+        projection({
+          key: "accountRow" as const,
+          model: accountModel,
+          id: (ctx: { accountId: string }) => ctx.accountId,
+          required: true,
+        }),
+      ),
+
+      handle: (ctx) => ok(ctx.accountRow),
+    });
+
+    // Command slice with only a projection step (no tagQuery) — tests ConcurrencyError avoidance
+    const projectionOnlySlice = defineCommandSlice({
+      name: "projection-only-cmd",
+      inputSchema: z.object({ accountId: z.string() }),
+      outputSchema: z.any(),
+
+      state: state<{ accountId: string }>().pipe(
+        projection({
+          key: "accountRow" as const,
+          model: accountModel,
+          id: (ctx: { accountId: string }) => ctx.accountId,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: 1 },
+          },
+        ]),
+
+      projectors: [
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            const payload = event.payload as { accountId: string; amount: number };
+            return accountModel.project({
+              accountId: payload.accountId,
+              balance: payload.amount,
+            });
+          }
+          return { type: "effect" as const };
+        },
+      ],
+      processors: [],
+    });
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [{ adapter: projAdapter, get }],
+      inputAdapter: { adapter, bind },
+      slices: [depositWithProjection, queryOptional, queryRequired, projectionOnlySlice],
+    });
+
+    return { app, eventStore, get };
+  }
+
+  test("optional projection, record exists — context has Ok(T)", async () => {
+    const { app } = buildProjectionApp();
+
+    // Seed the read model
+    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 100 });
+
+    // Query via optional projection
+    const result = await app.dispatch("query-optional", { accountId: "acc-1" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      // Optional returns Result — should be Ok
+      const inner = result.value as { isOk: () => boolean; value: AccountRow };
+      expect(inner.isOk()).toBe(true);
+      expect(inner.value).toEqual({ accountId: "acc-1", balance: 100 });
+    }
+  });
+
+  test("optional projection, record missing — context has Err(ReadModelNotFound)", async () => {
+    const { app } = buildProjectionApp();
+
+    const result = await app.dispatch("query-optional", { accountId: "nonexistent" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const inner = result.value as { isErr: () => boolean; error: { _tag: string } };
+      expect(inner.isErr()).toBe(true);
+      expect(inner.error._tag).toBe("ReadModelNotFound");
+    }
+  });
+
+  test("required projection, record exists — context has T", async () => {
+    const { app } = buildProjectionApp();
+
+    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 200 });
+
+    const result = await app.dispatch("query-required", { accountId: "acc-1" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ accountId: "acc-1", balance: 200 });
+    }
+  });
+
+  test("required projection, record missing — error result (ReadModelNotFound)", async () => {
+    const { app } = buildProjectionApp();
+
+    const result = await app.dispatch("query-required", { accountId: "nonexistent" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual(ReadModelNotFound("accounts", "nonexistent"));
+    }
+  });
+
+  test("watermark position advances maxPosition beyond 0n", async () => {
+    const { app } = buildProjectionApp();
+
+    // Append two events to get to position 1
+    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 50 });
+    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 75 });
+
+    // The read model row should have position 1n (second event)
+    // A command slice with only projection step should use watermark as maxPosition
+    // If maxPosition is correctly set from watermark, the append should succeed
+    // (If it were stuck at 0n, it would fail with ConcurrencyError because events exist)
+    const result = await app.dispatch("projection-only-cmd", { accountId: "acc-1" });
+    expect(result.isOk()).toBe(true);
+  });
+
+  test("slice with only projection step can append without ConcurrencyError", async () => {
+    const { app } = buildProjectionApp();
+
+    // First call seeds the model
+    await app.dispatch("deposit-proj", { accountId: "acc-2", amount: 10 });
+
+    // projection-only-cmd has no tagQuery, only a projection step
+    // Its maxPosition comes from the projection watermark
+    const result = await app.dispatch("projection-only-cmd", { accountId: "acc-2" });
+    expect(result.isOk()).toBe(true);
   });
 });
