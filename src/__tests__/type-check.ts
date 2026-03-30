@@ -69,6 +69,7 @@ type BookingCreated = DomainEvent<
   "BookingCreated",
   {
     bookingId: string;
+    confirmedAt: string;
     propertyId: string;
     tenantId: string;
     checkIn: string;
@@ -128,20 +129,24 @@ const _createBookingSlice = defineCommandSlice({
     return ok(ctx);
   },
 
-  handle: (input) =>
-    ok<ReadonlyArray<BookingCreated>, never>([
-      {
-        type: "BookingCreated",
-        tags: ["booking", `property:${input.propertyId}`, `tenant:${input.tenantId}`],
-        payload: {
-          bookingId: crypto.randomUUID(),
-          propertyId: input.propertyId,
-          tenantId: input.tenantId,
-          checkIn: input.checkIn,
-          checkOut: input.checkOut,
-        },
-      },
-    ]),
+  handle: (validated, _ctx): BookingCreated => ({
+    type: "BookingCreated",
+    tags: ["booking", `property:${validated.propertyId}`, `tenant:${validated.tenantId}`],
+    payload: {
+      bookingId: crypto.randomUUID(),
+      confirmedAt: new Date().toISOString(),
+      propertyId: validated.propertyId,
+      tenantId: validated.tenantId,
+      checkIn: validated.checkIn,
+      checkOut: validated.checkOut,
+    },
+  }),
+
+  output: (result) =>
+    result.map((event) => ({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    })),
 
   projectors: [],
   processors: [],
