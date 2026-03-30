@@ -3,7 +3,6 @@ import type {
   AppendResult,
   ConcurrencyError,
   DomainEvent,
-  InlineResult,
   StoredEvent,
   StreamPosition,
 } from "./types.js";
@@ -20,7 +19,7 @@ export type EventFilter =
   | { readonly eventTypes: ReadonlyArray<string> }
   | { readonly tags: ReadonlyArray<string> };
 
-export type OnAfterInsertHandler = (event: StoredEvent) => InlineResult;
+export type OnAfterInsertHandler = (event: StoredEvent) => Promise<void>;
 
 // ── Event store interface ──────────────────────────────────────────────
 

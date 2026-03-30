@@ -2,10 +2,11 @@ import type { Result } from "neverthrow";
 import type { z } from "zod";
 import type { EffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { ReadModelStore } from "./read-model-store.js";
+import type { ProjectionAdapter, ProjectionResult } from "./read-model.js";
 import type {
   ConcurrencyError,
   DomainEvent,
+  EffectResult,
   InlineResult,
   SliceError,
   StoredEvent,
@@ -25,6 +26,18 @@ function addField<TObj, TKey extends string, TValue>(
   return { ...obj, [key]: value } as TObj & { readonly [K in TKey]: TValue };
 }
 
+// ── Type guards ────────────────────────────────────────────────────────
+
+function isProjectionResult(r: unknown): r is ProjectionResult<unknown> {
+  if (typeof r !== "object" || r === null || !("type" in r)) return false;
+  return r.type === "projection";
+}
+
+function isEffectResult(r: unknown): r is EffectResult {
+  if (typeof r !== "object" || r === null || !("type" in r)) return false;
+  return r.type === "effect";
+}
+
 // ── State resolver ─────────────────────────────────────────────────────
 // A function that takes typed input and produces typed enriched context.
 // Built by composing tagQuery / projection steps via pipe().
@@ -33,7 +46,6 @@ export type StateResolver<TInput, TContext> = {
   readonly resolve: (
     input: TInput,
     eventStore: EventStore,
-    readModelStore: ReadModelStore,
   ) => Promise<{ readonly context: TContext; readonly maxPosition: bigint }>;
 
   readonly pipe: {
@@ -51,7 +63,6 @@ function buildResolver<TInput, TContext>(
   resolveFn: (
     input: TInput,
     eventStore: EventStore,
-    readModelStore: ReadModelStore,
   ) => Promise<{ readonly context: TContext; readonly maxPosition: bigint }>,
 ): StateResolver<TInput, TContext> {
   return {
@@ -61,8 +72,8 @@ function buildResolver<TInput, TContext>(
       step: TagQueryStep<string, TContext, unknown> | ProjectionStep<string, TContext, unknown>,
     ) {
       // biome-ignore lint/suspicious/noExplicitAny: pipe overloads carry the correct accumulated type to callers; the body can't express TContext & { [K in TKey]: TState } without the concrete TKey/TState
-      return buildResolver<TInput, any>(async (input, eventStore, readModelStore) => {
-        const prev = await resolveFn(input, eventStore, readModelStore);
+      return buildResolver<TInput, any>(async (input, eventStore) => {
+        const prev = await resolveFn(input, eventStore);
 
         if (step._tag === "tagQuery") {
           const tags = step.tags(prev.context);
@@ -74,11 +85,9 @@ function buildResolver<TInput, TContext>(
           };
         }
 
-        // projection
-        const id = step.id(prev.context);
-        const result = await readModelStore.get(step.name, id);
+        // projection — TODO: rewire to use model handles in task 03
         return {
-          context: addField(prev.context, step.key, result.isOk() ? result.value : undefined),
+          context: addField(prev.context, step.key, undefined),
           maxPosition: prev.maxPosition,
         };
       });
@@ -137,16 +146,21 @@ export type CompiledSlice = {
   readonly execute: (rawInput: unknown) => Promise<Result<unknown, SliceError>>;
 };
 
+// ── Compile dependencies ──────────────────────────────────────────────
+
+export type CompileDeps = {
+  readonly eventStore: EventStore;
+  // biome-ignore lint/suspicious/noExplicitAny: type erased at registry level
+  readonly projectionAdapterRegistry: Map<string, ProjectionAdapter<any>>;
+  readonly effectRegistry: EffectAdapterRegistry;
+};
+
 // ── Registerable slice ─────────────────────────────────────────────────
 
 export type RegisterableSlice = {
   readonly name: string;
   readonly _tag: "command" | "query";
-  readonly compile: (deps: {
-    readonly eventStore: EventStore;
-    readonly readModelStore: ReadModelStore;
-    readonly effectRegistry: EffectAdapterRegistry;
-  }) => CompiledSlice;
+  readonly compile: (deps: CompileDeps) => CompiledSlice;
 };
 
 // ── Command slice (fully generic) ──────────────────────────────────────
@@ -180,6 +194,41 @@ export type QuerySlice<TInput, TContext, TOutput> = RegisterableSlice & {
   readonly resolveState: StateResolver<TInput, TContext>;
   readonly handle: (context: TContext) => Result<TOutput, ValidationError>;
 };
+
+// ── Register projectors/processors as onAfterInsert handlers ──────────
+
+function registerHandlers(
+  slice: {
+    readonly projectors: ReadonlyArray<SliceProjectorFn>;
+    readonly processors: ReadonlyArray<SliceProcessorFn>;
+  },
+  deps: CompileDeps,
+): void {
+  for (const projectorFn of slice.projectors) {
+    deps.eventStore.onAfterInsert({ tags: [] }, async (event: StoredEvent) => {
+      const result = projectorFn(event);
+      if (isProjectionResult(result)) {
+        const withPosition: ProjectionResult<unknown> = {
+          ...result,
+          position: BigInt(event.position),
+        };
+        const adapter = deps.projectionAdapterRegistry.get(withPosition.name);
+        if (adapter) {
+          await adapter.execute(withPosition);
+        }
+      }
+    });
+  }
+
+  for (const processorFn of slice.processors) {
+    deps.eventStore.onAfterInsert({ tags: [] }, async (event: StoredEvent) => {
+      const result = processorFn(event);
+      if (isEffectResult(result)) {
+        await deps.effectRegistry.execute(result);
+      }
+    });
+  }
+}
 
 // ── defineCommandSlice ─────────────────────────────────────────────────
 
@@ -215,19 +264,16 @@ export function defineCommandSlice<
     projectors: definition.projectors,
     processors: definition.processors,
     beforeInsert: definition.beforeInsert,
-    compile: (deps) => ({
-      name: slice.name,
-      execute: async (rawInput) => {
-        const { executeCommand } = await import("./pipeline.js");
-        return executeCommand(
-          slice,
-          rawInput,
-          deps.eventStore,
-          deps.readModelStore,
-          deps.effectRegistry,
-        );
-      },
-    }),
+    compile: (deps) => {
+      registerHandlers(slice, deps);
+      return {
+        name: slice.name,
+        execute: async (rawInput) => {
+          const { executeCommand } = await import("./pipeline.js");
+          return executeCommand(slice, rawInput, deps.eventStore);
+        },
+      };
+    },
   };
   return slice;
 }
@@ -258,7 +304,7 @@ export function defineQuerySlice<
       name: slice.name,
       execute: async (rawInput) => {
         const { executeQuery } = await import("./pipeline.js");
-        return executeQuery(slice, rawInput, deps.eventStore, deps.readModelStore);
+        return executeQuery(slice, rawInput, deps.eventStore);
       },
     }),
   };

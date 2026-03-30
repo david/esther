@@ -6,10 +6,10 @@ import {
   createApp,
   createInMemoryAdapter,
   createInMemoryEventStore,
-  createInMemoryReadModelStore,
+  createInMemoryProjectionAdapter,
   defineCommandSlice,
   defineQuerySlice,
-  projection,
+  defineReadModel,
   StreamPosition,
   state,
   tagQuery,
@@ -144,18 +144,16 @@ const getBalanceSlice = defineQuerySlice({
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function buildApp() {
-  const readModelStore = createInMemoryReadModelStore();
-  const eventStore = createInMemoryEventStore(readModelStore);
+  const eventStore = createInMemoryEventStore();
   const { adapter, bind } = createInMemoryAdapter();
 
   const app = createApp({
     eventStore,
-    readModelStore,
     inputAdapter: { adapter, bind },
     slices: [depositSlice, withdrawSlice, getBalanceSlice],
   });
 
-  return { app, eventStore, readModelStore };
+  return { app, eventStore };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -268,8 +266,7 @@ describe("tag isolation", () => {
 
 describe("optimistic locking", () => {
   test("concurrent appends on same tags conflict", async () => {
-    const readModelStore = createInMemoryReadModelStore();
-    const eventStore = createInMemoryEventStore(readModelStore);
+    const eventStore = createInMemoryEventStore();
 
     // Append first event
     const r1 = await eventStore.append(
@@ -294,19 +291,16 @@ describe("optimistic locking", () => {
 
 describe("event store hooks", () => {
   test("onAfterInsert fires for matching event types", async () => {
-    const readModelStore = createInMemoryReadModelStore();
-    const eventStore = createInMemoryEventStore(readModelStore);
+    const eventStore = createInMemoryEventStore();
 
     const captured: string[] = [];
-    eventStore.onAfterInsert({ eventTypes: ["Deposited"] }, (event) => {
+    eventStore.onAfterInsert({ eventTypes: ["Deposited"] }, async (event) => {
       captured.push(event.type);
-      return { type: "projection" as const, key: "hook-test", value: "fired" };
     });
 
     const { adapter, bind } = createInMemoryAdapter();
     const app = createApp({
       eventStore,
-      readModelStore,
       inputAdapter: { adapter, bind },
       slices: [depositSlice],
     });
@@ -317,19 +311,16 @@ describe("event store hooks", () => {
   });
 
   test("onAfterInsert filters by tags", async () => {
-    const readModelStore = createInMemoryReadModelStore();
-    const eventStore = createInMemoryEventStore(readModelStore);
+    const eventStore = createInMemoryEventStore();
 
     const captured: string[] = [];
-    eventStore.onAfterInsert({ tags: ["account:acc-2"] }, (event) => {
+    eventStore.onAfterInsert({ tags: ["account:acc-2"] }, async (event) => {
       captured.push(event.type);
-      return { type: "projection" as const, key: "hook-test", value: "fired" };
     });
 
     const { adapter, bind } = createInMemoryAdapter();
     const app = createApp({
       eventStore,
-      readModelStore,
       inputAdapter: { adapter, bind },
       slices: [depositSlice],
     });
@@ -341,46 +332,254 @@ describe("event store hooks", () => {
   });
 });
 
-describe("projection state step", () => {
-  test("projection reads from read model store", async () => {
-    const readModelStore = createInMemoryReadModelStore();
-    const eventStore = createInMemoryEventStore(readModelStore);
+describe("dispatch via onAfterInsert", () => {
+  test("projector registered on slice dispatches to projection adapter with correct position", async () => {
+    const accountModel = defineReadModel({
+      name: "accounts",
+      schema: z.object({
+        accountId: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+    });
 
-    // Pre-populate a read model
-    await readModelStore.set("credit-scores", "tenant-1", { score: 750 });
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
 
-    const inputSchema = z.object({ tenantId: z.string() });
-    type Input = z.output<typeof inputSchema>;
-    const outputSchema = z.object({ eligible: z.boolean() });
+    const projectorSlice = defineCommandSlice({
+      name: "deposit-with-projection",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
 
-    const slice = defineQuerySlice({
-      name: "check-eligibility",
-      inputSchema,
-      outputSchema,
-
-      state: state<Input>().pipe(
-        projection<"credit", { tenantId: string }, { score: number }>({
-          key: "credit",
-          name: "credit-scores",
-          id: (ctx) => ctx.tenantId,
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
         }),
       ),
 
-      handle: (ctx) => ok({ eligible: (ctx.credit as { score: number }).score >= 500 }),
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            const payload = event.payload as { accountId: string; amount: number };
+            return accountModel.project({
+              accountId: payload.accountId,
+              balance: payload.amount,
+            });
+          }
+          return { type: "effect" as const };
+        },
+      ],
+      processors: [],
     });
 
+    const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
+
     const app = createApp({
       eventStore,
-      readModelStore,
+      projectionAdapters: [projAdapter],
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      slices: [projectorSlice],
     });
 
-    const result = await app.dispatch("check-eligibility", { tenantId: "tenant-1" });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ eligible: true });
+    // First deposit — event position 0
+    await app.dispatch("deposit-with-projection", { accountId: "acc-1", amount: 100 });
+
+    const result1 = get("acc-1");
+    expect(result1.isOk()).toBe(true);
+    if (result1.isOk()) {
+      expect(result1.value.value).toEqual({ accountId: "acc-1", balance: 100 });
+      expect(result1.value.position).toBe(0n);
+    }
+
+    // Second deposit — event position 1, verifies position stamping overwrites default 0n
+    await app.dispatch("deposit-with-projection", { accountId: "acc-1", amount: 200 });
+
+    const result2 = get("acc-1");
+    expect(result2.isOk()).toBe(true);
+    if (result2.isOk()) {
+      expect(result2.value.value).toEqual({ accountId: "acc-1", balance: 200 });
+      expect(result2.value.position).toBe(1n);
+    }
+  });
+
+  test("processor registered on slice dispatches to effect adapter", async () => {
+    const effectsCaptured: unknown[] = [];
+
+    const processorSlice = defineCommandSlice({
+      name: "deposit-with-processor",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [],
+      processors: [
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            return {
+              type: "effect" as const,
+              effectType: "send-notification",
+              accountId: (event.payload as { accountId: string }).accountId,
+            };
+          }
+          return { type: "effect" as const };
+        },
+      ],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      effectAdapters: [
+        {
+          name: "notification",
+          match: (effect) => "effectType" in effect && effect.effectType === "send-notification",
+          execute: async (effect) => {
+            effectsCaptured.push(effect);
+            return {};
+          },
+        },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [processorSlice],
+    });
+
+    await app.dispatch("deposit-with-processor", { accountId: "acc-1", amount: 100 });
+
+    expect(effectsCaptured).toHaveLength(1);
+    expect(effectsCaptured[0]).toMatchObject({
+      type: "effect",
+      effectType: "send-notification",
+      accountId: "acc-1",
+    });
+  });
+
+  test("two models from same event each get their own result", async () => {
+    const accountModel = defineReadModel({
+      name: "accounts",
+      schema: z.object({
+        accountId: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+    });
+
+    const ledgerModel = defineReadModel({
+      name: "ledger",
+      schema: z.object({
+        entryId: z.string(),
+        amount: z.number(),
+      }),
+      key: "entryId",
+    });
+
+    const { adapter: accountAdapter, get: getAccount } =
+      createInMemoryProjectionAdapter(accountModel);
+    const { adapter: ledgerAdapter, get: getLedger } = createInMemoryProjectionAdapter(ledgerModel);
+
+    const dualProjectorSlice = defineCommandSlice({
+      name: "deposit-dual",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            const payload = event.payload as { accountId: string; amount: number };
+            return accountModel.project({
+              accountId: payload.accountId,
+              balance: payload.amount,
+            });
+          }
+          return { type: "effect" as const };
+        },
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            const payload = event.payload as { accountId: string; amount: number };
+            return ledgerModel.project({
+              entryId: `entry-${payload.accountId}`,
+              amount: payload.amount,
+            });
+          }
+          return { type: "effect" as const };
+        },
+      ],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [accountAdapter, ledgerAdapter],
+      inputAdapter: { adapter, bind },
+      slices: [dualProjectorSlice],
+    });
+
+    await app.dispatch("deposit-dual", { accountId: "acc-1", amount: 100 });
+
+    const accountResult = getAccount("acc-1");
+    expect(accountResult.isOk()).toBe(true);
+    if (accountResult.isOk()) {
+      expect(accountResult.value.value).toEqual({ accountId: "acc-1", balance: 100 });
+    }
+
+    const ledgerResult = getLedger("entry-acc-1");
+    expect(ledgerResult.isOk()).toBe(true);
+    if (ledgerResult.isOk()) {
+      expect(ledgerResult.value.value).toEqual({ entryId: "entry-acc-1", amount: 100 });
     }
   });
 });

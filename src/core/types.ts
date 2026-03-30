@@ -69,18 +69,12 @@ export type SliceError = ValidationError | ConcurrencyError | SchemaError;
 
 // ── Effects ────────────────────────────────────────────────────────────
 
-export type ProjectionResult = {
-  readonly type: "projection";
-  readonly key: string;
-  readonly value: unknown;
-};
-
 export type EffectResult = {
   readonly type: "effect";
   readonly [key: string]: unknown;
 };
 
-export type InlineResult = ProjectionResult | EffectResult;
+export type InlineResult = import("./read-model.js").ProjectionResult<unknown> | EffectResult;
 
 // ── Append result ──────────────────────────────────────────────────────
 

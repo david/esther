@@ -1,28 +1,7 @@
 import { err, ok, type Result } from "neverthrow";
-import type { EffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { ReadModelStore } from "./read-model-store.js";
 import type { CommandSlice, QuerySlice } from "./slice.js";
-import {
-  type DomainEvent,
-  type EffectResult,
-  type ProjectionResult,
-  SchemaError,
-  type SliceError,
-  StreamPosition,
-} from "./types.js";
-
-// ── Type guards ────────────────────────────────────────────────────────
-
-function isProjectionResult(r: unknown): r is ProjectionResult {
-  if (typeof r !== "object" || r === null || !("type" in r)) return false;
-  return r.type === "projection";
-}
-
-function isEffectResult(r: unknown): r is EffectResult {
-  if (typeof r !== "object" || r === null || !("type" in r)) return false;
-  return r.type === "effect";
-}
+import { type DomainEvent, SchemaError, type SliceError, StreamPosition } from "./types.js";
 
 // ── Command pipeline ───────────────────────────────────────────────────
 
@@ -36,8 +15,6 @@ export async function executeCommand<
   slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent>,
   rawInput: unknown,
   eventStore: EventStore,
-  readModelStore: ReadModelStore,
-  effectRegistry: EffectAdapterRegistry,
 ): Promise<Result<TOutput, SliceError>> {
   // 1. Parse input — Zod guarantees TInput
   const parseResult = slice.inputSchema.safeParse(rawInput);
@@ -47,11 +24,7 @@ export async function executeCommand<
   const input: TInput = parseResult.data;
 
   // 2. Resolve state — fully typed, no casts
-  const { context, maxPosition } = await slice.resolveState.resolve(
-    input,
-    eventStore,
-    readModelStore,
-  );
+  const { context, maxPosition } = await slice.resolveState.resolve(input, eventStore);
 
   // 3. Validate — fully typed
   const validateResult = slice.validate(context);
@@ -88,47 +61,17 @@ export async function executeCommand<
   }
 
   // 6. Append events (optimistic locking)
+  // onAfterInsert handlers (projectors, processors) fire inside append
   const appendResult = await eventStore.append(finalEvents, StreamPosition(maxPosition), undefined);
   if (appendResult.isErr()) {
     return err(appendResult.error);
   }
 
-  const storedEvents = appendResult.value.events;
-
   // 7. Re-resolve state so output reflects the newly appended events
-  const { context: postAppendContext } = await slice.resolveState.resolve(
-    input,
-    eventStore,
-    readModelStore,
-  );
-  let outputContext: unknown = postAppendContext;
+  const { context: postAppendContext } = await slice.resolveState.resolve(input, eventStore);
 
-  // 8. Run inline projectors
-  for (const projectorFn of slice.projectors) {
-    for (const event of storedEvents) {
-      const result = projectorFn(event);
-      if (isProjectionResult(result)) {
-        await readModelStore.set(slice.name, result.key, result.value);
-        outputContext = Object.assign(Object.create(null), outputContext, {
-          [result.key]: result.value,
-        });
-      }
-    }
-  }
-
-  // 9. Run inline processors
-  for (const processorFn of slice.processors) {
-    for (const event of storedEvents) {
-      const result = processorFn(event);
-      if (isEffectResult(result)) {
-        const effectOutput = await effectRegistry.execute(result);
-        outputContext = Object.assign(Object.create(null), outputContext, effectOutput);
-      }
-    }
-  }
-
-  // 10. Parse output — Zod guarantees TOutput
-  const outputParse = slice.outputSchema.safeParse(outputContext);
+  // 8. Parse output — Zod guarantees TOutput
+  const outputParse = slice.outputSchema.safeParse(postAppendContext);
   if (!outputParse.success) {
     throw new Error(
       `Output schema validation failed (framework bug): ${outputParse.error.message}`,
@@ -143,7 +86,6 @@ export async function executeQuery<TInput, TContext, TOutput>(
   slice: QuerySlice<TInput, TContext, TOutput>,
   rawInput: unknown,
   eventStore: EventStore,
-  readModelStore: ReadModelStore,
 ): Promise<Result<TOutput, SliceError>> {
   // 1. Parse input
   const parseResult = slice.inputSchema.safeParse(rawInput);
@@ -153,7 +95,7 @@ export async function executeQuery<TInput, TContext, TOutput>(
   const input: TInput = parseResult.data;
 
   // 2. Resolve state — fully typed, no casts
-  const { context } = await slice.resolveState.resolve(input, eventStore, readModelStore);
+  const { context } = await slice.resolveState.resolve(input, eventStore);
 
   // 3. Handle — fully typed
   const handleResult = slice.handle(context);

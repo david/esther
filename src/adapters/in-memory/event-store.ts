@@ -1,7 +1,6 @@
 import { err, ok } from "neverthrow";
 import type { EventFilter, EventStore, OnAfterInsertHandler } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import type { ReadModelStore } from "../../core/read-model-store.js";
 import {
   ConcurrencyError,
   type DomainEvent,
@@ -15,7 +14,7 @@ type AfterInsertRegistration = {
   readonly handler: OnAfterInsertHandler;
 };
 
-export function createInMemoryEventStore(readModelStore: ReadModelStore): EventStore {
+export function createInMemoryEventStore(): EventStore {
   const events: Array<StoredEvent> = [];
   const afterInsertHandlers: Array<AfterInsertRegistration> = [];
 
@@ -54,10 +53,7 @@ export function createInMemoryEventStore(readModelStore: ReadModelStore): EventS
       for (const storedEvent of stored) {
         for (const registration of afterInsertHandlers) {
           if (matchesFilter(storedEvent, registration.filter)) {
-            const result = registration.handler(storedEvent);
-            if (result.type === "projection") {
-              await readModelStore.set("store-projection", result.key, result.value);
-            }
+            await registration.handler(storedEvent);
           }
         }
       }

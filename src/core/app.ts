@@ -2,7 +2,7 @@ import type { Result } from "neverthrow";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { ReadModelStore } from "./read-model-store.js";
+import type { ProjectionAdapter } from "./read-model.js";
 import type { CompiledSlice, RegisterableSlice } from "./slice.js";
 import type { SliceError } from "./types.js";
 
@@ -10,7 +10,8 @@ import type { SliceError } from "./types.js";
 
 export type AppConfig = {
   readonly eventStore: EventStore;
-  readonly readModelStore: ReadModelStore;
+  // biome-ignore lint/suspicious/noExplicitAny: projection adapters are typed at creation; the registry erases the type parameter
+  readonly projectionAdapters?: ReadonlyArray<ProjectionAdapter<any>> | undefined;
   readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
   readonly inputAdapter: {
     readonly adapter: {
@@ -35,8 +36,19 @@ export type App = {
 // ── Create app ─────────────────────────────────────────────────────────
 
 export function createApp(config: AppConfig): App {
-  const { eventStore, readModelStore, inputAdapter, slices } = config;
+  const { eventStore, inputAdapter, slices } = config;
 
+  // Build projection adapter registry
+  // biome-ignore lint/suspicious/noExplicitAny: type erased at registry level
+  const projectionAdapterRegistry = new Map<string, ProjectionAdapter<any>>();
+  for (const adapter of config.projectionAdapters ?? []) {
+    if (projectionAdapterRegistry.has(adapter.name)) {
+      throw new Error(`Duplicate projection adapter name: "${adapter.name}"`);
+    }
+    projectionAdapterRegistry.set(adapter.name, adapter);
+  }
+
+  // Build effect adapter registry
   const effectRegistry: EffectAdapterRegistry = createEffectAdapterRegistry();
   for (const adapter of config.effectAdapters ?? []) {
     effectRegistry.register(adapter);
@@ -45,7 +57,7 @@ export function createApp(config: AppConfig): App {
   // Compile each slice — the compile closure captured the generics
   // at defineCommandSlice/defineQuerySlice time, so no casts here.
   const compiled = new Map<string, CompiledSlice>();
-  const deps = { eventStore, readModelStore, effectRegistry };
+  const deps = { eventStore, projectionAdapterRegistry, effectRegistry };
 
   for (const slice of slices) {
     compiled.set(slice.name, slice.compile(deps));

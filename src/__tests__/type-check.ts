@@ -6,7 +6,7 @@
 import { err, ok } from "neverthrow";
 import { z } from "zod";
 import type { DomainEvent, StoredEvent } from "../index.js";
-import { defineCommandSlice, defineQuerySlice, projection, state, tagQuery } from "../index.js";
+import { defineCommandSlice, defineQuerySlice, state, tagQuery } from "../index.js";
 
 // ── Shared contracts ───────────────────────────────────────────────────
 
@@ -34,10 +34,6 @@ type PropertyState = {
 const initialPropertyState: PropertyState = {
   available: true,
   bookedRanges: [],
-};
-
-type TenantCredit = {
-  creditScore: number;
 };
 
 const propertyReducer = (state: PropertyState, event: StoredEvent): PropertyState => {
@@ -72,44 +68,30 @@ type BookingCreated = DomainEvent<
 >;
 
 // ── Command slice — pipe() composes typed state, no `unknown` anywhere ─
+// NOTE: projection() step commented out — rewired to use model handles in task 03
 
 const _createBookingSlice = defineCommandSlice({
   name: "create-booking",
   inputSchema: createBookingInputSchema,
   outputSchema: createBookingOutputSchema,
 
-  state: state<CreateBookingInput>()
-    .pipe(
-      tagQuery({
-        key: "property" as const,
-        tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
-      }),
-    )
-    .pipe(
-      projection<"tenant", { tenantId: string }, TenantCredit>({
-        key: "tenant",
-        name: "tenant-credit",
-        id: (ctx) => ctx.tenantId,
-      }),
-    ),
+  state: state<CreateBookingInput>().pipe(
+    tagQuery({
+      key: "property" as const,
+      tags: (ctx) => ["property", `property:${ctx.propertyId}`],
+      fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+    }),
+  ),
 
   validate: (ctx) => {
-    // ctx is fully typed: CreateBookingInput & { property: PropertyState } & { tenant: TenantCredit }
+    // ctx is fully typed: CreateBookingInput & { property: PropertyState }
     const _propertyCheck: PropertyState = ctx.property;
-    const _tenantCheck: TenantCredit = ctx.tenant;
     const _inputCheck: string = ctx.propertyId;
 
     if (!ctx.property.available) {
       return err({
         code: "PROPERTY_UNAVAILABLE",
         message: "Property is not available",
-      });
-    }
-    if (ctx.tenant.creditScore < 500) {
-      return err({
-        code: "INSUFFICIENT_CREDIT",
-        message: "Too low",
       });
     }
     return ok(ctx);

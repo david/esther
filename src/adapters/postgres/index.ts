@@ -1,7 +1,7 @@
 import { err, ok } from "neverthrow";
 import type { EventFilter, EventStore, OnAfterInsertHandler } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import { ReadModelNotFound, type ReadModelStore } from "../../core/read-model-store.js";
+import { ReadModelNotFound, type ReadModelStore } from "../../core/read-model.js";
 import { ConcurrencyError, EventId, type StoredEvent, StreamPosition } from "../../core/types.js";
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
@@ -30,11 +30,10 @@ function queryRows<T>(raw: unknown[]): T[] {
 
 export type PostgresEventStoreConfig = {
   readonly sql: PostgresClient;
-  readonly readModelStore: ReadModelStore;
 };
 
 export function createPostgresEventStore(config: PostgresEventStoreConfig): EventStore {
-  const { sql, readModelStore } = config;
+  const { sql } = config;
   const afterInsertHandlers: Array<AfterInsertRegistration> = [];
 
   return {
@@ -102,10 +101,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         for (const storedEvent of stored) {
           for (const registration of afterInsertHandlers) {
             if (matchesFilter(storedEvent, registration.filter)) {
-              const result = registration.handler(storedEvent);
-              if (result.type === "projection") {
-                await readModelStore.set("store-projection", result.key, result.value);
-              }
+              await registration.handler(storedEvent);
             }
           }
         }

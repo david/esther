@@ -4,10 +4,11 @@
 export {
   createInMemoryAdapter,
   createInMemoryEventStore,
-  createInMemoryReadModelStore,
   type DispatchFn,
   type InMemoryInputAdapter,
 } from "./adapters/in-memory/index.js";
+// ── In-memory projection adapter ──────────────────────────────────────
+export { createInMemoryProjectionAdapter } from "./adapters/in-memory/read-model.js";
 // ── App ────────────────────────────────────────────────────────────────
 export { type App, type AppConfig, createApp } from "./core/app.js";
 // ── Effect adapters ────────────────────────────────────────────────────
@@ -25,14 +26,20 @@ export type {
 } from "./core/event-store.js";
 // ── Pipeline ───────────────────────────────────────────────────────────
 export { executeCommand, executeQuery } from "./core/pipeline.js";
-// ── Read model store ───────────────────────────────────────────────────
+// ── Read model ─────────────────────────────────────────────────────────
 export {
+  defineReadModel,
+  type Operation,
+  type ProjectionAdapter,
+  type ProjectionResult,
+  type ReadModelHandle,
   ReadModelNotFound,
   type ReadModelStore,
-} from "./core/read-model-store.js";
+} from "./core/read-model.js";
 // ── Slice definitions ──────────────────────────────────────────────────
 export {
   type CommandSlice,
+  type CompileDeps,
   type CompiledSlice,
   defineCommandSlice,
   defineQuerySlice,
@@ -55,7 +62,6 @@ export {
   EventId,
   type HandlerResult,
   type InlineResult,
-  type ProjectionResult,
   type SchemaError,
   type SliceError,
   type StoredEvent,
