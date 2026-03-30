@@ -2,7 +2,7 @@ import { err, type Result } from "neverthrow";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { ProjectionAdapter, ReadModelNotFound } from "./read-model.js";
+import type { Constraints, ProjectionAdapter, ReadModelNotFound } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
 import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.js";
 import type { SliceError } from "./types.js";
@@ -12,9 +12,9 @@ import type { SliceError } from "./types.js";
 export type ProjectionAdapterEntry = {
   // biome-ignore lint/suspicious/noExplicitAny: projection adapter result types are erased at the registry level
   readonly adapter: ProjectionAdapter<any>;
-  readonly get: (
-    id: string,
-  ) => Promise<Result<{ value: unknown; position: bigint }, ReadModelNotFound>>;
+  readonly get: (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
+  readonly constraints: Constraints;
+  readonly tableName: string;
 };
 
 export type AppConfig = {
@@ -51,7 +51,7 @@ export function createApp(config: AppConfig): App {
   const projectionAdapterRegistry = new Map<string, ProjectionAdapter<any>>();
   const projectionGetters = new Map<
     string,
-    (id: string) => Promise<Result<{ value: unknown; position: bigint }, ReadModelNotFound>>
+    (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>
   >();
   for (const entry of config.projectionAdapters ?? []) {
     const name = entry.adapter.name;
@@ -71,6 +71,18 @@ export function createApp(config: AppConfig): App {
       return await getter(id);
     },
   };
+
+  // Register constraint metadata on event store
+  if (eventStore.registerConstraintMetadata) {
+    for (const entry of config.projectionAdapters ?? []) {
+      for (const cols of entry.constraints.unique ?? []) {
+        const name = `${entry.tableName}_${cols.join("_")}_unique`;
+        eventStore.registerConstraintMetadata({
+          [name]: { columns: [...cols], table: entry.tableName },
+        });
+      }
+    }
+  }
 
   // Build effect adapter registry
   const effectRegistry: EffectAdapterRegistry = createEffectAdapterRegistry();

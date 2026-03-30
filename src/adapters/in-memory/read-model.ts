@@ -10,7 +10,6 @@ import { ReadModelNotFound } from "../../core/read-model.js";
 
 type StoredEntry<T> = {
   readonly value: T;
-  readonly position: bigint;
 };
 
 type InMemoryProjectionAdapterResult<T> = {
@@ -27,7 +26,7 @@ export function createInMemoryProjectionAdapter<T>(
   const adapter: ProjectionAdapter<T> = {
     name: modelName,
     async execute(result: ProjectionResult<T>): Promise<void> {
-      const { key, value, operation, position } = result;
+      const { key, value, operation } = result;
 
       switch (operation) {
         case "insert": {
@@ -36,18 +35,18 @@ export function createInMemoryProjectionAdapter<T>(
               `Insert failed: key "${key}" already exists in read model "${modelName}"`,
             );
           }
-          store.set(key, { value, position });
+          store.set(key, { value });
           break;
         }
         case "update": {
           if (!store.has(key)) {
             throw new Error(`Update failed: key "${key}" not found in read model "${modelName}"`);
           }
-          store.set(key, { value, position });
+          store.set(key, { value });
           break;
         }
         case "upsert": {
-          store.set(key, { value, position });
+          store.set(key, { value });
           break;
         }
         case "delete": {

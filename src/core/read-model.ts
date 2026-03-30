@@ -24,13 +24,17 @@ export type ProjectionResult<T> = {
   readonly key: string;
   readonly value: T;
   readonly operation: Operation;
-  readonly position: bigint;
+};
+
+export type Constraints = {
+  readonly unique?: ReadonlyArray<ReadonlyArray<string>>;
 };
 
 export type ReadModelHandle<T> = {
   readonly name: string;
   readonly key: string;
   readonly schema: z.ZodObject<z.ZodRawShape>;
+  readonly constraints: Constraints;
   readonly project: (value: T, operation?: Operation) => ProjectionResult<T>;
 };
 
@@ -58,6 +62,7 @@ type DefineReadModelInput<S extends z.ZodObject<z.ZodRawShape>> = {
   readonly name: string;
   readonly key: string & keyof z.infer<S>;
   readonly schema: S;
+  readonly constraints?: Constraints;
 };
 
 export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
@@ -65,7 +70,7 @@ export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
 ): ReadModelHandle<z.infer<S>> {
   type T = z.infer<S>;
 
-  const { name, key, schema } = input;
+  const { name, key, schema, constraints = {} } = input;
 
   // Validate model name
   if (!NAME_PATTERN.test(name)) {
@@ -94,10 +99,29 @@ export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
     throw new Error(`Key field "${key}" not found in schema for read model "${name}"`);
   }
 
+  // Validate constraint columns
+  if (constraints.unique) {
+    for (const columns of constraints.unique) {
+      for (const col of columns) {
+        if (!NAME_PATTERN.test(col)) {
+          throw new Error(
+            `Invalid constraint column name "${col}" in read model "${name}": must match [a-zA-Z][a-zA-Z0-9_]*`,
+          );
+        }
+        if (!(col in shape)) {
+          throw new Error(
+            `Constraint column "${col}" does not exist in schema for read model "${name}"`,
+          );
+        }
+      }
+    }
+  }
+
   return {
     name,
     key,
     schema,
+    constraints,
     project(value: T, operation: Operation = "upsert"): ProjectionResult<T> {
       const keyValue = String(value[key as keyof T]);
       return {
@@ -106,7 +130,6 @@ export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
         key: keyValue,
         value,
         operation,
-        position: 0n,
       };
     },
   };

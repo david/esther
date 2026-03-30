@@ -25,13 +25,8 @@ const member: Member = {
   active: true,
 };
 
-function makeResult(
-  value: Member,
-  operation: "insert" | "update" | "upsert" | "delete",
-  position = 1n,
-) {
-  const result = handle.project(value, operation);
-  return { ...result, position };
+function makeResult(value: Member, operation: "insert" | "update" | "upsert" | "delete") {
+  return handle.project(value, operation);
 }
 
 // ── insert ──────────────────────────────────────────────────────────
@@ -62,7 +57,7 @@ describe("update", () => {
     await adapter.execute(makeResult(member, "insert"));
 
     const updated = { ...member, name: "Bob" };
-    await adapter.execute(makeResult(updated, "update", 2n));
+    await adapter.execute(makeResult(updated, "update"));
 
     const result = await get(member.id);
     expect(result._unsafeUnwrap().value.name).toBe("Bob");
@@ -92,7 +87,7 @@ describe("upsert", () => {
     await adapter.execute(makeResult(member, "upsert"));
 
     const updated = { ...member, name: "Carol" };
-    await adapter.execute(makeResult(updated, "upsert", 2n));
+    await adapter.execute(makeResult(updated, "upsert"));
 
     const result = await get(member.id);
     expect(result._unsafeUnwrap().value.name).toBe("Carol");
@@ -105,7 +100,7 @@ describe("delete", () => {
   test("deletes existing key and get returns ReadModelNotFound", async () => {
     const { adapter, get } = createInMemoryProjectionAdapter(handle);
     await adapter.execute(makeResult(member, "insert"));
-    await adapter.execute(makeResult(member, "delete", 2n));
+    await adapter.execute(makeResult(member, "delete"));
 
     const result = await get(member.id);
     expect(result.isErr()).toBe(true);
@@ -131,25 +126,5 @@ describe("get", () => {
     expect(error._tag).toBe("ReadModelNotFound");
     expect(error.name).toBe("member");
     expect(error.id).toBe("nonexistent");
-  });
-});
-
-// ── position tracking ───────────────────────────────────────────────
-
-describe("position", () => {
-  test("stores position from ProjectionResult", async () => {
-    const { adapter, get } = createInMemoryProjectionAdapter(handle);
-    await adapter.execute(makeResult(member, "insert", 42n));
-
-    const result = await get(member.id);
-    expect(result._unsafeUnwrap().position).toBe(42n);
-  });
-
-  test("updates position on update", async () => {
-    const { adapter, get } = createInMemoryProjectionAdapter(handle);
-    await adapter.execute(makeResult(member, "insert", 1n));
-    await adapter.execute(makeResult(member, "update", 5n));
-
-    expect((await get(member.id))._unsafeUnwrap().position).toBe(5n);
   });
 });

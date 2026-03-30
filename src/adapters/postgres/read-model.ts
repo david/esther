@@ -45,24 +45,30 @@ function zodToColumnType(zodType: z.ZodTypeAny): string {
 // ── generateCreateTableDDL ─────────────────────────────────────────────
 
 export function generateCreateTableDDL<T>(handle: ReadModelHandle<T>): string {
-  const { name, key, schema } = handle;
+  const { name, key, schema, constraints } = handle;
   const shape = schema.shape;
 
-  const columns: string[] = [];
+  const clauses: string[] = [];
   for (const fieldName of Object.keys(shape)) {
     const fieldType = shape[fieldName];
     if (fieldType === undefined) continue;
     const colType = zodToColumnType(fieldType);
-    columns.push(`  "${fieldName}" ${colType} NOT NULL`);
+    clauses.push(`  "${fieldName}" ${colType} NOT NULL`);
   }
-  columns.push('  "_position" BIGINT NOT NULL');
 
-  const columnsDDL = columns.join(",\n");
+  clauses.push(`  PRIMARY KEY ("${key}")`);
+
+  for (const cols of constraints.unique ?? []) {
+    const constraintName = `${name}_${cols.join("_")}_unique`;
+    const quotedCols = cols.map((c) => `"${c}"`).join(", ");
+    clauses.push(`  CONSTRAINT "${constraintName}" UNIQUE (${quotedCols})`);
+  }
+
+  const clausesDDL = clauses.join(",\n");
 
   return `-- migrate:up
 CREATE TABLE "${name}" (
-${columnsDDL},
-  PRIMARY KEY ("${key}")
+${clausesDDL}
 );
 
 -- migrate:down
@@ -74,7 +80,6 @@ DROP TABLE "${name}";
 
 type StoredEntry<T> = {
   readonly value: T;
-  readonly position: bigint;
 };
 
 type PostgresProjectionAdapterResult<T> = {
@@ -93,30 +98,27 @@ export function createPostgresProjectionAdapter<T>(
 ): PostgresProjectionAdapterResult<T> {
   const { name: tableName, key, schema } = handle;
   const columns = Object.keys(schema.shape);
-  const allColumns = [...columns, "_position"];
 
   // Pre-build quoted column lists
-  const quotedColumns = allColumns.map((c) => `"${c}"`).join(", ");
-  const placeholders = allColumns.map((_, i) => `$${i + 1}`).join(", ");
+  const quotedColumns = columns.map((c) => `"${c}"`).join(", ");
+  const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
 
-  function extractValues(value: T, position: bigint): unknown[] {
+  function extractValues(value: T): unknown[] {
     const record = value as Record<string, unknown>;
     const vals: unknown[] = [];
     for (const col of columns) {
       vals.push(record[col]);
     }
-    vals.push(position.toString());
     return vals;
   }
 
-  function extractUpdateValues(value: T, position: bigint): unknown[] {
+  function extractUpdateValues(value: T): unknown[] {
     const record = value as Record<string, unknown>;
-    // Values for the SET clause (all columns except key, plus _position)
+    // Values for the SET clause (all columns except key)
     const setValues: unknown[] = [];
     for (const col of columns) {
       if (col !== key) setValues.push(record[col]);
     }
-    setValues.push(position.toString());
     return setValues;
   }
 
@@ -124,11 +126,11 @@ export function createPostgresProjectionAdapter<T>(
     name: tableName,
 
     async execute(result: ProjectionResult<T>): Promise<void> {
-      const { key: keyValue, value, operation, position } = result;
+      const { key: keyValue, value, operation } = result;
 
       switch (operation) {
         case "insert": {
-          const vals = extractValues(value, position);
+          const vals = extractValues(value);
           await sql.unsafe(
             `INSERT INTO "${tableName}" (${quotedColumns}) VALUES (${placeholders})`,
             vals,
@@ -137,10 +139,10 @@ export function createPostgresProjectionAdapter<T>(
         }
 
         case "update": {
-          // Build SET for non-key columns plus _position
-          const nonKeyColumns = [...columns.filter((c) => c !== key), "_position"];
+          // Build SET for non-key columns
+          const nonKeyColumns = columns.filter((c) => c !== key);
           const updatePlaceholders = nonKeyColumns.map((c, i) => `"${c}" = $${i + 1}`).join(", ");
-          const updateVals = extractUpdateValues(value, position);
+          const updateVals = extractUpdateValues(value);
           const keyParamIndex = updateVals.length + 1;
 
           const updated = queryRows<Record<string, unknown>>(
@@ -159,12 +161,12 @@ export function createPostgresProjectionAdapter<T>(
         }
 
         case "upsert": {
-          const vals = extractValues(value, position);
-          const nonKeyColumns = [...columns.filter((c) => c !== key), "_position"];
+          const vals = extractValues(value);
+          const nonKeyColumns = columns.filter((c) => c !== key);
           const conflictSet = nonKeyColumns
-            .map((c, i) => `"${c}" = $${i + 1 + allColumns.length}`)
+            .map((c, i) => `"${c}" = $${i + 1 + columns.length}`)
             .join(", ");
-          const upsertVals = [...vals, ...extractUpdateValues(value, position)];
+          const upsertVals = [...vals, ...extractUpdateValues(value)];
 
           await sql.unsafe(
             `INSERT INTO "${tableName}" (${quotedColumns}) VALUES (${placeholders})
@@ -194,10 +196,7 @@ export function createPostgresProjectionAdapter<T>(
   async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
     const selectColumns = columns.map((c) => `"${c}"`).join(", ");
     const rows = queryRows<Record<string, unknown>>(
-      await sql.unsafe(
-        `SELECT ${selectColumns}, "_position" FROM "${tableName}" WHERE "${key}" = $1`,
-        [id],
-      ),
+      await sql.unsafe(`SELECT ${selectColumns} FROM "${tableName}" WHERE "${key}" = $1`, [id]),
     );
 
     if (rows.length === 0) {
@@ -205,7 +204,6 @@ export function createPostgresProjectionAdapter<T>(
     }
 
     const row = rows[0] as Record<string, unknown>;
-    // Build the value object from the row's data columns (exclude _position)
     const valueObj: Record<string, unknown> = {};
     for (const col of columns) {
       valueObj[col] = row[col];
@@ -213,7 +211,6 @@ export function createPostgresProjectionAdapter<T>(
 
     return ok({
       value: valueObj as T,
-      position: BigInt(row._position as string | number),
     });
   }
 

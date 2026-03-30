@@ -50,7 +50,7 @@ export function createFastifyInputAdapter(config: FastifyAdapterConfig): {
     const error = result.error;
     if ("_tag" in error) {
       switch (error._tag) {
-        case "ConcurrencyError":
+        case "ConstraintError":
           return reply.status(409).send({ error });
         case "SchemaError":
           return reply.status(400).send({ error });

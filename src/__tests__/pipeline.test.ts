@@ -12,7 +12,6 @@ import {
   defineReadModel,
   projection,
   ReadModelNotFound,
-  StreamPosition,
   state,
   tagQuery,
 } from "../index.js";
@@ -266,31 +265,6 @@ describe("tag isolation", () => {
   });
 });
 
-describe("optimistic locking", () => {
-  test("concurrent appends on same tags conflict", async () => {
-    const eventStore = createInMemoryEventStore();
-
-    // Append first event
-    const r1 = await eventStore.append(
-      [{ type: "Deposited", tags: ["account:1"], payload: { amount: 50 } }],
-      StreamPosition(0n),
-      undefined,
-    );
-    expect(r1.isOk()).toBe(true);
-
-    // Try to append at stale position (0 instead of 1)
-    const r2 = await eventStore.append(
-      [{ type: "Deposited", tags: ["account:1"], payload: { amount: 30 } }],
-      StreamPosition(0n),
-      undefined,
-    );
-    expect(r2.isErr()).toBe(true);
-    if (r2.isErr()) {
-      expect(r2.error._tag).toBe("ConcurrencyError");
-    }
-  });
-});
-
 describe("event store hooks", () => {
   test("onAfterInsert fires for matching event types", async () => {
     const eventStore = createInMemoryEventStore();
@@ -334,8 +308,156 @@ describe("event store hooks", () => {
   });
 });
 
+describe("processor routing to onAfterCommit", () => {
+  test("processors fire via onAfterCommit, not onAfterInsert", async () => {
+    const insertOrder: string[] = [];
+    const commitOrder: string[] = [];
+
+    const eventStore = createInMemoryEventStore();
+
+    // Register raw hooks to track ordering
+    eventStore.onAfterInsert({ tags: [] }, async (_event) => {
+      insertOrder.push("raw-insert-hook");
+    });
+    eventStore.onAfterCommit({ tags: [] }, async (_event) => {
+      commitOrder.push("raw-commit-hook");
+    });
+
+    const effectsCaptured: unknown[] = [];
+
+    const processorSlice = defineCommandSlice({
+      name: "deposit-processor-routing",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated) =>
+        ok<ReadonlyArray<Deposited>, never>([
+          {
+            type: "Deposited",
+            tags: [`account:${validated.accountId}`],
+            payload: { accountId: validated.accountId, amount: validated.amount },
+          },
+        ]),
+
+      projectors: [],
+      processors: [
+        (event: StoredEvent) => {
+          if (event.type === "Deposited") {
+            return {
+              type: "effect" as const,
+              effectType: "send-notification",
+              accountId: (event.payload as { accountId: string }).accountId,
+            };
+          }
+          return { type: "effect" as const };
+        },
+      ],
+    });
+
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      effectAdapters: [
+        {
+          name: "notification",
+          match: (effect) => "effectType" in effect && effect.effectType === "send-notification",
+          execute: async (effect) => {
+            effectsCaptured.push(effect);
+            return {};
+          },
+        },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [processorSlice],
+    });
+
+    await app.dispatch("deposit-processor-routing", { accountId: "acc-1", amount: 100 });
+
+    // The processor should have fired (via onAfterCommit)
+    expect(effectsCaptured).toHaveLength(1);
+
+    // Both raw hooks should have fired
+    expect(insertOrder).toEqual(["raw-insert-hook"]);
+    expect(commitOrder).toEqual(["raw-commit-hook"]);
+  });
+});
+
+describe("constraint metadata registration", () => {
+  test("createApp registers constraint metadata on event store", () => {
+    const registered: Record<string, { columns: ReadonlyArray<string>; table: string }>[] = [];
+
+    const eventStore = createInMemoryEventStore();
+    // Patch in registerConstraintMetadata for testing
+    const testStore = {
+      ...eventStore,
+      registerConstraintMetadata: (
+        metadata: Record<string, { columns: ReadonlyArray<string>; table: string }>,
+      ) => {
+        registered.push(metadata);
+      },
+    };
+
+    const accountModel = defineReadModel({
+      name: "accounts",
+      schema: z.object({
+        accountId: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+      constraints: { unique: [["accountId"]] },
+    });
+
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter, bind } = createInMemoryAdapter();
+
+    createApp({
+      eventStore: testStore,
+      projectionAdapters: [
+        {
+          adapter: projAdapter,
+          get,
+          constraints: { unique: [["accountId"]] },
+          tableName: "accounts",
+        },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [],
+    });
+
+    expect(registered).toEqual([
+      { accounts_accountId_unique: { columns: ["accountId"], table: "accounts" } },
+    ]);
+  });
+
+  test("createApp skips constraint registration when registerConstraintMetadata is absent", () => {
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    // Should not throw even without registerConstraintMetadata
+    expect(() =>
+      createApp({
+        eventStore,
+        projectionAdapters: [],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe("dispatch via onAfterInsert", () => {
-  test("projector registered on slice dispatches to projection adapter with correct position", async () => {
+  test("projector registered on slice dispatches to projection adapter", async () => {
     const accountModel = defineReadModel({
       name: "accounts",
       schema: z.object({
@@ -391,7 +513,7 @@ describe("dispatch via onAfterInsert", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [{ adapter: projAdapter, get }],
+      projectionAdapters: [{ adapter: projAdapter, get, constraints: {}, tableName: "accounts" }],
       inputAdapter: { adapter, bind },
       slices: [projectorSlice],
     });
@@ -403,17 +525,15 @@ describe("dispatch via onAfterInsert", () => {
     expect(result1.isOk()).toBe(true);
     if (result1.isOk()) {
       expect(result1.value.value).toEqual({ accountId: "acc-1", balance: 100 });
-      expect(result1.value.position).toBe(0n);
     }
 
-    // Second deposit — event position 1, verifies position stamping overwrites default 0n
+    // Second deposit — verifies upsert overwrites
     await app.dispatch("deposit-with-projection", { accountId: "acc-1", amount: 200 });
 
     const result2 = await get("acc-1");
     expect(result2.isOk()).toBe(true);
     if (result2.isOk()) {
       expect(result2.value.value).toEqual({ accountId: "acc-1", balance: 200 });
-      expect(result2.value.position).toBe(1n);
     }
   });
 
@@ -566,8 +686,8 @@ describe("dispatch via onAfterInsert", () => {
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { adapter: accountAdapter, get: getAccount },
-        { adapter: ledgerAdapter, get: getLedger },
+        { adapter: accountAdapter, get: getAccount, constraints: {}, tableName: "accounts" },
+        { adapter: ledgerAdapter, get: getLedger, constraints: {}, tableName: "ledger" },
       ],
       inputAdapter: { adapter, bind },
       slices: [dualProjectorSlice],
@@ -614,8 +734,8 @@ describe("duplicate model names at createApp", () => {
       createApp({
         eventStore,
         projectionAdapters: [
-          { adapter: adapter1.adapter, get: adapter1.get },
-          { adapter: adapter2.adapter, get: adapter2.get },
+          { adapter: adapter1.adapter, get: adapter1.get, constraints: {}, tableName: "accounts" },
+          { adapter: adapter2.adapter, get: adapter2.get, constraints: {}, tableName: "accounts" },
         ],
         inputAdapter: { adapter, bind },
         slices: [],
@@ -814,7 +934,7 @@ describe("projection step", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [{ adapter: projAdapter, get }],
+      projectionAdapters: [{ adapter: projAdapter, get, constraints: {}, tableName: "accounts" }],
       inputAdapter: { adapter, bind },
       slices: [depositWithProjection, queryOptional, queryRequired, projectionOnlySlice],
     });
@@ -871,33 +991,6 @@ describe("projection step", () => {
     if (result.isErr()) {
       expect(result.error).toEqual(ReadModelNotFound("accounts", "nonexistent"));
     }
-  });
-
-  test("watermark position advances maxPosition beyond 0n", async () => {
-    const { app } = buildProjectionApp();
-
-    // Append two events to get to position 1
-    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 50 });
-    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 75 });
-
-    // The read model row should have position 1n (second event)
-    // A command slice with only projection step should use watermark as maxPosition
-    // If maxPosition is correctly set from watermark, the append should succeed
-    // (If it were stuck at 0n, it would fail with ConcurrencyError because events exist)
-    const result = await app.dispatch("projection-only-cmd", { accountId: "acc-1" });
-    expect(result.isOk()).toBe(true);
-  });
-
-  test("slice with only projection step can append without ConcurrencyError", async () => {
-    const { app } = buildProjectionApp();
-
-    // First call seeds the model
-    await app.dispatch("deposit-proj", { accountId: "acc-2", amount: 10 });
-
-    // projection-only-cmd has no tagQuery, only a projection step
-    // Its maxPosition comes from the projection watermark
-    const result = await app.dispatch("projection-only-cmd", { accountId: "acc-2" });
-    expect(result.isOk()).toBe(true);
   });
 });
 
@@ -961,7 +1054,9 @@ describe("replay", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [{ adapter: projAdapter, get }],
+      projectionAdapters: [
+        { adapter: projAdapter, get, constraints: {}, tableName: "replayAccounts" },
+      ],
       inputAdapter: { adapter, bind },
       slices: [replayDepositSlice],
     });
@@ -996,10 +1091,7 @@ describe("replay", () => {
     for (const event of allEvents) {
       const result = projector(event);
       if (result.type === "projection") {
-        await freshAdapter.execute({
-          ...result,
-          position: BigInt(event.position),
-        });
+        await freshAdapter.execute(result);
       }
     }
 
@@ -1017,7 +1109,7 @@ describe("replay", () => {
     }
   });
 
-  test("watermark positions are rebuilt from event positions after replay", async () => {
+  test("replay rebuilds correct read model state from events", async () => {
     const { app, eventStore } = buildReplayApp();
 
     // Dispatch three events
@@ -1035,25 +1127,22 @@ describe("replay", () => {
     for (const event of allEvents) {
       const result = projector(event);
       if (result.type === "projection") {
-        await freshAdapter.execute({
-          ...result,
-          position: BigInt(event.position),
-        });
+        await freshAdapter.execute(result);
       }
     }
 
-    // acc-1 was last written at event position 1 (second deposit)
+    // acc-1 was last written with the second deposit (amount: 20)
     const acc1 = await freshGet("acc-1");
     expect(acc1.isOk()).toBe(true);
     if (acc1.isOk()) {
-      expect(acc1.value.position).toBe(1n);
+      expect(acc1.value.value).toEqual({ accountId: "acc-1", balance: 20 });
     }
 
-    // acc-2 was written at event position 2 (third deposit)
+    // acc-2 was written with the third deposit (amount: 30)
     const acc2 = await freshGet("acc-2");
     expect(acc2.isOk()).toBe(true);
     if (acc2.isOk()) {
-      expect(acc2.value.position).toBe(2n);
+      expect(acc2.value.value).toEqual({ accountId: "acc-2", balance: 30 });
     }
   });
 });
@@ -1144,7 +1233,7 @@ describe("end-to-end integration", () => {
 
     const app = createApp({
       eventStore,
-      projectionAdapters: [{ adapter: projAdapter, get }],
+      projectionAdapters: [{ adapter: projAdapter, get, constraints: {}, tableName: "balances" }],
       inputAdapter: { adapter, bind },
       slices: [depositSliceE2E, getBalanceE2E],
     });

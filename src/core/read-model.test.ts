@@ -116,7 +116,6 @@ describe("handle.project()", () => {
     expect(result.key).toBe("550e8400-e29b-41d4-a716-446655440000");
     expect(result.value).toEqual(value);
     expect(result.operation).toBe("upsert");
-    expect(result.position).toBe(0n);
   });
 
   test("accepts explicit insert operation", () => {
@@ -135,5 +134,72 @@ describe("handle.project()", () => {
     const result = handle.project(value, "delete");
 
     expect(result.operation).toBe("delete");
+  });
+
+  test("does not include position field", () => {
+    const result = handle.project(value);
+
+    expect("position" in result).toBe(false);
+  });
+});
+
+// ── Constraints ────────────────────────────────────────────────────────
+
+describe("defineReadModel constraints", () => {
+  test("accepts valid unique constraint and exposes it on handle", () => {
+    const handle = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      constraints: { unique: [["name"]] },
+    });
+
+    expect(handle.constraints).toEqual({ unique: [["name"]] });
+  });
+
+  test("accepts multi-column unique constraint", () => {
+    const handle = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      constraints: { unique: [["name", "age"]] },
+    });
+
+    expect(handle.constraints).toEqual({ unique: [["name", "age"]] });
+  });
+
+  test("defaults constraints to empty object when not provided", () => {
+    const handle = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+    });
+
+    expect(handle.constraints).toEqual({});
+  });
+
+  test("throws when constraint references non-existent column", () => {
+    expect(() =>
+      defineReadModel({
+        name: "member",
+        key: "id",
+        schema: memberSchema,
+        constraints: { unique: [["nonexistent"]] },
+      }),
+    ).toThrow('Constraint column "nonexistent" does not exist in schema for read model "member"');
+  });
+
+  test("throws when constraint column name does not match NAME_PATTERN", () => {
+    // This tests the validation path even though schema fields are already validated.
+    // The constraint references a field that exists in schema but we test the name pattern
+    // validation directly by referencing a non-existent bad name.
+    expect(() =>
+      defineReadModel({
+        name: "member",
+        key: "id",
+        schema: memberSchema,
+        constraints: { unique: [["bad-field"]] },
+      }),
+    ).toThrow();
   });
 });

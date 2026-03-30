@@ -1,6 +1,6 @@
 # Esther — Event Sourcing Framework
 
-> DCB-based event sourcing for TypeScript. No aggregates, tag-based event queries, optimistic locking.
+> DCB-based event sourcing for TypeScript. No aggregates, tag-based event queries, database constraint enforcement.
 
 ## Imports
 
@@ -50,6 +50,9 @@ const orderSummaryModel = defineReadModel({
     customerId: z.string().uuid(),
     total: z.number(),
   }),
+  constraints: {
+    unique: [["customerId"]], // optional — database enforces uniqueness
+  },
 });
 ```
 
@@ -91,7 +94,7 @@ state: state<Input>()
   }))
 ```
 
-- `tagQuery`: queries events by tag intersection, folds to state. Framework tracks position for optimistic locking.
+- `tagQuery`: queries events by tag intersection, folds to state.
 - `projection`: fetches a read model by id using the `ReadModelHandle`. With `required: true`, a missing row fails the command. With `required: false` (default), the value is wrapped as `Result<T, ReadModelNotFound>`.
 
 ## validate and handle
@@ -158,7 +161,7 @@ await app.start();
 const result = await app.dispatch("place-order", { ... });
 ```
 
-Each projection adapter entry has an `adapter` (receives projection results) and a `get` function (reads rows for state resolution).
+Each projection adapter entry has an `adapter` (receives projection results), a `get` function (reads rows for state resolution), `constraints` from the read model, and `tableName` for constraint metadata registration.
 
 For HTTP: `import { createFastifyAdapter } from "esther/fastify"`.
 For Postgres:
@@ -175,7 +178,13 @@ Use `generateCreateTableDDL(handle)` to produce a migration for a read model tab
 
 ## Event store hooks
 
+Two hook types:
+
+- `onAfterInsert` — runs inside the database transaction (projectors). Constraint violations here roll back the event.
+- `onAfterCommit` — runs after the transaction commits (processors). Fire-and-forget.
+
 ```typescript
+// Projector — runs in-transaction
 eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, async (event) => {
   const p = event.payload as OrderPlaced["payload"];
   const result = orderSummaryModel.project({
@@ -183,11 +192,31 @@ eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, async (event) => {
     customerId: p.customerId,
     total: p.total,
   });
-  await projectionAdapter.execute({ ...result, position: BigInt(event.position) });
+  await projectionAdapter.execute(result);
+});
+
+// Processor — runs post-commit
+eventStore.onAfterCommit({ eventTypes: ["OrderPlaced"] }, async (event) => {
+  await sendNotification(event);
 });
 ```
 
 Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`. Handlers are async and return `Promise<void>`.
+
+## Errors
+
+Command execution returns `Result<TOutput, SliceError>`. The `SliceError` union:
+
+```typescript
+type SliceError = ValidationError | ConstraintError | SchemaError | ReadModelNotFound;
+```
+
+- `ValidationError` — `{ code, message }` from `validate` or `handle`
+- `ConstraintError` — `{ _tag: "ConstraintError", constraint, columns, table, message }` from database constraint violations (unique, FK, check). Projector writes that violate a constraint roll back the event and return this.
+- `SchemaError` — `{ _tag: "SchemaError", message, issues }` from Zod input/output parsing
+- `ReadModelNotFound` — `{ _tag: "ReadModelNotFound", name, id }` from required projection lookups
+
+The Fastify adapter maps `ConstraintError` to HTTP 409, `SchemaError` to 400, and other errors to 422.
 
 ## Rules
 

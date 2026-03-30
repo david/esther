@@ -9,7 +9,6 @@ import type {
   ReadModelNotFound,
 } from "./read-model.js";
 import type {
-  ConcurrencyError,
   DomainEvent,
   EffectResult,
   InlineResult,
@@ -24,7 +23,7 @@ export type ProjectionStore = {
   readonly get: (
     name: string,
     id: string,
-  ) => Promise<Result<{ value: unknown; position: bigint }, ReadModelNotFound>>;
+  ) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
 };
 
 // ── addField — the ONE computed-key cast in the codebase ───────────────
@@ -58,7 +57,6 @@ function isEffectResult(r: unknown): r is EffectResult {
 
 export type ResolveResult<TContext> = {
   readonly context: TContext;
-  readonly maxPosition: bigint;
 };
 
 export type StateResolver<TInput, TContext> = {
@@ -108,10 +106,8 @@ function buildResolver<TInput, TContext>(
         if (step._tag === "tagQuery") {
           const tags = step.tags(prev.context);
           const result = await eventStore.queryByTags(tags, step.fold);
-          const pos = BigInt(result.position);
           return ok({
             context: addField(prev.context, step.key, result.state),
-            maxPosition: pos > prev.maxPosition ? pos : prev.maxPosition,
           });
         }
 
@@ -124,26 +120,19 @@ function buildResolver<TInput, TContext>(
           if (readResult.isErr()) {
             return err(readResult.error);
           }
-          // watermark is position + 1 to align with queryByTags which returns event count
-          const watermark = readResult.value.position + 1n;
           return ok({
             context: addField(prev.context, step.key, readResult.value.value),
-            maxPosition: watermark > prev.maxPosition ? watermark : prev.maxPosition,
           });
         }
 
         // optional — wrap as Result
         if (readResult.isOk()) {
-          // watermark is position + 1 to align with queryByTags which returns event count
-          const watermark = readResult.value.position + 1n;
           return ok({
             context: addField(prev.context, step.key, ok(readResult.value.value)),
-            maxPosition: watermark > prev.maxPosition ? watermark : prev.maxPosition,
           });
         }
         return ok({
           context: addField(prev.context, step.key, err(readResult.error)),
-          maxPosition: prev.maxPosition,
         });
       });
     },
@@ -154,7 +143,6 @@ export function state<TInput>(): StateResolver<TInput, TInput> {
   return buildResolver<TInput, TInput>(async (input, _eventStore, _projectionStore) =>
     ok({
       context: input,
-      maxPosition: 0n,
     }),
   );
 }
@@ -265,9 +253,6 @@ export type CommandSlice<
   readonly handle: (validated: TValidated) => Result<ReadonlyArray<TEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
-  readonly beforeInsert?:
-    | ((events: ReadonlyArray<TEvent>) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
-    | undefined;
 };
 
 // ── Query slice (fully generic) ────────────────────────────────────────
@@ -293,21 +278,17 @@ function registerHandlers(
     deps.eventStore.onAfterInsert({ tags: [] }, async (event: StoredEvent) => {
       const result = projectorFn(event);
       if (isProjectionResult(result)) {
-        const withPosition: ProjectionResult<unknown> = {
-          ...result,
-          position: BigInt(event.position),
-        };
-        const adapter = deps.projectionAdapterRegistry.get(withPosition.name);
+        const adapter = deps.projectionAdapterRegistry.get(result.name);
         if (!adapter) {
-          throw new Error(`No projection adapter registered for model "${withPosition.name}"`);
+          throw new Error(`No projection adapter registered for model "${result.name}"`);
         }
-        await adapter.execute(withPosition);
+        await adapter.execute(result);
       }
     });
   }
 
   for (const processorFn of slice.processors) {
-    deps.eventStore.onAfterInsert({ tags: [] }, async (event: StoredEvent) => {
+    deps.eventStore.onAfterCommit({ tags: [] }, async (event: StoredEvent) => {
       const result = processorFn(event);
       if (isEffectResult(result)) {
         await deps.effectRegistry.execute(result);
@@ -335,9 +316,6 @@ export function defineCommandSlice<
   readonly handle: (validated: TValidated) => Result<ReadonlyArray<TEvent>, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
-  readonly beforeInsert?:
-    | ((events: ReadonlyArray<TEvent>) => Result<ReadonlyArray<TEvent>, ConcurrencyError>)
-    | undefined;
 }): CommandSlice<TInput, TContext, TValidated, TOutput, TEvent> {
   const slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent> = {
     _tag: "command",
@@ -349,7 +327,6 @@ export function defineCommandSlice<
     handle: definition.handle,
     projectors: definition.projectors,
     processors: definition.processors,
-    beforeInsert: definition.beforeInsert,
     compile: (deps) => {
       registerHandlers(slice, deps);
       return {

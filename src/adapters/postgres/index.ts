@@ -1,7 +1,12 @@
 import { err, ok } from "neverthrow";
-import type { EventFilter, EventStore, OnAfterInsertHandler } from "../../core/event-store.js";
+import type {
+  EventFilter,
+  EventStore,
+  OnAfterCommitHandler,
+  OnAfterInsertHandler,
+} from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import { ConcurrencyError, EventId, type StoredEvent, StreamPosition } from "../../core/types.js";
+import { ConstraintError, EventId, type StoredEvent } from "../../core/types.js";
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
 
@@ -11,9 +16,9 @@ type PostgresClient = {
   (template: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
 };
 
-type AfterInsertRegistration = {
+type HandlerRegistration<T> = {
   readonly filter: EventFilter;
-  readonly handler: OnAfterInsertHandler;
+  readonly handler: T;
 };
 
 // ── SQL boundary ───────────────────────────────────────────────────────
@@ -25,6 +30,27 @@ function queryRows<T>(raw: unknown[]): T[] {
   return raw as T[];
 }
 
+// ── Constraint violation helpers ──────────────────────────────────────
+
+const CONSTRAINT_CODES = new Set(["23505", "23503", "23514"]);
+
+export function isConstraintViolation(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false;
+  if (!("code" in e)) return false;
+  return CONSTRAINT_CODES.has((e as { code: string }).code);
+}
+
+export function mapConstraintError(
+  e: { code: string; constraint_name: string; table_name: string; message: string },
+  metadata: Map<string, { columns: ReadonlyArray<string>; table: string }>,
+): import("../../core/types.js").ConstraintError {
+  const registered = metadata.get(e.constraint_name);
+  if (registered) {
+    return ConstraintError(e.constraint_name, registered.columns, registered.table, e.message);
+  }
+  return ConstraintError(e.constraint_name, [], e.table_name, e.message);
+}
+
 // ── Postgres event store ───────────────────────────────────────────────
 
 export type PostgresEventStoreConfig = {
@@ -33,40 +59,24 @@ export type PostgresEventStoreConfig = {
 
 export function createPostgresEventStore(config: PostgresEventStoreConfig): EventStore {
   const { sql } = config;
-  const afterInsertHandlers: Array<AfterInsertRegistration> = [];
+  const afterInsertHandlers: Array<HandlerRegistration<OnAfterInsertHandler>> = [];
+  const afterCommitHandlers: Array<HandlerRegistration<OnAfterCommitHandler>> = [];
+  const constraintMetadata = new Map<string, { columns: ReadonlyArray<string>; table: string }>();
 
   return {
-    async append(eventsToAppend, expectedPosition, beforeInsert) {
-      let finalEvents = eventsToAppend;
-
-      if (beforeInsert) {
-        const hookResult = beforeInsert(eventsToAppend);
-        if (hookResult.isErr()) {
-          return err(hookResult.error);
-        }
-        finalEvents = hookResult.value;
-      }
-
+    async append(eventsToAppend) {
       try {
         const stored = await sql.begin(async (tx) => {
-          // Check current max position with advisory lock
+          // 1. Get next position (no FOR UPDATE)
           const posResult = queryRows<{ pos: string }>(
-            await tx.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events FOR UPDATE`),
+            await tx.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
           );
+          let nextPos = BigInt(posResult[0]?.pos ?? "-1") + 1n;
 
-          const currentPos = BigInt(posResult[0]?.pos ?? "-1") + 1n;
-          if (currentPos !== BigInt(expectedPosition)) {
-            throw {
-              _tag: "ConcurrencyError" as const,
-              expected: expectedPosition,
-              actual: StreamPosition(currentPos),
-            };
-          }
-
+          // 2. INSERT events
           const results: StoredEvent[] = [];
-          let nextPos = currentPos;
 
-          for (const event of finalEvents) {
+          for (const event of eventsToAppend) {
             const id = crypto.randomUUID();
             const position = nextPos;
             nextPos += 1n;
@@ -88,50 +98,50 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
               type: event.type,
               tags: event.tags,
               payload: event.payload,
-              position: StreamPosition(position),
+              position,
               timestamp: new Date(),
             });
+          }
+
+          // 3. Run afterInsertHandlers (projectors) INSIDE transaction
+          for (const storedEvent of results) {
+            for (const reg of afterInsertHandlers) {
+              if (matchesFilter(storedEvent, reg.filter)) {
+                await reg.handler(storedEvent);
+              }
+            }
           }
 
           return results;
         });
 
-        // Run after-insert handlers
+        // 4. Run afterCommitHandlers (processors) OUTSIDE transaction
         for (const storedEvent of stored) {
-          for (const registration of afterInsertHandlers) {
-            if (matchesFilter(storedEvent, registration.filter)) {
-              await registration.handler(storedEvent);
+          for (const reg of afterCommitHandlers) {
+            if (matchesFilter(storedEvent, reg.filter)) {
+              await reg.handler(storedEvent);
             }
           }
         }
 
-        return ok({
-          // biome-ignore lint/style/noNonNullAssertion: stored is guaranteed non-empty after the insert loop
-          position: StreamPosition(BigInt(stored[stored.length - 1]!.position) + 1n),
-          events: stored,
-        });
+        return ok({ events: stored });
       } catch (e: unknown) {
-        if (typeof e !== "object" || e === null || !("_tag" in e)) throw e;
-        if (e._tag !== "ConcurrencyError") throw e;
-        if (!("expected" in e) || !("actual" in e)) throw e;
-        return err(
-          ConcurrencyError(
-            e.expected as import("../../core/types.js").StreamPosition,
-            e.actual as import("../../core/types.js").StreamPosition,
-          ),
-        );
+        if (isConstraintViolation(e)) {
+          const pgErr = e as {
+            code: string;
+            constraint_name: string;
+            table_name: string;
+            message: string;
+          };
+          return err(mapConstraintError(pgErr, constraintMetadata));
+        }
+        throw e;
       }
     },
 
     async queryByTags(tags, fold) {
       if (tags.length === 0) {
-        const posResult = queryRows<{ pos: string }>(
-          await sql.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
-        );
-        return {
-          state: fold([]),
-          position: StreamPosition(BigInt(posResult[0]?.pos ?? "-1") + 1n),
-        };
+        return { state: fold([]) };
       }
 
       // Build tag filter: each tag must be contained in the tags array
@@ -162,25 +172,25 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         payload: JSON.parse(
           typeof row.payload === "string" ? row.payload : JSON.stringify(row.payload),
         ),
-        position: StreamPosition(BigInt(row.position)),
+        position: BigInt(row.position),
         timestamp: new Date(row.timestamp),
       }));
 
-      const state = fold(events);
-
-      // Get the global max position for optimistic locking
-      const posResult = queryRows<{ pos: string }>(
-        await sql.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
-      );
-
-      return {
-        state,
-        position: StreamPosition(BigInt(posResult[0]?.pos ?? "-1") + 1n),
-      };
+      return { state: fold(events) };
     },
 
     onAfterInsert(filter, handler) {
       afterInsertHandlers.push({ filter, handler });
+    },
+
+    onAfterCommit(filter, handler) {
+      afterCommitHandlers.push({ filter, handler });
+    },
+
+    registerConstraintMetadata(metadata) {
+      for (const [name, info] of Object.entries(metadata)) {
+        constraintMetadata.set(name, info);
+      }
     },
   };
 }

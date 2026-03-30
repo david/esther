@@ -27,9 +27,43 @@ describe("generateCreateTableDDL", () => {
     expect(ddl).toContain('"name" TEXT NOT NULL');
     expect(ddl).toContain('"age" NUMERIC NOT NULL');
     expect(ddl).toContain('"active" BOOLEAN NOT NULL');
-    expect(ddl).toContain('"_position" BIGINT NOT NULL');
+    expect(ddl).not.toContain("_position");
     expect(ddl).toContain('PRIMARY KEY ("id")');
     expect(ddl).toContain('DROP TABLE "member"');
+  });
+
+  test("emits UNIQUE constraint clause from handle.constraints", () => {
+    const handle = defineReadModel({
+      name: "users",
+      key: "userId",
+      schema: z.object({
+        userId: z.string(),
+        email: z.string(),
+        orgId: z.string(),
+      }),
+      constraints: { unique: [["email"]] },
+    });
+
+    const ddl = generateCreateTableDDL(handle);
+
+    expect(ddl).toContain('CONSTRAINT "users_email_unique" UNIQUE ("email")');
+  });
+
+  test("emits multi-column UNIQUE constraint", () => {
+    const handle = defineReadModel({
+      name: "members",
+      key: "memberId",
+      schema: z.object({
+        memberId: z.string(),
+        orgId: z.string(),
+        email: z.string(),
+      }),
+      constraints: { unique: [["orgId", "email"]] },
+    });
+
+    const ddl = generateCreateTableDDL(handle);
+
+    expect(ddl).toContain('CONSTRAINT "members_orgId_email_unique" UNIQUE ("orgId", "email")');
   });
 
   test("maps uuid and datetime to correct column types", () => {

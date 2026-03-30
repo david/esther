@@ -8,10 +8,8 @@ declare const __brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [__brand]: B };
 
 export type EventId = Brand<string, "EventId">;
-export type StreamPosition = Brand<bigint, "StreamPosition">;
 
 export const EventId = (value: string): EventId => value as EventId;
-export const StreamPosition = (value: bigint): StreamPosition => value as StreamPosition;
 
 // ── Events ─────────────────────────────────────────────────────────────
 
@@ -26,7 +24,7 @@ export type StoredEvent<TType extends string = string, TPayload = unknown> = Dom
   TPayload
 > & {
   readonly id: EventId;
-  readonly position: StreamPosition;
+  readonly position: bigint;
   readonly timestamp: Date;
 };
 
@@ -37,21 +35,25 @@ export type ValidationError = {
   readonly message: string;
 };
 
-export type ConcurrencyError = {
-  readonly _tag: "ConcurrencyError";
+export type ConstraintError = {
+  readonly _tag: "ConstraintError";
+  readonly constraint: string;
+  readonly columns: ReadonlyArray<string>;
+  readonly table: string;
   readonly message: string;
-  readonly expectedPosition: StreamPosition;
-  readonly actualPosition: StreamPosition;
 };
 
-export const ConcurrencyError = (
-  expectedPosition: StreamPosition,
-  actualPosition: StreamPosition,
-): ConcurrencyError => ({
-  _tag: "ConcurrencyError",
-  message: `Concurrency conflict: expected position ${expectedPosition}, got ${actualPosition}`,
-  expectedPosition,
-  actualPosition,
+export const ConstraintError = (
+  constraint: string,
+  columns: ReadonlyArray<string>,
+  table: string,
+  message: string,
+): ConstraintError => ({
+  _tag: "ConstraintError",
+  constraint,
+  columns,
+  table,
+  message,
 });
 
 export type SchemaError = {
@@ -66,7 +68,7 @@ export const SchemaError = (message: string, issues: ReadonlyArray<string> = [])
   issues,
 });
 
-export type SliceError = ValidationError | ConcurrencyError | SchemaError | ReadModelNotFound;
+export type SliceError = ValidationError | ConstraintError | SchemaError | ReadModelNotFound;
 
 // ── Effects ────────────────────────────────────────────────────────────
 
@@ -80,15 +82,13 @@ export type InlineResult = import("./read-model.js").ProjectionResult<unknown> |
 // ── Append result ──────────────────────────────────────────────────────
 
 export type AppendResult = {
-  readonly position: StreamPosition;
   readonly events: ReadonlyArray<StoredEvent>;
 };
 
-// ── Query result for tag queries (includes position for locking) ──────
+// ── Query result for tag queries ──────────────────────────────────────
 
 export type TagQueryResult<TState> = {
   readonly state: TState;
-  readonly position: StreamPosition;
 };
 
 // ── Zod schema inference helper ────────────────────────────────────────

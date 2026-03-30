@@ -1,44 +1,28 @@
-import { err, ok } from "neverthrow";
-import type { EventFilter, EventStore, OnAfterInsertHandler } from "../../core/event-store.js";
+import { ok } from "neverthrow";
+import type {
+  EventFilter,
+  EventStore,
+  OnAfterCommitHandler,
+  OnAfterInsertHandler,
+} from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import {
-  ConcurrencyError,
-  type DomainEvent,
-  EventId,
-  type StoredEvent,
-  StreamPosition,
-} from "../../core/types.js";
+import { EventId, type StoredEvent } from "../../core/types.js";
 
-type AfterInsertRegistration = {
+type HandlerRegistration<H> = {
   readonly filter: EventFilter;
-  readonly handler: OnAfterInsertHandler;
+  readonly handler: H;
 };
 
 export function createInMemoryEventStore(): EventStore {
   const events: Array<StoredEvent> = [];
-  const afterInsertHandlers: Array<AfterInsertRegistration> = [];
+  const afterInsertHandlers: Array<HandlerRegistration<OnAfterInsertHandler>> = [];
+  const afterCommitHandlers: Array<HandlerRegistration<OnAfterCommitHandler>> = [];
 
   return {
-    async append(eventsToAppend, expectedPosition, beforeInsert) {
-      const currentPosition = StreamPosition(BigInt(events.length));
-
-      if (currentPosition !== expectedPosition) {
-        return err(ConcurrencyError(expectedPosition, currentPosition));
-      }
-
-      let finalEvents: ReadonlyArray<DomainEvent> = eventsToAppend;
-
-      if (beforeInsert) {
-        const hookResult = beforeInsert(eventsToAppend);
-        if (hookResult.isErr()) {
-          return err(hookResult.error);
-        }
-        finalEvents = hookResult.value;
-      }
-
+    async append(eventsToAppend) {
       const stored: Array<StoredEvent> = [];
-      for (const event of finalEvents) {
-        const position = StreamPosition(BigInt(events.length));
+      for (const event of eventsToAppend) {
+        const position = BigInt(events.length);
         const storedEvent: StoredEvent = {
           ...event,
           id: EventId(crypto.randomUUID()),
@@ -49,7 +33,7 @@ export function createInMemoryEventStore(): EventStore {
         stored.push(storedEvent);
       }
 
-      // Run after-insert handlers
+      // Run after-insert handlers (simulates in-transaction)
       for (const storedEvent of stored) {
         for (const registration of afterInsertHandlers) {
           if (matchesFilter(storedEvent, registration.filter)) {
@@ -58,23 +42,30 @@ export function createInMemoryEventStore(): EventStore {
         }
       }
 
-      return ok({
-        position: StreamPosition(BigInt(events.length)),
-        events: stored,
-      });
+      // Run after-commit handlers (simulates post-commit)
+      for (const storedEvent of stored) {
+        for (const registration of afterCommitHandlers) {
+          if (matchesFilter(storedEvent, registration.filter)) {
+            await registration.handler(storedEvent);
+          }
+        }
+      }
+
+      return ok({ events: stored });
     },
 
     async queryByTags(tags, fold) {
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
       const state = fold(matching);
-      return {
-        state,
-        position: StreamPosition(BigInt(events.length)),
-      };
+      return { state };
     },
 
     onAfterInsert(filter, handler) {
       afterInsertHandlers.push({ filter, handler });
+    },
+
+    onAfterCommit(filter, handler) {
+      afterCommitHandlers.push({ filter, handler });
     },
   };
 }

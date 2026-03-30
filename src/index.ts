@@ -19,15 +19,17 @@ export {
 } from "./core/effect-adapter.js";
 // ── Event store ────────────────────────────────────────────────────────
 export type {
-  BeforeInsertHook,
+  ConstraintMetadata,
   EventFilter,
   EventStore,
+  OnAfterCommitHandler,
   OnAfterInsertHandler,
 } from "./core/event-store.js";
 // ── Pipeline ───────────────────────────────────────────────────────────
 export { executeCommand, executeQuery } from "./core/pipeline.js";
 // ── Read model ─────────────────────────────────────────────────────────
 export {
+  type Constraints,
   defineReadModel,
   type Operation,
   type ProjectionAdapter,
@@ -56,7 +58,7 @@ export {
 } from "./core/slice.js";
 export {
   type AppendResult,
-  type ConcurrencyError,
+  ConstraintError,
   type DomainEvent,
   type EffectResult,
   EventId,
@@ -65,7 +67,6 @@ export {
   type SchemaError,
   type SliceError,
   type StoredEvent,
-  StreamPosition,
   type TagQueryResult,
   type ValidationError,
 } from "./core/types.js";

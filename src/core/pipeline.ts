@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow";
 import type { EventStore } from "./event-store.js";
 import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice.js";
-import { type DomainEvent, SchemaError, type SliceError, StreamPosition } from "./types.js";
+import { type DomainEvent, SchemaError, type SliceError } from "./types.js";
 
 // ── Command pipeline ───────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ export async function executeCommand<
   // 2. Resolve state — fully typed, no casts
   const resolveResult = await slice.resolveState.resolve(input, eventStore, projectionStore);
   if (resolveResult.isErr()) return err(resolveResult.error);
-  const { context, maxPosition } = resolveResult.value;
+  const { context } = resolveResult.value;
 
   // 3. Validate — fully typed
   const validateResult = slice.validate(context);
@@ -53,29 +53,19 @@ export async function executeCommand<
     return ok(outputParse.data);
   }
 
-  // 5. Run beforeInsert hook while events are still typed as TEvent
-  let finalEvents: ReadonlyArray<DomainEvent> = events;
-  if (slice.beforeInsert) {
-    const hookResult = slice.beforeInsert(events);
-    if (hookResult.isErr()) {
-      return err(hookResult.error);
-    }
-    finalEvents = hookResult.value;
-  }
-
-  // 6. Append events (optimistic locking)
-  // onAfterInsert handlers (projectors, processors) fire inside append
-  const appendResult = await eventStore.append(finalEvents, StreamPosition(maxPosition), undefined);
+  // 5. Append events
+  // Projectors fire inside the transaction; processors fire post-commit
+  const appendResult = await eventStore.append(events);
   if (appendResult.isErr()) {
     return err(appendResult.error);
   }
 
-  // 7. Re-resolve state so output reflects the newly appended events
+  // 6. Re-resolve state so output reflects the newly appended events
   const postResolve = await slice.resolveState.resolve(input, eventStore, projectionStore);
   if (postResolve.isErr()) return err(postResolve.error);
   const { context: postAppendContext } = postResolve.value;
 
-  // 8. Parse output — Zod guarantees TOutput
+  // 7. Parse output — Zod guarantees TOutput
   const outputParse = slice.outputSchema.safeParse(postAppendContext);
   if (!outputParse.success) {
     throw new Error(
