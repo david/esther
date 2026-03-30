@@ -71,7 +71,6 @@ export {
   type DomainEvent,
   type EffectResult,
   EventId,
-  type HandlerResult,
   type InlineResult,
   type SchemaError,
   type SliceError,

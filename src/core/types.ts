@@ -1,4 +1,3 @@
-import type { Result } from "neverthrow";
 import type { z } from "zod";
 import type { ReadModelNotFound } from "./read-model.js";
 
@@ -94,7 +93,3 @@ export type TagQueryResult<TState> = {
 // ── Zod schema inference helper ────────────────────────────────────────
 
 export type SchemaOutput<T extends z.ZodTypeAny> = z.output<T>;
-
-// ── Handler result alias ───────────────────────────────────────────────
-
-export type HandlerResult<T, E = ValidationError> = Result<T, E>;

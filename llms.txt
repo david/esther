@@ -97,7 +97,7 @@ state: state<Input>()
 - `tagQuery`: queries events by tag intersection, folds to state.
 - `projection`: fetches a read model by id using the `ReadModelHandle`. With `required: true`, a missing row fails the command. With `required: false` (default), the value is wrapped as `Result<T, ReadModelNotFound>`.
 
-## validate and handle
+## validate, handle, and output
 
 Pure functions returning `Result`. Errors are `{ code: string, message: string }`:
 
@@ -108,11 +108,15 @@ validate: (ctx) => {
   return ok(ctx);
 },
 
-handle: (validated) => ok<ReadonlyArray<OrderPlaced>, never>([{
+handle: (validated, _ctx) => ({
   type: "OrderPlaced",
   tags: ["order", `customer:${validated.customerId}`],
   payload: { orderId: crypto.randomUUID(), customerId: validated.customerId, total: validated.total },
-}]),
+}),
+
+output: (result) => result.map((event) => ({
+  orderId: event.payload.orderId,
+})),
 ```
 
 ## Projectors and processors
@@ -222,13 +226,13 @@ The Fastify adapter maps `ConstraintError` to HTTP 409, `SchemaError` to 400, an
 
 1. All user functions return `Result` -- never throw.
 2. Define event types explicitly: `type MyEvent = DomainEvent<"MyEvent", { ... }>`.
-3. Use `ok<ReadonlyArray<MyEvent>, never>([...])` in handle return.
+3. `handle` returns a single event directly — no `ok()`, no array.
 4. Use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
 5. Start state with `state<z.output<typeof inputSchema>>()`.
 6. Schemas (`inputSchema`/`outputSchema`) are shared contracts -- define externally for client reuse.
 7. Projectors/processors are pure -- side effects go in effect adapters.
 8. Tags are your query model -- design them for the queries you need.
-9. The command output reflects post-append state (state is re-resolved after events are stored).
+9. The `output` function shapes the command result from `Result<TEvent, ValidationError>` and pre-append context. Post-append re-resolve does not happen.
 10. Define read models with `defineReadModel` and use the returned handle in both projectors and `projection()` steps.
 
 ## Full example
@@ -275,7 +279,7 @@ export const transferSlice = defineCommandSlice({
     return ok(ctx);
   },
 
-  handle: (validated) => ok<ReadonlyArray<MoneyTransferred>, never>([{
+  handle: (validated, _ctx) => ({
     type: "MoneyTransferred",
     tags: ["transfer", `account:${validated.fromAccountId}`, `account:${validated.toAccountId}`],
     payload: {
@@ -284,7 +288,11 @@ export const transferSlice = defineCommandSlice({
       toAccountId: validated.toAccountId,
       amount: validated.amount,
     },
-  }]),
+  }),
+
+  output: (result, ctx) => result.map((event) => ({
+    fromBalance: ctx.fromBalance.balance - event.payload.amount,
+  })),
 
   projectors: [],
   processors: [],

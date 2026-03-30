@@ -32,41 +32,27 @@ export async function executeCommand<
   // 3. Validate — fully typed
   const validateResult = slice.validate(context);
   if (validateResult.isErr()) {
-    return err(validateResult.error);
+    const outputResult = slice.output(err(validateResult.error), context);
+    if (outputResult.isErr()) return err(outputResult.error);
+    return ok(outputResult.value);
   }
   const validated: TValidated = validateResult.value;
 
-  // 4. Handle → produce events
-  const handleResult = slice.handle(validated);
-  if (handleResult.isErr()) {
-    return err(handleResult.error);
-  }
-  const events = handleResult.value;
+  // 4. Handle — returns a single event directly
+  const event = slice.handle(validated, context);
 
-  if (events.length === 0) {
-    const outputParse = slice.outputSchema.safeParse(context);
-    if (!outputParse.success) {
-      throw new Error(
-        `Output schema validation failed (framework bug): ${outputParse.error.message}`,
-      );
-    }
-    return ok(outputParse.data);
-  }
-
-  // 5. Append events
-  // Projectors fire inside the transaction; processors fire post-commit
-  const appendResult = await eventStore.append(events);
+  // 5. Append event
+  const appendResult = await eventStore.append([event]);
   if (appendResult.isErr()) {
     return err(appendResult.error);
   }
 
-  // 6. Re-resolve state so output reflects the newly appended events
-  const postResolve = await slice.resolveState.resolve(input, eventStore, projectionStore);
-  if (postResolve.isErr()) return err(postResolve.error);
-  const { context: postAppendContext } = postResolve.value;
+  // 6. Call output with ok(event) and pre-append context
+  const outputResult = slice.output(ok(event), context);
+  if (outputResult.isErr()) return err(outputResult.error);
 
-  // 7. Parse output — Zod guarantees TOutput
-  const outputParse = slice.outputSchema.safeParse(postAppendContext);
+  // 7. Validate ok value against outputSchema
+  const outputParse = slice.outputSchema.safeParse(outputResult.value);
   if (!outputParse.success) {
     throw new Error(
       `Output schema validation failed (framework bug): ${outputParse.error.message}`,

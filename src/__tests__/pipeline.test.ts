@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent, StoredEvent } from "../index.js";
+import type { DomainEvent, StoredEvent, ValidationError } from "../index.js";
 import {
   createApp,
   createInMemoryAdapter,
@@ -29,9 +29,6 @@ type DepositInput = z.output<typeof depositInputSchema>;
 const depositOutputSchema = z.object({
   account: z.object({ balance: z.number() }),
 });
-
-type Deposited = DomainEvent<"Deposited", { accountId: string; amount: number }>;
-type Withdrawn = DomainEvent<"Withdrawn", { accountId: string; amount: number }>;
 
 type Balance = { balance: number };
 
@@ -62,14 +59,16 @@ const depositSlice = defineCommandSlice({
 
   validate: (ctx) => ok(ctx),
 
-  handle: (validated) =>
-    ok<ReadonlyArray<Deposited>, never>([
-      {
-        type: "Deposited",
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
-      },
-    ]),
+  handle: (validated, _ctx) => ({
+    type: "Deposited" as const,
+    tags: [`account:${validated.accountId}`],
+    payload: { accountId: validated.accountId, amount: validated.amount },
+  }),
+
+  output: (result, ctx) =>
+    result.map((event) => ({
+      account: { balance: ctx.account.balance + event.payload.amount },
+    })),
 
   projectors: [],
   processors: [],
@@ -108,14 +107,16 @@ const withdrawSlice = defineCommandSlice({
     return ok(ctx);
   },
 
-  handle: (validated) =>
-    ok<ReadonlyArray<Withdrawn>, never>([
-      {
-        type: "Withdrawn",
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
-      },
-    ]),
+  handle: (validated, _ctx) => ({
+    type: "Withdrawn" as const,
+    tags: [`account:${validated.accountId}`],
+    payload: { accountId: validated.accountId, amount: validated.amount },
+  }),
+
+  output: (result, ctx) =>
+    result.map((event) => ({
+      account: { balance: ctx.account.balance - event.payload.amount },
+    })),
 
   projectors: [],
   processors: [],
@@ -143,6 +144,83 @@ const getBalanceSlice = defineQuerySlice({
   handle: (ctx) => ok({ balance: ctx.account.balance }),
 });
 
+// ── New-signature test slices ────────────────────────────────────────
+
+type CreditApplied = DomainEvent<"CreditApplied", { accountId: string; amount: number }>;
+
+const creditInputSchema = z.object({
+  accountId: z.string(),
+  amount: z.number().positive(),
+});
+
+type CreditInput = z.output<typeof creditInputSchema>;
+
+const creditOutputSchema = z.object({
+  accountId: z.string(),
+  newBalance: z.number(),
+});
+
+const creditSlice = defineCommandSlice({
+  name: "credit",
+  inputSchema: creditInputSchema,
+  outputSchema: creditOutputSchema,
+
+  state: state<CreditInput>().pipe(
+    tagQuery({
+      key: "account" as const,
+      tags: (ctx) => [`account:${ctx.accountId}`],
+      fold: balanceFold,
+    }),
+  ),
+
+  validate: (ctx) => ok(ctx),
+
+  handle: (validated, _ctx) => ({
+    type: "CreditApplied" as const,
+    tags: [`account:${validated.accountId}`],
+    payload: { accountId: validated.accountId, amount: validated.amount },
+  }),
+
+  output: (result, ctx) => {
+    if (result.isErr()) return err(result.error);
+    const event = result.value as CreditApplied;
+    return ok({
+      accountId: event.payload.accountId,
+      newBalance: ctx.account.balance + event.payload.amount,
+    });
+  },
+
+  projectors: [],
+  processors: [],
+});
+
+const rejectInputSchema = z.object({ accountId: z.string() });
+
+const rejectOutputSchema = z.object({ rejected: z.boolean() });
+
+const rejectSlice = defineCommandSlice({
+  name: "reject",
+  inputSchema: rejectInputSchema,
+  outputSchema: rejectOutputSchema,
+
+  state: state<z.output<typeof rejectInputSchema>>(),
+
+  validate: (_ctx) =>
+    err({ code: "ALWAYS_FAILS", message: "This always fails" } as ValidationError),
+
+  handle: (_validated, _ctx) => {
+    throw new Error("should not reach handle");
+  },
+
+  output: (result, _ctx) => {
+    if (result.isErr()) return err(result.error);
+    return ok({ rejected: false });
+  },
+
+  projectors: [],
+  processors: [],
+});
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function buildApp() {
@@ -152,7 +230,7 @@ function buildApp() {
   const app = createApp({
     eventStore,
     inputAdapter: { adapter, bind },
-    slices: [depositSlice, withdrawSlice, getBalanceSlice],
+    slices: [depositSlice, withdrawSlice, getBalanceSlice, creditSlice, rejectSlice],
   });
 
   return { app, eventStore };
@@ -161,6 +239,26 @@ function buildApp() {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("command pipeline", () => {
+  test("output function receives ok(event) on success and shapes the output", async () => {
+    const { app } = buildApp();
+
+    const result = await app.dispatch("credit", { accountId: "acc-1", amount: 100 });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ accountId: "acc-1", newBalance: 100 });
+    }
+  });
+
+  test("output function receives err on validation failure", async () => {
+    const { app } = buildApp();
+
+    const result = await app.dispatch("reject", { accountId: "acc-1" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual({ code: "ALWAYS_FAILS", message: "This always fails" });
+    }
+  });
+
   test("deposit succeeds and returns post-append state", async () => {
     const { app } = buildApp();
 
@@ -168,6 +266,13 @@ describe("command pipeline", () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value).toEqual({ account: { balance: 100 } });
+    }
+
+    // Verify projection updated correctly via read model query
+    const balanceResult = await app.dispatch("get-balance", { accountId: "acc-1" });
+    expect(balanceResult.isOk()).toBe(true);
+    if (balanceResult.isOk()) {
+      expect(balanceResult.value).toEqual({ balance: 100 });
     }
   });
 
@@ -208,6 +313,13 @@ describe("command pipeline", () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value).toEqual({ account: { balance: 60 } });
+    }
+
+    // Verify projection updated correctly via read model query
+    const balanceResult = await app.dispatch("get-balance", { accountId: "acc-1" });
+    expect(balanceResult.isOk()).toBe(true);
+    if (balanceResult.isOk()) {
+      expect(balanceResult.value).toEqual({ balance: 60 });
     }
   });
 
@@ -341,14 +453,16 @@ describe("processor routing to onAfterCommit", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
 
       projectors: [],
       processors: [
@@ -486,14 +600,16 @@ describe("dispatch via onAfterInsert", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
 
       projectors: [
         (event: StoredEvent) => {
@@ -559,14 +675,16 @@ describe("dispatch via onAfterInsert", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
 
       projectors: [],
       processors: [
@@ -650,14 +768,16 @@ describe("dispatch via onAfterInsert", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
 
       projectors: [
         (event: StoredEvent) => {
@@ -863,14 +983,13 @@ describe("unknown model name in projector result", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) => result.map(() => ({ account: ctx.account })),
 
       projectors: [(_event: StoredEvent) => unregisteredModel.project({ id: "x", value: 1 })],
       processors: [],
@@ -927,14 +1046,16 @@ describe("projection step", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
 
       projectors: [
         (event: StoredEvent) => {
@@ -1002,14 +1123,13 @@ describe("projection step", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: 1 },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: 1 },
+      }),
+
+      output: (result, ctx) => result.map(() => ctx),
 
       projectors: [
         (event: StoredEvent) => {
@@ -1135,14 +1255,16 @@ describe("replay", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
 
       projectors: [makeProjector(accountModel)],
       processors: [],
@@ -1276,14 +1398,16 @@ describe("end-to-end integration", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<Deposited>, never>([
-          {
-            type: "Deposited",
-            tags: [`account:${validated.accountId}`],
-            payload: { accountId: validated.accountId, amount: validated.amount },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
 
       projectors: [
         (event: StoredEvent) => {
@@ -1389,10 +1513,6 @@ describe("read model views", () => {
   });
 
   type User = { userId: string; email: string; name: string };
-  type UserRegistered = DomainEvent<
-    "UserRegistered",
-    { userId: string; email: string; name: string }
-  >;
 
   const registerUserInputSchema = z.object({
     userId: z.string(),
@@ -1436,18 +1556,20 @@ describe("read model views", () => {
 
       validate: (ctx) => ok(ctx),
 
-      handle: (validated) =>
-        ok<ReadonlyArray<UserRegistered>, never>([
-          {
-            type: "UserRegistered",
-            tags: [`user:${validated.userId}`],
-            payload: {
-              userId: validated.userId,
-              email: validated.email,
-              name: validated.name,
-            },
-          },
-        ]),
+      handle: (validated, _ctx) => ({
+        type: "UserRegistered" as const,
+        tags: [`user:${validated.userId}`],
+        payload: {
+          userId: validated.userId,
+          email: validated.email,
+          name: validated.name,
+        },
+      }),
+
+      output: (result) =>
+        result.map((event) => ({
+          userId: (event.payload as { userId: string }).userId,
+        })),
 
       projectors: [
         (event: StoredEvent) => {

@@ -251,7 +251,11 @@ export type CommandSlice<
   readonly outputSchema: z.ZodType<TOutput>;
   readonly resolveState: StateResolver<TInput, TContext>;
   readonly validate: (context: TContext) => Result<TValidated, ValidationError>;
-  readonly handle: (validated: TValidated) => Result<ReadonlyArray<TEvent>, ValidationError>;
+  readonly handle: (validated: TValidated, ctx: TContext) => TEvent;
+  readonly output: (
+    result: Result<TEvent, ValidationError>,
+    ctx: TContext,
+  ) => Result<TOutput, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
 };
@@ -314,7 +318,11 @@ export function defineCommandSlice<
   readonly outputSchema: TOutputSchema;
   readonly state: StateResolver<TInput, TContext>;
   readonly validate: (ctx: TContext) => Result<TValidated, ValidationError>;
-  readonly handle: (validated: TValidated) => Result<ReadonlyArray<TEvent>, ValidationError>;
+  readonly handle: (validated: TValidated, ctx: TContext) => TEvent;
+  readonly output: (
+    result: Result<TEvent, ValidationError>,
+    ctx: TContext,
+  ) => Result<TOutput, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
 }): CommandSlice<TInput, TContext, TValidated, TOutput, TEvent> {
@@ -326,6 +334,7 @@ export function defineCommandSlice<
     resolveState: definition.state,
     validate: definition.validate,
     handle: definition.handle,
+    output: definition.output,
     projectors: definition.projectors,
     processors: definition.processors,
     compile: (deps) => {
