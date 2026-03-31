@@ -80,6 +80,10 @@ export type StateResolver<TInput, TContext> = {
         readonly [K in TKey]: TRequired extends true ? T : Result<T, ReadModelNotFound>;
       }
     >;
+
+    <TKey extends string, TValue>(
+      step: GenerateStep<TKey, TContext, TValue>,
+    ): StateResolver<TInput, TContext & { readonly [K in TKey]: TValue }>;
   };
 };
 
@@ -96,7 +100,8 @@ function buildResolver<TInput, TContext>(
     pipe(
       step:
         | TagQueryStep<string, TContext, unknown>
-        | ProjectionStep<string, TContext, unknown, boolean>,
+        | ProjectionStep<string, TContext, unknown, boolean>
+        | GenerateStep<string, TContext, unknown>,
     ) {
       // biome-ignore lint/suspicious/noExplicitAny: pipe overloads carry the correct accumulated type to callers; the body can't express TContext & { [K in TKey]: TState } without the concrete TKey/TState
       return buildResolver<TInput, any>(async (input, eventStore, projectionStore) => {
@@ -109,6 +114,13 @@ function buildResolver<TInput, TContext>(
           const result = await eventStore.queryByTags(tags, step.fold);
           return ok({
             context: addField(prev.context, step.key, result.state),
+          });
+        }
+
+        if (step._tag === "generate") {
+          const value = await step.fn(prev.context);
+          return ok({
+            context: addField(prev.context, step.key, value),
           });
         }
 
@@ -205,6 +217,19 @@ export function projection<TKey extends string, TInput, TValue>(descriptor: {
     id: descriptor.id,
     required: (descriptor.required ?? false) as boolean,
   };
+}
+
+export type GenerateStep<TKey extends string, TContext, TValue> = {
+  readonly _tag: "generate";
+  readonly key: TKey;
+  readonly fn: (ctx: TContext) => TValue | Promise<TValue>;
+};
+
+export function generate<TKey extends string, TContext, TValue>(descriptor: {
+  readonly key: TKey;
+  readonly fn: (ctx: TContext) => TValue | Promise<TValue>;
+}): GenerateStep<TKey, TContext, TValue> {
+  return { _tag: "generate", ...descriptor };
 }
 
 // ── Slice-level projector / processor ──────────────────────────────────

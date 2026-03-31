@@ -53,6 +53,8 @@ export {
   type CompiledSlice,
   defineCommandSlice,
   defineQuerySlice,
+  type GenerateStep,
+  generate,
   type ProjectionStep,
   type ProjectionStore,
   projection,

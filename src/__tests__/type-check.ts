@@ -11,6 +11,7 @@ import {
   defineQuerySlice,
   defineReadModel,
   defineReadModelView,
+  generate,
   projection,
   type ReadModelNotFound,
   state,
@@ -242,6 +243,64 @@ const _viewProjectionSlice = defineQuerySlice({
   handle: (ctx) => {
     const _pricingCheck: PricingRow = ctx.pricing;
     return ok({ pricePerNight: ctx.pricing.pricePerNight });
+  },
+});
+
+// ── Generate step type flow ─────────────────────────────────────────────
+
+// tagQuery -> generate -> projection: full type flow
+const _generateFlowSlice = defineQuerySlice({
+  name: "generate-flow",
+  inputSchema: createBookingInputSchema,
+  outputSchema: z.object({ label: z.string() }),
+
+  state: state<CreateBookingInput>()
+    .pipe(
+      tagQuery({
+        key: "property" as const,
+        tags: (ctx) => ["property", `property:${ctx.propertyId}`],
+        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+      }),
+    )
+    .pipe(
+      generate({
+        key: "label" as const,
+        // Explicit annotation required — same as projection.id (line 112).
+        // TypeScript overload resolution doesn't contextually type later
+        // overloads when earlier overloads have similarly-shaped generics.
+        fn: (ctx: CreateBookingInput & { readonly property: PropertyState }) => {
+          const _inputCheck: string = ctx.propertyId;
+          const _propertyCheck: PropertyState = ctx.property;
+          return `property:${ctx.property.available}`;
+        },
+      }),
+    )
+    .pipe(
+      projection({
+        key: "pricing" as const,
+        model: pricingModel,
+        id: (
+          ctx: CreateBookingInput & {
+            readonly property: PropertyState;
+            readonly label: string;
+          },
+        ) => {
+          // ctx has label from generate step
+          const _labelCheck: string = ctx.label;
+          const _propertyCheck: PropertyState = ctx.property;
+          return ctx.propertyId;
+        },
+        required: true,
+      }),
+    ),
+
+  handle: (ctx) => {
+    // All fields accessible: input + property + label + pricing
+    const _inputCheck: string = ctx.propertyId;
+    const _propertyCheck: PropertyState = ctx.property;
+    const _labelCheck: string = ctx.label;
+    const _pricingCheck: PricingRow = ctx.pricing;
+    return ok({ label: ctx.label });
   },
 });
 

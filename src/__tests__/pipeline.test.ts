@@ -11,6 +11,7 @@ import {
   defineQuerySlice,
   defineReadModel,
   defineReadModelView,
+  generate,
   projection,
   ReadModelNotFound,
   state,
@@ -1657,6 +1658,281 @@ describe("read model views", () => {
     expect(lookupResult.isErr()).toBe(true);
     if (lookupResult.isErr()) {
       expect(lookupResult.error).toEqual(ReadModelNotFound("users_by_email", "nobody@example.com"));
+    }
+  });
+});
+
+// ── Generate step tests ─────────────────────────────────────────────────
+
+describe("generate step", () => {
+  test("generator adds value to context", async () => {
+    const generateInputSchema = z.object({
+      accountId: z.string(),
+      amount: z.number().positive(),
+    });
+
+    type GenerateInput = z.output<typeof generateInputSchema>;
+
+    const generateOutputSchema = z.object({
+      code: z.string(),
+    });
+
+    const generateSlice = defineCommandSlice({
+      name: "generate-code",
+      inputSchema: generateInputSchema,
+      outputSchema: generateOutputSchema,
+
+      state: state<GenerateInput>().pipe(
+        generate({
+          key: "code" as const,
+          fn: (_ctx) => "generated-code",
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated, _ctx) => ({
+        type: "CodeGenerated" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { code: validated.code },
+      }),
+
+      output: (result) =>
+        result.map((event) => ({
+          code: (event.payload as { code: string }).code,
+        })),
+
+      projectors: [],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [generateSlice],
+    });
+
+    const result = await app.dispatch("generate-code", { accountId: "acc-1", amount: 10 });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ code: "generated-code" });
+    }
+  });
+
+  test("generator uses accumulated context", async () => {
+    const inputSchema = z.object({
+      accountId: z.string(),
+      amount: z.number().positive(),
+    });
+
+    type Input = z.output<typeof inputSchema>;
+
+    const outputSchema = z.object({
+      label: z.string(),
+    });
+
+    const slice = defineCommandSlice({
+      name: "generate-from-context",
+      inputSchema,
+      outputSchema,
+
+      state: state<Input>()
+        .pipe(
+          tagQuery({
+            key: "account" as const,
+            tags: (ctx) => [`account:${ctx.accountId}`],
+            fold: balanceFold,
+          }),
+        )
+        .pipe(
+          generate({
+            key: "label" as const,
+            fn: (ctx: Input & { readonly account: Balance }) => `balance:${ctx.account.balance}`,
+          }),
+        ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated, _ctx) => ({
+        type: "LabelGenerated" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { label: validated.label },
+      }),
+
+      output: (result) =>
+        result.map((event) => ({
+          label: (event.payload as { label: string }).label,
+        })),
+
+      projectors: [],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    // Seed a deposit event so the balance fold has data
+    const depositApp = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [depositSlice, slice],
+    });
+
+    await depositApp.dispatch("deposit", { accountId: "acc-1", amount: 42 });
+
+    const result = await depositApp.dispatch("generate-from-context", {
+      accountId: "acc-1",
+      amount: 1,
+    });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ label: "balance:42" });
+    }
+  });
+
+  test("async generator", async () => {
+    const inputSchema = z.object({
+      accountId: z.string(),
+    });
+
+    type Input = z.output<typeof inputSchema>;
+
+    const outputSchema = z.object({
+      token: z.string(),
+    });
+
+    const slice = defineCommandSlice({
+      name: "async-generate",
+      inputSchema,
+      outputSchema,
+
+      state: state<Input>().pipe(
+        generate({
+          key: "token" as const,
+          fn: async (_ctx) => "async-token-value",
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated, _ctx) => ({
+        type: "TokenGenerated" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { token: validated.token },
+      }),
+
+      output: (result) =>
+        result.map((event) => ({
+          token: (event.payload as { token: string }).token,
+        })),
+
+      projectors: [],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+    });
+
+    const result = await app.dispatch("async-generate", { accountId: "acc-1" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ token: "async-token-value" });
+    }
+  });
+
+  test("generator after optional not-found projection", async () => {
+    const accountModel = defineReadModel({
+      name: "gen_test_accounts",
+      schema: z.object({
+        accountId: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+    });
+
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+
+    const inputSchema = z.object({ accountId: z.string() });
+    type Input = z.output<typeof inputSchema>;
+
+    const outputSchema = z.object({ found: z.boolean() });
+
+    const slice = defineCommandSlice({
+      name: "generate-after-optional",
+      inputSchema,
+      outputSchema,
+
+      state: state<Input>()
+        .pipe(
+          projection({
+            key: "account" as const,
+            model: accountModel,
+            id: (ctx: Input) => ctx.accountId,
+          }),
+        )
+        .pipe(
+          generate({
+            key: "found" as const,
+            fn: (
+              ctx: Input & {
+                readonly account: import("neverthrow").Result<
+                  { accountId: string; balance: number },
+                  import("../index.js").ReadModelNotFound
+                >;
+              },
+            ) => ctx.account.isOk(),
+          }),
+        ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated, _ctx) => ({
+        type: "FoundChecked" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { found: validated.found },
+      }),
+
+      output: (result) =>
+        result.map((event) => ({
+          found: (event.payload as { found: boolean }).found,
+        })),
+
+      projectors: [],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projAdapter,
+          get,
+          constraints: {},
+          tableName: "gen_test_accounts",
+        },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+    });
+
+    // No projection entry exists — optional projection returns err(ReadModelNotFound)
+    const result = await app.dispatch("generate-after-optional", { accountId: "acc-1" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ found: false });
     }
   });
 });
