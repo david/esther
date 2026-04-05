@@ -62,22 +62,26 @@ describe("defineReadModel", () => {
     expect(() => defineReadModel({ name: "test", key: "id", schema: badSchema })).toThrow();
   });
 
-  test("throws on unsupported Zod type (z.array)", () => {
-    const badSchema = z.object({
+  test("accepts z.array() fields without throwing", () => {
+    const schema = z.object({
       id: z.string(),
       tags: z.array(z.string()),
     });
 
-    expect(() => defineReadModel({ name: "test", key: "id", schema: badSchema })).toThrow();
+    const handle = defineReadModel({ name: "test", key: "id", schema });
+
+    expect(handle.name).toBe("test");
   });
 
-  test("throws on unsupported Zod type (z.object)", () => {
-    const badSchema = z.object({
+  test("accepts z.object() fields without throwing", () => {
+    const schema = z.object({
       id: z.string(),
       nested: z.object({ foo: z.string() }),
     });
 
-    expect(() => defineReadModel({ name: "test", key: "id", schema: badSchema })).toThrow();
+    const handle = defineReadModel({ name: "test", key: "id", schema });
+
+    expect(handle.name).toBe("test");
   });
 
   test("throws when key field is not in schema", () => {

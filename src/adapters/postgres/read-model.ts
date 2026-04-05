@@ -39,6 +39,7 @@ function zodToColumnType(zodType: z.ZodTypeAny): string {
 
   if (typeName === "ZodNumber") return "NUMERIC";
   if (typeName === "ZodBoolean") return "BOOLEAN";
+  if (typeName === "ZodArray" || typeName === "ZodObject") return "JSONB";
 
   throw new Error(`Unsupported Zod type: ${typeName}`);
 }
@@ -54,7 +55,13 @@ export function generateCreateTableDDL<T>(handle: ReadModelHandle<T>): string {
     const fieldType = shape[fieldName];
     if (fieldType === undefined) continue;
     const colType = zodToColumnType(fieldType);
-    clauses.push(`  "${fieldName}" ${colType} NOT NULL`);
+    const typeName = fieldType._def.typeName as string;
+    if (colType === "JSONB") {
+      const defaultVal = typeName === "ZodArray" ? "'[]'::jsonb" : "'{}'::jsonb";
+      clauses.push(`  "${fieldName}" ${colType} NOT NULL DEFAULT ${defaultVal}`);
+    } else {
+      clauses.push(`  "${fieldName}" ${colType} NOT NULL`);
+    }
   }
 
   clauses.push(`  PRIMARY KEY ("${key}")`);
@@ -149,6 +156,17 @@ export function createPostgresProjectionAdapter<T>(
   const { name: tableName, key, schema } = handle;
   const columns = Object.keys(schema.shape);
 
+  // Identify JSONB columns for serialization
+  const jsonbColumns = new Set<string>();
+  for (const col of columns) {
+    const fieldType = schema.shape[col];
+    if (fieldType === undefined) continue;
+    const typeName = fieldType._def.typeName as string;
+    if (typeName === "ZodArray" || typeName === "ZodObject") {
+      jsonbColumns.add(col);
+    }
+  }
+
   // Pre-build quoted column lists
   const quotedColumns = columns.map((c) => `"${c}"`).join(", ");
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
@@ -157,7 +175,8 @@ export function createPostgresProjectionAdapter<T>(
     const record = value as Record<string, unknown>;
     const vals: unknown[] = [];
     for (const col of columns) {
-      vals.push(record[col]);
+      const v = record[col];
+      vals.push(jsonbColumns.has(col) ? JSON.stringify(v) : v);
     }
     return vals;
   }
@@ -167,7 +186,10 @@ export function createPostgresProjectionAdapter<T>(
     // Values for the SET clause (all columns except key)
     const setValues: unknown[] = [];
     for (const col of columns) {
-      if (col !== key) setValues.push(record[col]);
+      if (col !== key) {
+        const v = record[col];
+        setValues.push(jsonbColumns.has(col) ? JSON.stringify(v) : v);
+      }
     }
     return setValues;
   }

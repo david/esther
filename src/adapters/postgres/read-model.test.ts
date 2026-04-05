@@ -129,6 +129,177 @@ describe("generateCreateTableDDL", () => {
   });
 });
 
+// ── generateCreateTableDDL — JSONB columns ───────────────────────
+
+describe("generateCreateTableDDL — JSONB columns", () => {
+  test("maps z.array() to JSONB NOT NULL DEFAULT '[]'::jsonb", () => {
+    const handle = defineReadModel({
+      name: "oow",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        blocks: z.array(z.object({ type: z.string(), content: z.string() })),
+      }),
+    });
+
+    const ddl = generateCreateTableDDL(handle);
+
+    expect(ddl).toContain(`"blocks" JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  });
+
+  test("maps z.object() to JSONB NOT NULL DEFAULT '{}'::jsonb", () => {
+    const handle = defineReadModel({
+      name: "config",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        settings: z.object({ theme: z.string() }),
+      }),
+    });
+
+    const ddl = generateCreateTableDDL(handle);
+
+    expect(ddl).toContain(`"settings" JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  });
+});
+
+// ── round-trip JSONB via adapter ─────────────────────────────────
+
+describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
+  // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
+  function createInMemorySql(): any {
+    const tables: Record<string, Record<string, unknown>[]> = {};
+
+    const sql = {
+      async unsafe(query: string, params?: unknown[]): Promise<unknown[]> {
+        if (query.startsWith("INSERT")) {
+          const tableMatch = query.match(/INTO "(\w+)"/);
+          const tableName = tableMatch?.[1] ?? "";
+          if (!tables[tableName]) tables[tableName] = [];
+
+          const colMatch = query.match(/\(([^)]+)\) VALUES/);
+          if (!colMatch?.[1]) return [];
+          const cols = colMatch[1].split(",").map((c) => c.trim().replace(/"/g, ""));
+          const row: Record<string, unknown> = {};
+          for (let i = 0; i < cols.length; i++) {
+            row[cols[i] as string] = params?.[i];
+          }
+
+          if (query.includes("ON CONFLICT")) {
+            const keyCol = cols[0] as string;
+            const existing = tables[tableName].findIndex((r) => r[keyCol] === row[keyCol]);
+            if (existing >= 0) {
+              const nonKeyCols = cols.filter((c) => c !== keyCol);
+              for (let i = 0; i < nonKeyCols.length; i++) {
+                row[nonKeyCols[i] as string] = params?.[cols.length + i];
+              }
+              tables[tableName][existing] = row;
+            } else {
+              tables[tableName].push(row);
+            }
+          } else {
+            tables[tableName].push(row);
+          }
+          return [];
+        }
+
+        if (query.startsWith("SELECT")) {
+          const tableMatch = query.match(/FROM "(\w+)"/);
+          const tableName = tableMatch?.[1] ?? "";
+          const rows = tables[tableName] ?? [];
+          const keyParam = params?.[0];
+          return rows.filter((r) => {
+            const whereMatch = query.match(/WHERE "(\w+)" = \$1/);
+            const whereCol = whereMatch?.[1] ?? "";
+            return r[whereCol] === keyParam;
+          });
+        }
+
+        return [];
+      },
+    };
+
+    return sql;
+  }
+
+  test("insert and read back JSONB array values", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "oow",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        title: z.string(),
+        blocks: z.array(z.object({ type: z.string(), content: z.string() })),
+      }),
+    });
+
+    const sql = createInMemorySql();
+    const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
+
+    const blocks = [
+      { type: "song", content: "Amazing Grace" },
+      { type: "reading", content: "Psalm 23" },
+    ];
+
+    const projection = handle.project(
+      {
+        id: "550e8400-e29b-41d4-a716-446655440000",
+        title: "Sunday Service",
+        blocks,
+      },
+      "insert",
+    );
+
+    await adapter.execute(projection);
+
+    // The stored value for blocks should be a JSON string
+    const result = await get("550e8400-e29b-41d4-a716-446655440000");
+    expect(result.isOk()).toBe(true);
+
+    const stored = result._unsafeUnwrap().value as Record<string, unknown>;
+    // The adapter stringifies JSONB on write; the mock returns it as-is
+    // In real Postgres, the driver would parse JSONB back to objects.
+    // Here we verify the value was stringified for storage.
+    expect(stored.blocks).toBe(JSON.stringify(blocks));
+  });
+
+  test("insert and read back JSONB object values", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "config",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        settings: z.object({ theme: z.string(), fontSize: z.number() }),
+      }),
+    });
+
+    const sql = createInMemorySql();
+    const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
+
+    const settings = { theme: "dark", fontSize: 14 };
+
+    const projection = handle.project(
+      {
+        id: "550e8400-e29b-41d4-a716-446655440000",
+        settings,
+      },
+      "insert",
+    );
+
+    await adapter.execute(projection);
+
+    const result = await get("550e8400-e29b-41d4-a716-446655440000");
+    expect(result.isOk()).toBe(true);
+
+    const stored = result._unsafeUnwrap().value as Record<string, unknown>;
+    expect(stored.settings).toBe(JSON.stringify(settings));
+  });
+});
+
 // ── generateCreateViewDDL ─────────────────────────────────────────
 
 describe("generateCreateViewDDL", () => {

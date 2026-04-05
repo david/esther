@@ -49,7 +49,13 @@ const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
 // ZodString covers z.string(), z.string().uuid(), and z.string().datetime()
 // (datetime/uuid are ZodString with checks, not separate types)
-const SUPPORTED_ZOD_TYPES = new Set(["ZodString", "ZodNumber", "ZodBoolean"]);
+const SUPPORTED_ZOD_TYPES = new Set([
+  "ZodString",
+  "ZodNumber",
+  "ZodBoolean",
+  "ZodArray",
+  "ZodObject",
+]);
 
 function isSupportedZodType(zodType: z.ZodTypeAny): boolean {
   const typeName = zodType._def.typeName as string;
