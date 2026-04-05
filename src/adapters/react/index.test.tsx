@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 import React from "react";
-import { createInMemoryReadModelStore } from "../in-memory/read-model-store.js";
+import { createInMemoryReadModelStore } from "./notifying-adapter.js";
 import { EstherProvider, useDispatch, useProjection } from "./index.js";
 import { createNotifyingReadModelStore } from "./notifying-adapter.js";
 

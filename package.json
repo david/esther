@@ -9,7 +9,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./postgres": "./src/adapters/postgres/index.ts",
-<<<<<<< HEAD
     "./fastify": "./src/adapters/fastify/index.ts",
     "./test": "./src/adapters/in-memory/index.ts",
     "./react": "./src/adapters/react/index.ts"

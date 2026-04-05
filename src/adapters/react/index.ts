@@ -104,6 +104,8 @@ export function useDispatch(): DispatchFn {
 // ── Re-exports ────────────────────────────────────────────────────────
 
 export {
+  createInMemoryReadModelStore,
   createNotifyingReadModelStore,
   type NotifyingReadModelStore,
+  type ReadModelStore,
 } from "./notifying-adapter.js";
