@@ -234,8 +234,10 @@ export function generate<TKey extends string, TContext, TValue>(descriptor: {
 
 // ── Slice-level projector / processor ──────────────────────────────────
 
-export type SliceProjectorFn = (event: StoredEvent) => InlineResult | Promise<InlineResult>;
-export type SliceProcessorFn = (event: StoredEvent) => InlineResult;
+export type SliceProjectorFn = (
+  event: StoredEvent,
+) => InlineResult | Record<string, never> | Promise<InlineResult | Record<string, never>>;
+export type SliceProcessorFn = (event: StoredEvent) => InlineResult | Record<string, never>;
 
 // ── Compiled slice ─────────────────────────────────────────────────────
 
