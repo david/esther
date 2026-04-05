@@ -1936,3 +1936,81 @@ describe("generate step", () => {
     }
   });
 });
+
+describe("async projector", () => {
+  test("async projector returning Promise<ProjectionResult> is awaited and stored", async () => {
+    const accountModel = defineReadModel({
+      name: "async_accounts",
+      schema: z.object({
+        accountId: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+    });
+
+    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+
+    const asyncProjectorSlice = defineCommandSlice({
+      name: "async-deposit",
+      inputSchema: depositInputSchema,
+      outputSchema: depositOutputSchema,
+
+      state: state<DepositInput>().pipe(
+        tagQuery({
+          key: "account" as const,
+          tags: (ctx) => [`account:${ctx.accountId}`],
+          fold: balanceFold,
+        }),
+      ),
+
+      validate: (ctx) => ok(ctx),
+
+      handle: (validated, _ctx) => ({
+        type: "Deposited" as const,
+        tags: [`account:${validated.accountId}`],
+        payload: { accountId: validated.accountId, amount: validated.amount },
+      }),
+
+      output: (result, ctx) =>
+        result.map((event) => ({
+          account: { balance: ctx.account.balance + event.payload.amount },
+        })),
+
+      projectors: [
+        async (event: StoredEvent) => {
+          // Simulate async work (e.g., fetching context for projection)
+          await Promise.resolve();
+          if (event.type === "Deposited") {
+            const payload = event.payload as { accountId: string; amount: number };
+            return accountModel.project({
+              accountId: payload.accountId,
+              balance: payload.amount,
+            });
+          }
+          return { type: "effect" as const };
+        },
+      ],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [
+        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "async_accounts" },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [asyncProjectorSlice],
+    });
+
+    await app.dispatch("async-deposit", { accountId: "acc-1", amount: 100 });
+
+    const result = await get("acc-1");
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.value).toEqual({ accountId: "acc-1", balance: 100 });
+    }
+  });
+});

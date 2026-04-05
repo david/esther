@@ -234,7 +234,7 @@ export function generate<TKey extends string, TContext, TValue>(descriptor: {
 
 // ── Slice-level projector / processor ──────────────────────────────────
 
-export type SliceProjectorFn = (event: StoredEvent) => InlineResult;
+export type SliceProjectorFn = (event: StoredEvent) => InlineResult | Promise<InlineResult>;
 export type SliceProcessorFn = (event: StoredEvent) => InlineResult;
 
 // ── Compiled slice ─────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ function registerHandlers(
 ): void {
   for (const projectorFn of slice.projectors) {
     deps.eventStore.onAfterInsert({ tags: [] }, async (event: StoredEvent) => {
-      const result = projectorFn(event);
+      const result = await projectorFn(event);
       if (isProjectionResult(result)) {
         const adapter = deps.projectionAdapterRegistry.get(result.name);
         if (!adapter) {
