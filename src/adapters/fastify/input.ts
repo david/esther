@@ -54,6 +54,8 @@ export function createFastifyInputAdapter(config: FastifyAdapterConfig): {
           return reply.status(409).send({ error });
         case "SchemaError":
           return reply.status(400).send({ error });
+        case "ReadModelNotFound":
+          return reply.status(404).send({ error });
       }
     }
 
