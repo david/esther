@@ -1,0 +1,2 @@
+[test]
+preload = ["./src/adapters/react/setup-dom.ts"]

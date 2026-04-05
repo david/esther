@@ -9,8 +9,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./postgres": "./src/adapters/postgres/index.ts",
+<<<<<<< HEAD
     "./fastify": "./src/adapters/fastify/index.ts",
-    "./test": "./src/adapters/in-memory/index.ts"
+    "./test": "./src/adapters/in-memory/index.ts",
+    "./react": "./src/adapters/react/index.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
@@ -25,19 +27,29 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
+    "@testing-library/react": "^16.3.2",
     "@types/bun": "^1.2.4",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@typescript/native-preview": "^7.0.0-dev.20260329.1",
+    "happy-dom": "15.11.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "typescript": "^5.7.3"
   },
   "peerDependencies": {
     "fastify": "^5.8.4",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "react": "^18.0.0 || ^19.0.0"
   },
   "peerDependenciesMeta": {
     "fastify": {
       "optional": true
     },
     "postgres": {
+      "optional": true
+    },
+    "react": {
       "optional": true
     }
   }
