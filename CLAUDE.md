@@ -8,7 +8,7 @@ Event sourcing framework built on Dynamic Consistency Boundaries (DCB).
 - **No `null`**, no optional properties, no implicit `any`.
 - **Errors are values**, not exceptions. All user-provided functions (handlers, validators, projectors, processors) return `Result` types via `neverthrow`. Framework-level errors (I/O failures, bugs) may throw.
 - **Discriminated unions** and **branded types** where appropriate.
-- Types flow end-to-end through the slice pipeline. `validate` and `handle` receive fully typed contexts — no casting in user code.
+- Types flow end-to-end through the slice pipeline. `prepare` and `handle` receive fully typed contexts — no casting in user code.
 
 ## Cast policy
 

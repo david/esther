@@ -114,7 +114,7 @@ const _createBookingSlice = defineCommandSlice({
       }),
     ),
 
-  validate: (ctx) => {
+  prepare: (ctx) => {
     // ctx is fully typed: CreateBookingInput & { property: PropertyState } & { pricing: Result<PricingRow, ReadModelNotFound> }
     const _propertyCheck: PropertyState = ctx.property;
     const _inputCheck: string = ctx.propertyId;
@@ -130,16 +130,16 @@ const _createBookingSlice = defineCommandSlice({
     return ok(ctx);
   },
 
-  handle: (validated, _ctx): BookingCreated => ({
+  handle: (prepared, _ctx): BookingCreated => ({
     type: "BookingCreated",
-    tags: ["booking", `property:${validated.propertyId}`, `tenant:${validated.tenantId}`],
+    tags: ["booking", `property:${prepared.propertyId}`, `tenant:${prepared.tenantId}`],
     payload: {
       bookingId: crypto.randomUUID(),
       confirmedAt: new Date().toISOString(),
-      propertyId: validated.propertyId,
-      tenantId: validated.tenantId,
-      checkIn: validated.checkIn,
-      checkOut: validated.checkOut,
+      propertyId: prepared.propertyId,
+      tenantId: prepared.tenantId,
+      checkIn: prepared.checkIn,
+      checkOut: prepared.checkOut,
     },
   }),
 

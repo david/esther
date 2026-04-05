@@ -58,12 +58,12 @@ const depositSlice = defineCommandSlice({
     }),
   ),
 
-  validate: (ctx) => ok(ctx),
+  prepare: (ctx) => ok(ctx),
 
-  handle: (validated, _ctx) => ({
+  handle: (prepared, _ctx) => ({
     type: "Deposited" as const,
-    tags: [`account:${validated.accountId}`],
-    payload: { accountId: validated.accountId, amount: validated.amount },
+    tags: [`account:${prepared.accountId}`],
+    payload: { accountId: prepared.accountId, amount: prepared.amount },
   }),
 
   output: (result, ctx) =>
@@ -101,17 +101,17 @@ const withdrawSlice = defineCommandSlice({
     }),
   ),
 
-  validate: (ctx) => {
+  prepare: (ctx) => {
     if (ctx.account.balance < ctx.amount) {
       return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
     }
     return ok(ctx);
   },
 
-  handle: (validated, _ctx) => ({
+  handle: (prepared, _ctx) => ({
     type: "Withdrawn" as const,
-    tags: [`account:${validated.accountId}`],
-    payload: { accountId: validated.accountId, amount: validated.amount },
+    tags: [`account:${prepared.accountId}`],
+    payload: { accountId: prepared.accountId, amount: prepared.amount },
   }),
 
   output: (result, ctx) =>
@@ -174,12 +174,12 @@ const creditSlice = defineCommandSlice({
     }),
   ),
 
-  validate: (ctx) => ok(ctx),
+  prepare: (ctx) => ok(ctx),
 
-  handle: (validated, _ctx) => ({
+  handle: (prepared, _ctx) => ({
     type: "CreditApplied" as const,
-    tags: [`account:${validated.accountId}`],
-    payload: { accountId: validated.accountId, amount: validated.amount },
+    tags: [`account:${prepared.accountId}`],
+    payload: { accountId: prepared.accountId, amount: prepared.amount },
   }),
 
   output: (result, ctx) => {
@@ -206,7 +206,7 @@ const rejectSlice = defineCommandSlice({
 
   state: state<z.output<typeof rejectInputSchema>>(),
 
-  validate: (_ctx) =>
+  prepare: (_ctx) =>
     err({ code: "ALWAYS_FAILS", message: "This always fails" } as ValidationError),
 
   handle: (_validated, _ctx) => {
@@ -452,12 +452,12 @@ describe("processor routing to onAfterCommit", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>
@@ -599,12 +599,12 @@ describe("dispatch via onAfterInsert", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>
@@ -674,12 +674,12 @@ describe("dispatch via onAfterInsert", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>
@@ -767,12 +767,12 @@ describe("dispatch via onAfterInsert", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>
@@ -982,12 +982,12 @@ describe("unknown model name in projector result", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) => result.map(() => ({ account: ctx.account })),
@@ -1045,12 +1045,12 @@ describe("projection step", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>
@@ -1122,12 +1122,12 @@ describe("projection step", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: 1 },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: 1 },
       }),
 
       output: (result, ctx) => result.map(() => ctx),
@@ -1254,12 +1254,12 @@ describe("replay", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>
@@ -1397,12 +1397,12 @@ describe("end-to-end integration", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>
@@ -1555,15 +1555,15 @@ describe("read model views", () => {
 
       state: state<{ userId: string; email: string; name: string }>(),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "UserRegistered" as const,
-        tags: [`user:${validated.userId}`],
+        tags: [`user:${prepared.userId}`],
         payload: {
-          userId: validated.userId,
-          email: validated.email,
-          name: validated.name,
+          userId: prepared.userId,
+          email: prepared.email,
+          name: prepared.name,
         },
       }),
 
@@ -1689,12 +1689,12 @@ describe("generate step", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "CodeGenerated" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { code: validated.code },
+        tags: [`account:${prepared.accountId}`],
+        payload: { code: prepared.code },
       }),
 
       output: (result) =>
@@ -1754,12 +1754,12 @@ describe("generate step", () => {
           }),
         ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "LabelGenerated" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { label: validated.label },
+        tags: [`account:${prepared.accountId}`],
+        payload: { label: prepared.label },
       }),
 
       output: (result) =>
@@ -1816,12 +1816,12 @@ describe("generate step", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "TokenGenerated" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { token: validated.token },
+        tags: [`account:${prepared.accountId}`],
+        payload: { token: prepared.token },
       }),
 
       output: (result) =>
@@ -1893,12 +1893,12 @@ describe("generate step", () => {
           }),
         ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "FoundChecked" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { found: validated.found },
+        tags: [`account:${prepared.accountId}`],
+        payload: { found: prepared.found },
       }),
 
       output: (result) =>
@@ -1963,12 +1963,12 @@ describe("async projector", () => {
         }),
       ),
 
-      validate: (ctx) => ok(ctx),
+      prepare: (ctx) => ok(ctx),
 
-      handle: (validated, _ctx) => ({
+      handle: (prepared, _ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${validated.accountId}`],
-        payload: { accountId: validated.accountId, amount: validated.amount },
+        tags: [`account:${prepared.accountId}`],
+        payload: { accountId: prepared.accountId, amount: prepared.amount },
       }),
 
       output: (result, ctx) =>

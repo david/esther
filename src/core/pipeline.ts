@@ -8,11 +8,11 @@ import { type DomainEvent, SchemaError, type SliceError } from "./types.js";
 export async function executeCommand<
   TInput,
   TContext,
-  TValidated,
+  TPrepared,
   TOutput,
   TEvent extends DomainEvent,
 >(
-  slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent>,
+  slice: CommandSlice<TInput, TContext, TPrepared, TOutput, TEvent>,
   rawInput: unknown,
   eventStore: EventStore,
   projectionStore: ProjectionStore,
@@ -29,17 +29,17 @@ export async function executeCommand<
   if (resolveResult.isErr()) return err(resolveResult.error);
   const { context } = resolveResult.value;
 
-  // 3. Validate — fully typed
-  const validateResult = slice.validate(context);
-  if (validateResult.isErr()) {
-    const outputResult = slice.output(err(validateResult.error), context);
+  // 3. Prepare — fully typed
+  const prepareResult = slice.prepare(context);
+  if (prepareResult.isErr()) {
+    const outputResult = slice.output(err(prepareResult.error), context);
     if (outputResult.isErr()) return err(outputResult.error);
     return ok(outputResult.value);
   }
-  const validated: TValidated = validateResult.value;
+  const prepared: TPrepared = prepareResult.value;
 
   // 4. Handle — returns a single event directly
-  const event = slice.handle(validated, context);
+  const event = slice.handle(prepared, context);
 
   // 5. Append event
   const appendResult = await eventStore.append([event]);

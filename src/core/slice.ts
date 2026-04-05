@@ -267,7 +267,7 @@ export type RegisterableSlice = {
 export type CommandSlice<
   TInput,
   TContext,
-  TValidated,
+  TPrepared,
   TOutput,
   TEvent extends DomainEvent = DomainEvent,
 > = RegisterableSlice & {
@@ -275,8 +275,8 @@ export type CommandSlice<
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
   readonly resolveState: StateResolver<TInput, TContext>;
-  readonly validate: (context: TContext) => Result<TValidated, ValidationError>;
-  readonly handle: (validated: TValidated, ctx: TContext) => TEvent;
+  readonly prepare: (context: TContext) => Result<TPrepared, ValidationError>;
+  readonly handle: (prepared: TPrepared, ctx: TContext) => TEvent;
   readonly output: (
     result: Result<TEvent, ValidationError>,
     ctx: TContext,
@@ -332,7 +332,7 @@ function registerHandlers(
 export function defineCommandSlice<
   TInput,
   TContext,
-  TValidated,
+  TPrepared,
   TOutput,
   TEvent extends DomainEvent = DomainEvent,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
@@ -342,22 +342,22 @@ export function defineCommandSlice<
   readonly inputSchema: TInputSchema;
   readonly outputSchema: TOutputSchema;
   readonly state: StateResolver<TInput, TContext>;
-  readonly validate: (ctx: TContext) => Result<TValidated, ValidationError>;
-  readonly handle: (validated: TValidated, ctx: TContext) => TEvent;
+  readonly prepare: (ctx: TContext) => Result<TPrepared, ValidationError>;
+  readonly handle: (prepared: TPrepared, ctx: TContext) => TEvent;
   readonly output: (
     result: Result<TEvent, ValidationError>,
     ctx: TContext,
   ) => Result<TOutput, ValidationError>;
   readonly projectors: ReadonlyArray<SliceProjectorFn>;
   readonly processors: ReadonlyArray<SliceProcessorFn>;
-}): CommandSlice<TInput, TContext, TValidated, TOutput, TEvent> {
-  const slice: CommandSlice<TInput, TContext, TValidated, TOutput, TEvent> = {
+}): CommandSlice<TInput, TContext, TPrepared, TOutput, TEvent> {
+  const slice: CommandSlice<TInput, TContext, TPrepared, TOutput, TEvent> = {
     _tag: "command",
     name: definition.name ?? "anonymous-command",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
     resolveState: definition.state,
-    validate: definition.validate,
+    prepare: definition.prepare,
     handle: definition.handle,
     output: definition.output,
     projectors: definition.projectors,
