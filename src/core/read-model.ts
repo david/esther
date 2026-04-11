@@ -30,10 +30,13 @@ export type Constraints = {
   readonly unique?: ReadonlyArray<ReadonlyArray<string>>;
 };
 
-export type ReadModelHandle<T> = {
+export type ReadModelHandle<
+  T,
+  S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>,
+> = {
   readonly name: string;
   readonly key: string;
-  readonly schema: z.ZodObject<z.ZodRawShape>;
+  readonly schema: S;
   readonly constraints: Constraints;
   readonly project: (value: T, operation?: Operation) => ProjectionResult<T>;
 };
@@ -82,7 +85,7 @@ type DefineReadModelInput<S extends z.ZodObject<z.ZodRawShape>> = {
 
 export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
   input: DefineReadModelInput<S>,
-): ReadModelHandle<z.infer<S>> {
+): ReadModelHandle<z.infer<S>, S> {
   type T = z.infer<S>;
 
   const { name, key, schema, constraints = {} } = input;
