@@ -28,6 +28,17 @@ export type ProjectionStore = {
   ) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
 };
 
+// ── SliceDeps ─────────────────────────────────────────────────────────
+// Runtime dependencies threaded into a v2 slice's `input` function. The
+// user's `input` closes over these and builds a compose(...) chain that
+// can read the event store (for tag queries) or the projection store
+// (for view lookups) without any module-level mutable state.
+
+export type SliceDeps = {
+  readonly eventStore: EventStore;
+  readonly projectionStore: ProjectionStore;
+};
+
 // ── addField — the ONE computed-key cast in the codebase ───────────────
 // TypeScript cannot infer { ...obj, [key]: value } when key is a variable.
 // This is a known TS limitation for computed property keys. Every other
@@ -184,16 +195,21 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
 // `<key>Subject` (convention) so downstream steps can read fields
 // without unwrapping a Result. On absent, produces a typed CastAbsent.
 
+export type CastCheck<TInput, TSubject, TCause> = (
+  ctx: TInput,
+  deps: SliceDeps,
+) => Promise<Result<TSubject, TCause>>;
+
 export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> = {
   readonly _tag: "castTagQuery";
   readonly key: TKey;
   readonly cast: {
-    readonly check: (ctx: TInput) => Promise<Result<TSubject, TCause>>;
+    readonly check: CastCheck<TInput, TSubject, TCause>;
   };
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
   readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-  readonly resolve: (
-    eventStore: EventStore,
+  readonly toStep: (
+    deps: SliceDeps,
   ) => Step<
     TInput,
     { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
@@ -204,20 +220,20 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
 export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
   readonly key: TKey;
   readonly cast: {
-    readonly check: (ctx: TInput) => Promise<Result<TSubject, TCause>>;
+    readonly check: CastCheck<TInput, TSubject, TCause>;
   };
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
   readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
 }): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause> {
-  const resolve = (
-    eventStore: EventStore,
+  const toStep = (
+    deps: SliceDeps,
   ): Step<
     TInput,
     { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
     CastAbsent<TKey, TCause>
   > => {
     return async (ctx) => {
-      const checkResult = await descriptor.cast.check(ctx);
+      const checkResult = await descriptor.cast.check(ctx, deps);
       if (checkResult.isErr()) {
         return err({
           type: "CastAbsent",
@@ -227,7 +243,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
       }
       const subject = checkResult.value;
       const tags = descriptor.tags(subject);
-      const queryResult = await eventStore.queryByTags(tags, (events) =>
+      const queryResult = await deps.eventStore.queryByTags(tags, (events) =>
         descriptor.fold(events, subject),
       );
       const withState = addField({}, descriptor.key, queryResult.state);
@@ -243,7 +259,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
     cast: descriptor.cast,
     tags: descriptor.tags,
     fold: descriptor.fold,
-    resolve,
+    toStep,
   };
 }
 
@@ -374,7 +390,7 @@ export type CommandSliceV2<
   readonly _shape: "v2";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
-  readonly input: (ctx: TInput) => Promise<Result<TCtx, TError>>;
+  readonly input: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>>;
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
@@ -442,7 +458,7 @@ export type CommandSliceV2Definition<
   readonly name?: string | undefined;
   readonly inputSchema: TInputSchema;
   readonly outputSchema: TOutputSchema;
-  readonly input: (ctx: TInput) => Promise<Result<TCtx, TError>>;
+  readonly input: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>>;
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
@@ -548,7 +564,7 @@ export function defineCommandSliceV2<TInput, TCtx, TOutput, TEvent extends Domai
         name: slice.name,
         execute: async (rawInput) => {
           const { executeCommandV2 } = await import("./pipeline.js");
-          return executeCommandV2(slice, rawInput, deps.eventStore);
+          return executeCommandV2(slice, rawInput, deps.eventStore, deps.projectionStore);
         },
       };
     },

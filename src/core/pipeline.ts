@@ -76,6 +76,7 @@ export async function executeCommandV2<TInput, TCtx, TOutput, TEvent extends Dom
   slice: CommandSliceV2<TInput, TCtx, TOutput, TEvent, TError>,
   rawInput: unknown,
   eventStore: EventStore,
+  projectionStore: ProjectionStore,
 ): Promise<Result<TOutput, SliceError>> {
   // 1. Parse input
   const parseResult = slice.inputSchema.safeParse(rawInput);
@@ -84,8 +85,8 @@ export async function executeCommandV2<TInput, TCtx, TOutput, TEvent extends Dom
   }
   const input: TInput = parseResult.data;
 
-  // 2. Run input step chain
-  const inputResult = await slice.input(input);
+  // 2. Run input step chain — threads framework deps into user's `input` fn
+  const inputResult = await slice.input(input, { eventStore, projectionStore });
   if (inputResult.isErr()) {
     return finishV2(slice, slice.outputErr(inputResult.error, input));
   }

@@ -186,13 +186,14 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-cast-absent",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ status: z.string(), code: z.string() }),
-      input: compose<ProbeInput, { type: "CastAbsent"; key: string; cause: { type: string } }>([
-        cast.resolve(eventStore) as Step<
-          ProbeInput,
-          unknown,
-          { type: "CastAbsent"; key: string; cause: { type: string } }
-        >,
-      ]),
+      input: async (ctx, deps) =>
+        compose<ProbeInput, { type: "CastAbsent"; key: string; cause: { type: string } }>([
+          cast.toStep(deps) as Step<
+            ProbeInput,
+            unknown,
+            { type: "CastAbsent"; key: string; cause: { type: string } }
+          >,
+        ])(ctx),
       validate: [
         (_ctx) => {
           validateCalled = true;
@@ -551,6 +552,97 @@ describe("command pipeline v2 — wiring", () => {
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error).toEqual({ type: "rate", code: "X" } as never);
+    }
+  });
+
+  test("cast.check can consume projectionStore via deps", async () => {
+    // This case is the reason the v2 pipeline threads SliceDeps into
+    // `input`: the cast needs to look a subject up in a projection, then
+    // use that subject to fold events. Old signature couldn't express it
+    // without module-level refs.
+    const userModel = defineReadModel({
+      name: "users_by_email",
+      schema: z.object({ id: z.string(), email: z.string() }),
+      key: "email",
+    });
+    const { adapter: userAdapter, get: getUser } = createInMemoryProjectionAdapter(userModel);
+
+    // Seed the projection with one user
+    await userAdapter.execute(userModel.project({ id: "u-1", email: "alice@test" }));
+
+    type LoginInput = { readonly email: string };
+    const loginSchema = z.object({ email: z.string() });
+
+    type UserSubject = { readonly id: string; readonly email: string };
+
+    const cast = castTagQuery({
+      key: "user" as const,
+      cast: {
+        check: async (ctx: LoginInput, deps): Promise<Result<UserSubject, { type: "NoUser" }>> => {
+          const lookup = await deps.projectionStore.get("users_by_email", ctx.email);
+          if (lookup.isErr()) return err({ type: "NoUser" as const });
+          const v = lookup.value.value as UserSubject;
+          return ok(v);
+        },
+      },
+      tags: (subject) => [`user:${subject.id}`],
+      fold: (_events, subject) => ({ found: subject.id }),
+    });
+
+    const slice = defineCommandSliceV2({
+      name: "probe-cast-uses-projection",
+      inputSchema: loginSchema,
+      outputSchema: z.object({ userId: z.string() }),
+      input: async (ctx, deps) =>
+        compose<LoginInput, { type: "CastAbsent"; key: string; cause: { type: "NoUser" } }>([
+          cast.toStep(deps) as Step<
+            LoginInput,
+            unknown,
+            { type: "CastAbsent"; key: string; cause: { type: "NoUser" } }
+          >,
+        ])(ctx),
+      validate: [],
+      event: (ctx) => ({
+        type: "Probe" as const,
+        tags: [`user:${(ctx as unknown as { userSubject: UserSubject }).userSubject.id}`],
+        payload: {},
+      }),
+      output: (_event, ctx) =>
+        ok({ userId: (ctx as unknown as { userSubject: UserSubject }).userSubject.id }),
+      outputErr: (_e, _ctx) => ok({ userId: "none" }),
+      projectors: [],
+      processors: [],
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: userAdapter,
+          get: getUser,
+          constraints: {},
+          tableName: "users_by_email",
+        },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+    });
+
+    // hit — user found
+    const hit = await app.dispatch("probe-cast-uses-projection", { email: "alice@test" });
+    expect(hit.isOk()).toBe(true);
+    if (hit.isOk()) {
+      expect(hit.value).toEqual({ userId: "u-1" });
+    }
+
+    // miss — user not found routes to outputErr
+    const miss = await app.dispatch("probe-cast-uses-projection", { email: "nobody@test" });
+    expect(miss.isOk()).toBe(true);
+    if (miss.isOk()) {
+      expect(miss.value).toEqual({ userId: "none" });
     }
   });
 

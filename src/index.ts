@@ -68,6 +68,7 @@ export {
   projection,
   type QuerySlice,
   type RegisterableSlice,
+  type SliceDeps,
   type SliceProcessorFn,
   type SliceProjectorFn,
   type StateResolver,

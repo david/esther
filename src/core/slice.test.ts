@@ -155,7 +155,10 @@ describe("registerHandlers skip behavior", () => {
       fold: foldSpy,
     });
 
-    const step = descriptor.resolve(eventStore);
+    const projectionStore = {
+      get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    };
+    const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
 
     expect(result.isOk()).toBe(true);
@@ -193,7 +196,10 @@ describe("registerHandlers skip behavior", () => {
       fold: foldSpy,
     });
 
-    const step = descriptor.resolve(eventStore);
+    const projectionStore = {
+      get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    };
+    const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
 
     expect(result.isErr()).toBe(true);
