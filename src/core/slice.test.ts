@@ -1,11 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
-import { ok } from "neverthrow";
+import { err, ok } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { ProjectionResult } from "./read-model.js";
 import type { CompileDeps, SliceProcessorFn, SliceProjectorFn } from "./slice.js";
-import { defineCommandSlice, state } from "./slice.js";
+import { castTagQuery, defineCommandSlice, state } from "./slice.js";
 import type { DomainEvent } from "./types.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -130,6 +130,82 @@ describe("registerHandlers skip behavior", () => {
     await deps.eventStore.append([{ type: "TestCreated", tags: ["test:1"], payload: {} }]);
 
     expect(effectExecute).toHaveBeenCalledTimes(1);
+  });
+
+  test("castTagQuery hit: subject unwrapped, fold receives (events, subject)", async () => {
+    const eventStore = createInMemoryEventStore();
+    const subject = { userId: "u1", name: "Ada" };
+
+    const foldSpy = mock(
+      (events: ReadonlyArray<unknown>, u: { readonly userId: string; readonly name: string }) => ({
+        count: events.length,
+        subjectName: u.name,
+      }),
+    );
+    const tagsSpy = mock((u: { readonly userId: string; readonly name: string }) => [
+      `user:${u.userId}`,
+    ]);
+
+    const descriptor = castTagQuery({
+      key: "state" as const,
+      cast: {
+        check: async () => ok(subject),
+      },
+      tags: tagsSpy,
+      fold: foldSpy,
+    });
+
+    const step = descriptor.resolve(eventStore);
+    const result = await step({});
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      // Subject is bound under <key>Subject — unwrapped, no Result.
+      expect(result.value).toEqual({
+        state: { count: 0, subjectName: "Ada" },
+        stateSubject: { userId: "u1", name: "Ada" },
+      });
+      // Reading .name does not require .isOk().
+      const sub = (result.value as { stateSubject: { name: string } }).stateSubject;
+      expect(sub.name).toBe("Ada");
+    }
+
+    expect(tagsSpy).toHaveBeenCalledTimes(1);
+    expect(tagsSpy).toHaveBeenCalledWith(subject);
+    expect(foldSpy).toHaveBeenCalledTimes(1);
+    // fold receives (events, subject), not (events) or (Result)
+    expect(foldSpy.mock.calls[0]?.[1]).toEqual(subject);
+  });
+
+  test("castTagQuery absent: returns CastAbsent err, tags/fold never invoked", async () => {
+    const eventStore = createInMemoryEventStore();
+    const cause = { type: "NotFound" as const, reason: "x" };
+
+    const tagsSpy = mock(() => [] as ReadonlyArray<string>);
+    const foldSpy = mock(() => ({}));
+
+    const descriptor = castTagQuery({
+      key: "state" as const,
+      cast: {
+        check: async () => err(cause),
+      },
+      tags: tagsSpy,
+      fold: foldSpy,
+    });
+
+    const step = descriptor.resolve(eventStore);
+    const result = await step({});
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual({
+        type: "CastAbsent",
+        key: "state",
+        cause,
+      });
+    }
+    expect(tagsSpy).not.toHaveBeenCalled();
+    expect(foldSpy).not.toHaveBeenCalled();
   });
 
   test("projector returning real ProjectionResult calls projection adapter", async () => {

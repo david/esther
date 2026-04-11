@@ -18,6 +18,8 @@ export {
   type ProjectionAdapterTableEntry,
   type ProjectionAdapterViewEntry,
 } from "./core/app.js";
+// ── Compose / Step primitives ──────────────────────────────────────────
+export { type CastAbsent, compose, type Step, type StepError } from "./core/compose.js";
 // ── Effect adapters ────────────────────────────────────────────────────
 export {
   createEffectAdapterRegistry,
@@ -48,9 +50,11 @@ export {
 } from "./core/read-model.js";
 // ── Slice definitions ──────────────────────────────────────────────────
 export {
+  type CastTagQueryDescriptor,
   type CommandSlice,
   type CompileDeps,
   type CompiledSlice,
+  castTagQuery,
   defineCommandSlice,
   defineQuerySlice,
   type GenerateStep,

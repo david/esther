@@ -1,5 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
+import type { CastAbsent, Step } from "./compose.js";
 import type { EffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
 import type {
@@ -175,6 +176,75 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
   readonly fold: (events: ReadonlyArray<StoredEvent>) => TState;
 }): TagQueryStep<TKey, TInput, TState> {
   return { _tag: "tagQuery", ...descriptor };
+}
+
+// ── castTagQuery — NEW DSL primitive (alongside tagQuery) ─────────────
+// Resolves a *subject* via `cast.check`, then runs `tags(subject)` and
+// `fold(events, subject)`. The unwrapped subject is bound under
+// `<key>Subject` (convention) so downstream steps can read fields
+// without unwrapping a Result. On absent, produces a typed CastAbsent.
+
+export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> = {
+  readonly _tag: "castTagQuery";
+  readonly key: TKey;
+  readonly cast: {
+    readonly check: (ctx: TInput) => Promise<Result<TSubject, TCause>>;
+  };
+  readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
+  readonly resolve: (
+    eventStore: EventStore,
+  ) => Step<
+    TInput,
+    { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
+    CastAbsent<TKey, TCause>
+  >;
+};
+
+export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
+  readonly key: TKey;
+  readonly cast: {
+    readonly check: (ctx: TInput) => Promise<Result<TSubject, TCause>>;
+  };
+  readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause> {
+  const resolve = (
+    eventStore: EventStore,
+  ): Step<
+    TInput,
+    { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
+    CastAbsent<TKey, TCause>
+  > => {
+    return async (ctx) => {
+      const checkResult = await descriptor.cast.check(ctx);
+      if (checkResult.isErr()) {
+        return err({
+          type: "CastAbsent",
+          key: descriptor.key,
+          cause: checkResult.error,
+        } as const);
+      }
+      const subject = checkResult.value;
+      const tags = descriptor.tags(subject);
+      const queryResult = await eventStore.queryByTags(tags, (events) =>
+        descriptor.fold(events, subject),
+      );
+      const withState = addField({}, descriptor.key, queryResult.state);
+      const subjectKey = `${descriptor.key}Subject` as const;
+      const patch = addField(withState, subjectKey, subject);
+      return ok(patch);
+    };
+  };
+
+  return {
+    _tag: "castTagQuery",
+    key: descriptor.key,
+    cast: descriptor.cast,
+    tags: descriptor.tags,
+    fold: descriptor.fold,
+    resolve,
+  };
 }
 
 export type ProjectionStep<

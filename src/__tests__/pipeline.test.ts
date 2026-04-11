@@ -206,8 +206,7 @@ const rejectSlice = defineCommandSlice({
 
   state: state<z.output<typeof rejectInputSchema>>(),
 
-  prepare: (_ctx) =>
-    err({ code: "ALWAYS_FAILS", message: "This always fails" } as ValidationError),
+  prepare: (_ctx) => err({ code: "ALWAYS_FAILS", message: "This always fails" } as ValidationError),
 
   handle: (_validated, _ctx) => {
     throw new Error("should not reach handle");
