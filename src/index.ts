@@ -35,7 +35,7 @@ export type {
   OnAfterInsertHandler,
 } from "./core/event-store.js";
 // ── Pipeline ───────────────────────────────────────────────────────────
-export { executeCommand, executeCommandV2, executeQuery } from "./core/pipeline.js";
+export { executeCommand, executeQuery } from "./core/pipeline.js";
 // ── Read model ─────────────────────────────────────────────────────────
 export {
   type Constraints,
@@ -52,14 +52,11 @@ export {
 export {
   type CastTagQueryDescriptor,
   type CommandSlice,
-  type CommandSliceV1Definition,
-  type CommandSliceV2,
-  type CommandSliceV2Definition,
+  type CommandSliceDefinition,
   type CompileDeps,
   type CompiledSlice,
   castTagQuery,
   defineCommandSlice,
-  defineCommandSliceV2,
   defineQuerySlice,
   type GenerateStep,
   generate,

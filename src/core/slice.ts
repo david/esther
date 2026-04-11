@@ -350,36 +350,11 @@ export type RegisterableSlice = {
   readonly compile: (deps: CompileDeps) => CompiledSlice;
 };
 
-// ── Command slice (fully generic) ──────────────────────────────────────
-
-export type CommandSlice<
-  TInput,
-  TContext,
-  TPrepared,
-  TOutput,
-  TEvent extends DomainEvent = DomainEvent,
-> = RegisterableSlice & {
-  readonly _tag: "command";
-  readonly inputSchema: z.ZodType<TInput>;
-  readonly outputSchema: z.ZodType<TOutput>;
-  readonly resolveState: StateResolver<TInput, TContext>;
-  readonly prepare: (context: TContext) => Result<TPrepared, ValidationError>;
-  readonly handle: (prepared: TPrepared, ctx: TContext) => TEvent;
-  readonly output: (
-    result: Result<TEvent, ValidationError>,
-    ctx: TContext,
-  ) => Result<TOutput, ValidationError>;
-  readonly projectors: ReadonlyArray<SliceProjectorFn>;
-  readonly processors: ReadonlyArray<SliceProcessorFn>;
-};
-
-// ── Command slice v2 (new DSL shape) ───────────────────────────────────
-// New-shape command slice produced by the v2 form of defineCommandSlice.
-// Coexists with the old shape until task 06 removes the legacy path.
+// ── Command slice ──────────────────────────────────────────────────────
 
 export type ValidatePredicate<TCtx, TError> = (ctx: TCtx) => Result<void, TError>;
 
-export type CommandSliceV2<
+export type CommandSlice<
   TInput,
   TCtx,
   TOutput,
@@ -387,7 +362,6 @@ export type CommandSliceV2<
   TError,
 > = RegisterableSlice & {
   readonly _tag: "command";
-  readonly _shape: "v2";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
   readonly input: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>>;
@@ -442,11 +416,8 @@ function registerHandlers(
 }
 
 // ── defineCommandSlice ─────────────────────────────────────────────────
-// Accepts both the legacy shape (with `state`, `prepare`, `handle`) and
-// the new shape (with `input`, `validate`, `event`, `output`, `outputErr`).
-// Dispatches at runtime on the presence of an `input` field.
 
-export type CommandSliceV2Definition<
+export type CommandSliceDefinition<
   TInput,
   TCtx,
   TOutput,
@@ -467,29 +438,6 @@ export type CommandSliceV2Definition<
   readonly processors: ReadonlyArray<SliceProcessorFn>;
 };
 
-export type CommandSliceV1Definition<
-  TInput,
-  TContext,
-  TPrepared,
-  TOutput,
-  TEvent extends DomainEvent,
-  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
-  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
-> = {
-  readonly name?: string | undefined;
-  readonly inputSchema: TInputSchema;
-  readonly outputSchema: TOutputSchema;
-  readonly state: StateResolver<TInput, TContext>;
-  readonly prepare: (ctx: TContext) => Result<TPrepared, ValidationError>;
-  readonly handle: (prepared: TPrepared, ctx: TContext) => TEvent;
-  readonly output: (
-    result: Result<TEvent, ValidationError>,
-    ctx: TContext,
-  ) => Result<TOutput, ValidationError>;
-  readonly projectors: ReadonlyArray<SliceProjectorFn>;
-  readonly processors: ReadonlyArray<SliceProcessorFn>;
-};
-
 export function defineCommandSlice<
   TInput,
   TCtx,
@@ -499,7 +447,7 @@ export function defineCommandSlice<
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(
-  definition: CommandSliceV2Definition<
+  definition: CommandSliceDefinition<
     TInput,
     TCtx,
     TOutput,
@@ -508,46 +456,10 @@ export function defineCommandSlice<
     TInputSchema,
     TOutputSchema
   >,
-): CommandSliceV2<TInput, TCtx, TOutput, TEvent, TError>;
-
-export function defineCommandSlice<
-  TInput,
-  TContext,
-  TPrepared,
-  TOutput,
-  TEvent extends DomainEvent = DomainEvent,
-  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
-  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
->(
-  definition: CommandSliceV1Definition<
-    TInput,
-    TContext,
-    TPrepared,
-    TOutput,
-    TEvent,
-    TInputSchema,
-    TOutputSchema
-  >,
-): CommandSlice<TInput, TContext, TPrepared, TOutput, TEvent>;
-
-export function defineCommandSlice(
-  // biome-ignore lint/suspicious/noExplicitAny: dispatch entry point — overloads above carry the public types
-  definition: any,
-  // biome-ignore lint/suspicious/noExplicitAny: see above
-): any {
-  if ("input" in definition && typeof definition.input === "function") {
-    return defineCommandSliceV2(definition);
-  }
-  return defineCommandSliceV1(definition);
-}
-
-export function defineCommandSliceV2<TInput, TCtx, TOutput, TEvent extends DomainEvent, TError>(
-  definition: CommandSliceV2Definition<TInput, TCtx, TOutput, TEvent, TError>,
-): CommandSliceV2<TInput, TCtx, TOutput, TEvent, TError> {
+): CommandSlice<TInput, TCtx, TOutput, TEvent, TError> {
   const defaultOutputErr = (e: TError, _ctx: TCtx | TInput): Result<TOutput, TError> => err(e);
-  const slice: CommandSliceV2<TInput, TCtx, TOutput, TEvent, TError> = {
+  const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {
     _tag: "command",
-    _shape: "v2",
     name: definition.name ?? "anonymous-command",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
@@ -556,34 +468,6 @@ export function defineCommandSliceV2<TInput, TCtx, TOutput, TEvent extends Domai
     event: definition.event,
     output: definition.output,
     outputErr: definition.outputErr ?? defaultOutputErr,
-    projectors: definition.projectors,
-    processors: definition.processors,
-    compile: (deps) => {
-      registerHandlers(slice, deps);
-      return {
-        name: slice.name,
-        execute: async (rawInput) => {
-          const { executeCommandV2 } = await import("./pipeline.js");
-          return executeCommandV2(slice, rawInput, deps.eventStore, deps.projectionStore);
-        },
-      };
-    },
-  };
-  return slice;
-}
-
-function defineCommandSliceV1<TInput, TContext, TPrepared, TOutput, TEvent extends DomainEvent>(
-  definition: CommandSliceV1Definition<TInput, TContext, TPrepared, TOutput, TEvent>,
-): CommandSlice<TInput, TContext, TPrepared, TOutput, TEvent> {
-  const slice: CommandSlice<TInput, TContext, TPrepared, TOutput, TEvent> = {
-    _tag: "command",
-    name: definition.name ?? "anonymous-command",
-    inputSchema: definition.inputSchema,
-    outputSchema: definition.outputSchema,
-    resolveState: definition.state,
-    prepare: definition.prepare,
-    handle: definition.handle,
-    output: definition.output,
     projectors: definition.projectors,
     processors: definition.processors,
     compile: (deps) => {

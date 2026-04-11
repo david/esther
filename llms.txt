@@ -8,13 +8,14 @@
 import { z } from "zod";
 import { ok, err } from "neverthrow";
 import {
+  compose, castTagQuery,
   state, tagQuery, projection,
   defineReadModel,
   defineCommandSlice, defineQuerySlice,
   createApp,
   createInMemoryEventStore, createInMemoryProjectionAdapter, createInMemoryAdapter,
 } from "esther";
-import type { DomainEvent, StoredEvent, ReadModelHandle } from "esther";
+import type { DomainEvent, StoredEvent, ReadModelHandle, SliceDeps, Step } from "esther";
 ```
 
 ## Events
@@ -75,49 +76,104 @@ projectors: [(event) => {
 
 The `operation` parameter defaults to `"upsert"`. Other options: `"insert"`, `"update"`, `"delete"`.
 
-## State pipeline
+## Command slice DSL
 
-`state<T>()` creates a resolver. `.pipe()` enriches the context type:
+A command slice defines `input`, `validate`, `event`, `output`, and `outputErr`:
 
 ```typescript
-state: state<Input>()
-  .pipe(tagQuery({
-    key: "inventory" as const,
-    tags: (ctx) => ["product", `product:${ctx.productId}`],
-    fold: (events): InventoryState => events.reduce(reducer, initial),
-  }))
-  .pipe(projection({
-    key: "settings" as const,
-    model: tenantSettingsModel,
-    id: (ctx) => ctx.tenantId,
-    required: true,
-  }))
+defineCommandSlice({
+  name: "place-order",
+  inputSchema: placeOrderInputSchema,
+  outputSchema: placeOrderOutputSchema,
+
+  // input: resolve typed context from raw input + framework deps
+  input: async (ctx, deps: SliceDeps) => {
+    const inv = await deps.eventStore.queryByTags(
+      ["product", `product:${ctx.productId}`],
+      (events): InventoryState => events.reduce(reducer, initial),
+    );
+    return ok({ ...ctx, inventory: inv.state });
+  },
+
+  // validate: array of pure predicates that run in order
+  validate: [
+    (ctx) => {
+      if (ctx.inventory.quantity < ctx.amount)
+        return err({ code: "OUT_OF_STOCK", message: "Not enough" });
+      return ok(undefined);
+    },
+  ],
+
+  // event: construct the single domain event (no Result wrapper)
+  event: (ctx) => ({
+    type: "OrderPlaced",
+    tags: ["order", `customer:${ctx.customerId}`],
+    payload: { orderId: crypto.randomUUID(), customerId: ctx.customerId, total: ctx.total },
+  }),
+
+  // output: shape the response from the appended event + ctx
+  output: (event, _ctx) => ok({ orderId: event.payload.orderId }),
+
+  // outputErr (optional): map error shapes from input/validate to response
+  outputErr: (e, _ctx) => err(e),
+
+  projectors: [],
+  processors: [],
+});
+```
+
+For complex input pipelines, compose `Step` functions with `compose(...)`:
+
+```typescript
+const loadInventory: Step<Input, Input & { inventory: InventoryState }, never> =
+  async (ctx) => { /* ... */ };
+
+input: compose<Input, never>([loadInventory]),
+```
+
+`castTagQuery` is a higher-level primitive that resolves a subject via a cast check, then runs a tag query against it:
+
+```typescript
+const subject = castTagQuery({
+  key: "account" as const,
+  cast: { check: async (ctx, deps) => /* Result<Subject, Cause> */ },
+  tags: (subject) => [`account:${subject.id}`],
+  fold: (events, subject) => events.reduce(reducer, initial),
+});
+
+input: async (ctx, deps) => compose([subject.toStep(deps)])(ctx),
+```
+
+## Query slice state pipeline
+
+Query slices still use `state<T>().pipe(...)` with `tagQuery`, `projection`, and `generate` steps:
+
+```typescript
+defineQuerySlice({
+  name: "get-order",
+  inputSchema,
+  outputSchema,
+
+  state: state<Input>()
+    .pipe(tagQuery({
+      key: "order" as const,
+      tags: (ctx) => [`order:${ctx.orderId}`],
+      fold: (events): OrderState => events.reduce(reducer, initial),
+    }))
+    .pipe(projection({
+      key: "settings" as const,
+      model: tenantSettingsModel,
+      id: (ctx) => ctx.tenantId,
+      required: true,
+    })),
+
+  handle: (ctx) => ok({ /* shape output from ctx */ }),
+});
 ```
 
 - `tagQuery`: queries events by tag intersection, folds to state.
-- `projection`: fetches a read model by id using the `ReadModelHandle`. With `required: true`, a missing row fails the command. With `required: false` (default), the value is wrapped as `Result<T, ReadModelNotFound>`.
-
-## validate, handle, and output
-
-Pure functions returning `Result`. Errors are `{ code: string, message: string }`:
-
-```typescript
-validate: (ctx) => {
-  if (ctx.inventory.quantity < ctx.amount)
-    return err({ code: "OUT_OF_STOCK", message: "Not enough" });
-  return ok(ctx);
-},
-
-handle: (validated, _ctx) => ({
-  type: "OrderPlaced",
-  tags: ["order", `customer:${validated.customerId}`],
-  payload: { orderId: crypto.randomUUID(), customerId: validated.customerId, total: validated.total },
-}),
-
-output: (result) => result.map((event) => ({
-  orderId: event.payload.orderId,
-})),
-```
+- `projection`: fetches a read model by id. `required: true` → fails on missing. `required: false` (default) → wraps as `Result<T, ReadModelNotFound>`.
+- `generate`: adds a derived value (sync or async) to the context.
 
 ## Projectors and processors
 
@@ -226,13 +282,13 @@ The Fastify adapter maps `ConstraintError` to HTTP 409, `SchemaError` to 400, an
 
 1. All user functions return `Result` -- never throw.
 2. Define event types explicitly: `type MyEvent = DomainEvent<"MyEvent", { ... }>`.
-3. `handle` returns a single event directly — no `ok()`, no array.
-4. Use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
-5. Start state with `state<z.output<typeof inputSchema>>()`.
+3. `event` returns a single domain event directly — no `ok()`, no array.
+4. For query slices: use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
+5. Query slices: start state with `state<z.output<typeof inputSchema>>()`.
 6. Schemas (`inputSchema`/`outputSchema`) are shared contracts -- define externally for client reuse.
 7. Projectors/processors are pure -- side effects go in effect adapters.
 8. Tags are your query model -- design them for the queries you need.
-9. The `output` function shapes the command result from `Result<TEvent, ValidationError>` and pre-append context. Post-append re-resolve does not happen.
+9. The `output(event, ctx)` function shapes the command result from the appended event and the final context. `outputErr(error, ctx)` maps `input`/`validate` errors.
 10. Define read models with `defineReadModel` and use the returned handle in both projectors and `projection()` steps.
 
 ## Full example
@@ -261,38 +317,48 @@ const balanceReducer = (bal: AccountBalance, event: StoredEvent): AccountBalance
   return bal;
 };
 
-export const transferSlice = defineCommandSlice({
+type TransferCtx = TransferInput & { readonly fromBalance: AccountBalance };
+type TransferError = { code: "INSUFFICIENT_FUNDS"; message: string };
+
+export const transferSlice = defineCommandSlice<
+  TransferInput,
+  TransferCtx,
+  { transferId: string },
+  MoneyTransferred,
+  TransferError
+>({
   name: "transfer-money",
   inputSchema: transferInputSchema,
   outputSchema: transferOutputSchema,
 
-  state: state<TransferInput>()
-    .pipe(tagQuery({
-      key: "fromBalance" as const,
-      tags: (ctx) => ["account", `account:${ctx.fromAccountId}`],
-      fold: (events): AccountBalance => events.reduce(balanceReducer, { balance: 0 }),
-    })),
-
-  validate: (ctx) => {
-    if (ctx.fromBalance.balance < ctx.amount)
-      return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
-    return ok(ctx);
+  input: async (ctx, deps) => {
+    const fromResult = await deps.eventStore.queryByTags(
+      ["account", `account:${ctx.fromAccountId}`],
+      (events): AccountBalance => events.reduce(balanceReducer, { balance: 0 }),
+    );
+    return ok({ ...ctx, fromBalance: fromResult.state });
   },
 
-  handle: (validated, _ctx) => ({
+  validate: [
+    (ctx) => {
+      if (ctx.fromBalance.balance < ctx.amount)
+        return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
+      return ok(undefined);
+    },
+  ],
+
+  event: (ctx) => ({
     type: "MoneyTransferred",
-    tags: ["transfer", `account:${validated.fromAccountId}`, `account:${validated.toAccountId}`],
+    tags: ["transfer", `account:${ctx.fromAccountId}`, `account:${ctx.toAccountId}`],
     payload: {
       transferId: crypto.randomUUID(),
-      fromAccountId: validated.fromAccountId,
-      toAccountId: validated.toAccountId,
-      amount: validated.amount,
+      fromAccountId: ctx.fromAccountId,
+      toAccountId: ctx.toAccountId,
+      amount: ctx.amount,
     },
   }),
 
-  output: (result, ctx) => result.map((event) => ({
-    fromBalance: ctx.fromBalance.balance - event.payload.amount,
-  })),
+  output: (event, _ctx) => ok({ transferId: event.payload.transferId }),
 
   projectors: [],
   processors: [],

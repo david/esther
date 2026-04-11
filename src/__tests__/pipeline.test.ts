@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent, StoredEvent, ValidationError } from "../index.js";
+import type { DomainEvent, StoredEvent } from "../index.js";
 import {
   createApp,
   createInMemoryAdapter,
@@ -11,11 +11,10 @@ import {
   defineQuerySlice,
   defineReadModel,
   defineReadModelView,
-  generate,
   projection,
   ReadModelNotFound,
+  type SliceDeps,
   state,
-  tagQuery,
 } from "../index.js";
 
 // ── Test domain ──────────────────────────────────────────────────────
@@ -45,32 +44,40 @@ const balanceFold = (events: ReadonlyArray<StoredEvent>): Balance =>
     { balance: 0 },
   );
 
-const depositSlice = defineCommandSlice({
+// Helper: load account balance via event store tag query.
+async function loadAccountCtx<TCtx extends { readonly accountId: string }>(
+  ctx: TCtx,
+  deps: SliceDeps,
+): Promise<TCtx & { readonly account: Balance }> {
+  const result = await deps.eventStore.queryByTags([`account:${ctx.accountId}`], balanceFold);
+  return { ...ctx, account: result.state };
+}
+
+type DepositCtx = DepositInput & { readonly account: Balance };
+
+type DepositError = { code: "INSUFFICIENT_FUNDS"; message: string };
+
+const depositSlice = defineCommandSlice<
+  DepositInput,
+  DepositCtx,
+  z.output<typeof depositOutputSchema>,
+  DomainEvent<"Deposited", { accountId: string; amount: number }>,
+  DepositError
+>({
   name: "deposit",
   inputSchema: depositInputSchema,
   outputSchema: depositOutputSchema,
-
-  state: state<DepositInput>().pipe(
-    tagQuery({
-      key: "account" as const,
-      tags: (ctx) => [`account:${ctx.accountId}`],
-      fold: balanceFold,
-    }),
-  ),
-
-  prepare: (ctx) => ok(ctx),
-
-  handle: (prepared, _ctx) => ({
+  input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+  validate: [],
+  event: (ctx) => ({
     type: "Deposited" as const,
-    tags: [`account:${prepared.accountId}`],
-    payload: { accountId: prepared.accountId, amount: prepared.amount },
+    tags: [`account:${ctx.accountId}`],
+    payload: { accountId: ctx.accountId, amount: ctx.amount },
   }),
-
-  output: (result, ctx) =>
-    result.map((event) => ({
+  output: (event, ctx) =>
+    ok({
       account: { balance: ctx.account.balance + event.payload.amount },
-    })),
-
+    }),
   projectors: [],
   processors: [],
 });
@@ -88,64 +95,52 @@ const withdrawOutputSchema = z.object({
   account: z.object({ balance: z.number() }),
 });
 
-const withdrawSlice = defineCommandSlice({
+type WithdrawCtx = WithdrawInput & { readonly account: Balance };
+
+const withdrawSlice = defineCommandSlice<
+  WithdrawInput,
+  WithdrawCtx,
+  z.output<typeof withdrawOutputSchema>,
+  DomainEvent<"Withdrawn", { accountId: string; amount: number }>,
+  { code: string; message: string }
+>({
   name: "withdraw",
   inputSchema: withdrawInputSchema,
   outputSchema: withdrawOutputSchema,
-
-  state: state<WithdrawInput>().pipe(
-    tagQuery({
-      key: "account" as const,
-      tags: (ctx) => [`account:${ctx.accountId}`],
-      fold: balanceFold,
-    }),
-  ),
-
-  prepare: (ctx) => {
-    if (ctx.account.balance < ctx.amount) {
-      return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
-    }
-    return ok(ctx);
-  },
-
-  handle: (prepared, _ctx) => ({
+  input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+  validate: [
+    (ctx) => {
+      if (ctx.account.balance < ctx.amount) {
+        return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
+      }
+      return ok(undefined);
+    },
+  ],
+  event: (ctx) => ({
     type: "Withdrawn" as const,
-    tags: [`account:${prepared.accountId}`],
-    payload: { accountId: prepared.accountId, amount: prepared.amount },
+    tags: [`account:${ctx.accountId}`],
+    payload: { accountId: ctx.accountId, amount: ctx.amount },
   }),
-
-  output: (result, ctx) =>
-    result.map((event) => ({
+  output: (event, ctx) =>
+    ok({
       account: { balance: ctx.account.balance - event.payload.amount },
-    })),
-
+    }),
   projectors: [],
   processors: [],
 });
 
-// ── Query slice ───────────────────────────────────────────────────────
+// ── readBalance helper ────────────────────────────────────────────────
+// Reads account balance directly from the event store via tag query.
+// Used by tests that want to verify appended state without a query slice.
+async function readBalance(
+  eventStore: ReturnType<typeof createInMemoryEventStore>,
+  accountId: string,
+): Promise<number> {
+  const result = await eventStore.queryByTags([`account:${accountId}`], balanceFold);
+  return result.state.balance;
+}
 
-const getBalanceInputSchema = z.object({ accountId: z.string() });
-type GetBalanceInput = z.output<typeof getBalanceInputSchema>;
-const getBalanceOutputSchema = z.object({ balance: z.number() });
-
-const getBalanceSlice = defineQuerySlice({
-  name: "get-balance",
-  inputSchema: getBalanceInputSchema,
-  outputSchema: getBalanceOutputSchema,
-
-  state: state<GetBalanceInput>().pipe(
-    tagQuery({
-      key: "account" as const,
-      tags: (ctx) => [`account:${ctx.accountId}`],
-      fold: balanceFold,
-    }),
-  ),
-
-  handle: (ctx) => ok({ balance: ctx.account.balance }),
-});
-
-// ── New-signature test slices ────────────────────────────────────────
+// ── Credit slice ─────────────────────────────────────────────────────
 
 type CreditApplied = DomainEvent<"CreditApplied", { accountId: string; amount: number }>;
 
@@ -161,36 +156,30 @@ const creditOutputSchema = z.object({
   newBalance: z.number(),
 });
 
-const creditSlice = defineCommandSlice({
+type CreditCtx = CreditInput & { readonly account: Balance };
+
+const creditSlice = defineCommandSlice<
+  CreditInput,
+  CreditCtx,
+  z.output<typeof creditOutputSchema>,
+  CreditApplied,
+  { code: string; message: string }
+>({
   name: "credit",
   inputSchema: creditInputSchema,
   outputSchema: creditOutputSchema,
-
-  state: state<CreditInput>().pipe(
-    tagQuery({
-      key: "account" as const,
-      tags: (ctx) => [`account:${ctx.accountId}`],
-      fold: balanceFold,
-    }),
-  ),
-
-  prepare: (ctx) => ok(ctx),
-
-  handle: (prepared, _ctx) => ({
+  input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+  validate: [],
+  event: (ctx) => ({
     type: "CreditApplied" as const,
-    tags: [`account:${prepared.accountId}`],
-    payload: { accountId: prepared.accountId, amount: prepared.amount },
+    tags: [`account:${ctx.accountId}`],
+    payload: { accountId: ctx.accountId, amount: ctx.amount },
   }),
-
-  output: (result, ctx) => {
-    if (result.isErr()) return err(result.error);
-    const event = result.value as CreditApplied;
-    return ok({
+  output: (event, ctx) =>
+    ok({
       accountId: event.payload.accountId,
       newBalance: ctx.account.balance + event.payload.amount,
-    });
-  },
-
+    }),
   projectors: [],
   processors: [],
 });
@@ -199,24 +188,25 @@ const rejectInputSchema = z.object({ accountId: z.string() });
 
 const rejectOutputSchema = z.object({ rejected: z.boolean() });
 
-const rejectSlice = defineCommandSlice({
+type RejectError = { code: "ALWAYS_FAILS"; message: string };
+
+const rejectSlice = defineCommandSlice<
+  z.output<typeof rejectInputSchema>,
+  z.output<typeof rejectInputSchema>,
+  z.output<typeof rejectOutputSchema>,
+  DomainEvent<"RejectAttempted", Record<string, never>>,
+  RejectError
+>({
   name: "reject",
   inputSchema: rejectInputSchema,
   outputSchema: rejectOutputSchema,
-
-  state: state<z.output<typeof rejectInputSchema>>(),
-
-  prepare: (_ctx) => err({ code: "ALWAYS_FAILS", message: "This always fails" } as ValidationError),
-
-  handle: (_validated, _ctx) => {
-    throw new Error("should not reach handle");
+  input: async (ctx) => ok(ctx),
+  validate: [(_ctx) => err({ code: "ALWAYS_FAILS", message: "This always fails" } as const)],
+  event: (_ctx) => {
+    throw new Error("should not reach event");
   },
-
-  output: (result, _ctx) => {
-    if (result.isErr()) return err(result.error);
-    return ok({ rejected: false });
-  },
-
+  output: (_event, _ctx) => ok({ rejected: false }),
+  outputErr: (e, _ctx) => err(e),
   projectors: [],
   processors: [],
 });
@@ -230,7 +220,7 @@ function buildApp() {
   const app = createApp({
     eventStore,
     inputAdapter: { adapter, bind },
-    slices: [depositSlice, withdrawSlice, getBalanceSlice, creditSlice, rejectSlice],
+    slices: [depositSlice, withdrawSlice, creditSlice, rejectSlice],
   });
 
   return { app, eventStore };
@@ -239,7 +229,7 @@ function buildApp() {
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe("command pipeline", () => {
-  test("output function receives ok(event) on success and shapes the output", async () => {
+  test("output function receives event on success and shapes the output", async () => {
     const { app } = buildApp();
 
     const result = await app.dispatch("credit", { accountId: "acc-1", amount: 100 });
@@ -249,7 +239,7 @@ describe("command pipeline", () => {
     }
   });
 
-  test("output function receives err on validation failure", async () => {
+  test("validate failure routes to outputErr", async () => {
     const { app } = buildApp();
 
     const result = await app.dispatch("reject", { accountId: "acc-1" });
@@ -260,7 +250,7 @@ describe("command pipeline", () => {
   });
 
   test("deposit succeeds and returns post-append state", async () => {
-    const { app } = buildApp();
+    const { app, eventStore } = buildApp();
 
     const result = await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
     expect(result.isOk()).toBe(true);
@@ -268,12 +258,7 @@ describe("command pipeline", () => {
       expect(result.value).toEqual({ account: { balance: 100 } });
     }
 
-    // Verify projection updated correctly via read model query
-    const balanceResult = await app.dispatch("get-balance", { accountId: "acc-1" });
-    expect(balanceResult.isOk()).toBe(true);
-    if (balanceResult.isOk()) {
-      expect(balanceResult.value).toEqual({ balance: 100 });
-    }
+    expect(await readBalance(eventStore, "acc-1")).toBe(100);
   });
 
   test("multiple deposits accumulate", async () => {
@@ -305,7 +290,7 @@ describe("command pipeline", () => {
   });
 
   test("successful withdrawal returns post-append state", async () => {
-    const { app } = buildApp();
+    const { app, eventStore } = buildApp();
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
     const result = await app.dispatch("withdraw", { accountId: "acc-1", amount: 40 });
@@ -315,12 +300,7 @@ describe("command pipeline", () => {
       expect(result.value).toEqual({ account: { balance: 60 } });
     }
 
-    // Verify projection updated correctly via read model query
-    const balanceResult = await app.dispatch("get-balance", { accountId: "acc-1" });
-    expect(balanceResult.isOk()).toBe(true);
-    if (balanceResult.isOk()) {
-      expect(balanceResult.value).toEqual({ balance: 60 });
-    }
+    expect(await readBalance(eventStore, "acc-1")).toBe(60);
   });
 
   test("input schema rejects invalid input", async () => {
@@ -337,44 +317,15 @@ describe("command pipeline", () => {
   });
 });
 
-describe("query pipeline", () => {
-  test("reads balance via query slice", async () => {
-    const { app } = buildApp();
-
-    await app.dispatch("deposit", { accountId: "acc-1", amount: 75 });
-    const result = await app.dispatch("get-balance", { accountId: "acc-1" });
-
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ balance: 75 });
-    }
-  });
-
-  test("returns zero for unknown account", async () => {
-    const { app } = buildApp();
-
-    const result = await app.dispatch("get-balance", { accountId: "nonexistent" });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ balance: 0 });
-    }
-  });
-});
-
-describe("tag isolation", () => {
-  test("different accounts are isolated via query", async () => {
-    const { app } = buildApp();
+describe("tag isolation via event store", () => {
+  test("different accounts are isolated", async () => {
+    const { app, eventStore } = buildApp();
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
     await app.dispatch("deposit", { accountId: "acc-2", amount: 200 });
 
-    const r1 = await app.dispatch("get-balance", { accountId: "acc-1" });
-    const r2 = await app.dispatch("get-balance", { accountId: "acc-2" });
-
-    if (r1.isOk()) expect(r1.value).toEqual({ balance: 100 });
-    else throw new Error("expected ok");
-    if (r2.isOk()) expect(r2.value).toEqual({ balance: 200 });
-    else throw new Error("expected ok");
+    expect(await readBalance(eventStore, "acc-1")).toBe(100);
+    expect(await readBalance(eventStore, "acc-2")).toBe(200);
   });
 });
 
@@ -418,93 +369,6 @@ describe("event store hooks", () => {
     await app.dispatch("deposit", { accountId: "acc-2", amount: 75 });
 
     expect(captured).toEqual(["Deposited"]);
-  });
-});
-
-describe("processor routing to onAfterCommit", () => {
-  test("processors fire via onAfterCommit, not onAfterInsert", async () => {
-    const insertOrder: string[] = [];
-    const commitOrder: string[] = [];
-
-    const eventStore = createInMemoryEventStore();
-
-    // Register raw hooks to track ordering
-    eventStore.onAfterInsert({ tags: [] }, async (_event) => {
-      insertOrder.push("raw-insert-hook");
-    });
-    eventStore.onAfterCommit({ tags: [] }, async (_event) => {
-      commitOrder.push("raw-commit-hook");
-    });
-
-    const effectsCaptured: unknown[] = [];
-
-    const processorSlice = defineCommandSlice({
-      name: "deposit-processor-routing",
-      inputSchema: depositInputSchema,
-      outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
-      }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
-          account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
-      projectors: [],
-      processors: [
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            return {
-              type: "effect" as const,
-              effectType: "send-notification",
-              accountId: (event.payload as { accountId: string }).accountId,
-            };
-          }
-          return { type: "effect" as const };
-        },
-      ],
-    });
-
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const app = createApp({
-      eventStore,
-      effectAdapters: [
-        {
-          name: "notification",
-          match: (effect) => "effectType" in effect && effect.effectType === "send-notification",
-          execute: async (effect) => {
-            effectsCaptured.push(effect);
-            return {};
-          },
-        },
-      ],
-      inputAdapter: { adapter, bind },
-      slices: [processorSlice],
-    });
-
-    await app.dispatch("deposit-processor-routing", { accountId: "acc-1", amount: 100 });
-
-    // The processor should have fired (via onAfterCommit)
-    expect(effectsCaptured).toHaveLength(1);
-
-    // Both raw hooks should have fired
-    expect(insertOrder).toEqual(["raw-insert-hook"]);
-    expect(commitOrder).toEqual(["raw-commit-hook"]);
   });
 });
 
@@ -560,7 +424,6 @@ describe("constraint metadata registration", () => {
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
 
-    // Should not throw even without registerConstraintMetadata
     expect(() =>
       createApp({
         eventStore,
@@ -585,32 +448,27 @@ describe("dispatch via onAfterInsert", () => {
 
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
 
-    const projectorSlice = defineCommandSlice({
+    const projectorSlice = defineCommandSlice<
+      DepositInput,
+      DepositCtx,
+      z.output<typeof depositOutputSchema>,
+      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      never
+    >({
       name: "deposit-with-projection",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      validate: [],
+      event: (ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
+        tags: [`account:${ctx.accountId}`],
+        payload: { accountId: ctx.accountId, amount: ctx.amount },
       }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
+      output: (event, ctx) =>
+        ok({
           account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
+        }),
       projectors: [
         (event: StoredEvent) => {
           if (event.type === "Deposited") {
@@ -620,7 +478,7 @@ describe("dispatch via onAfterInsert", () => {
               balance: payload.amount,
             });
           }
-          return { type: "effect" as const };
+          return {};
         },
       ],
       processors: [],
@@ -657,79 +515,6 @@ describe("dispatch via onAfterInsert", () => {
     }
   });
 
-  test("processor registered on slice dispatches to effect adapter", async () => {
-    const effectsCaptured: unknown[] = [];
-
-    const processorSlice = defineCommandSlice({
-      name: "deposit-with-processor",
-      inputSchema: depositInputSchema,
-      outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
-      }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
-          account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
-      projectors: [],
-      processors: [
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            return {
-              type: "effect" as const,
-              effectType: "send-notification",
-              accountId: (event.payload as { accountId: string }).accountId,
-            };
-          }
-          return { type: "effect" as const };
-        },
-      ],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const app = createApp({
-      eventStore,
-      effectAdapters: [
-        {
-          name: "notification",
-          match: (effect) => "effectType" in effect && effect.effectType === "send-notification",
-          execute: async (effect) => {
-            effectsCaptured.push(effect);
-            return {};
-          },
-        },
-      ],
-      inputAdapter: { adapter, bind },
-      slices: [processorSlice],
-    });
-
-    await app.dispatch("deposit-with-processor", { accountId: "acc-1", amount: 100 });
-
-    expect(effectsCaptured).toHaveLength(1);
-    expect(effectsCaptured[0]).toMatchObject({
-      type: "effect",
-      effectType: "send-notification",
-      accountId: "acc-1",
-    });
-  });
-
   test("two models from same event each get their own result", async () => {
     const accountModel = defineReadModel({
       name: "accounts",
@@ -753,32 +538,27 @@ describe("dispatch via onAfterInsert", () => {
       createInMemoryProjectionAdapter(accountModel);
     const { adapter: ledgerAdapter, get: getLedger } = createInMemoryProjectionAdapter(ledgerModel);
 
-    const dualProjectorSlice = defineCommandSlice({
+    const dualProjectorSlice = defineCommandSlice<
+      DepositInput,
+      DepositCtx,
+      z.output<typeof depositOutputSchema>,
+      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      never
+    >({
       name: "deposit-dual",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      validate: [],
+      event: (ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
+        tags: [`account:${ctx.accountId}`],
+        payload: { accountId: ctx.accountId, amount: ctx.amount },
       }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
+      output: (event, ctx) =>
+        ok({
           account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
+        }),
       projectors: [
         (event: StoredEvent) => {
           if (event.type === "Deposited") {
@@ -788,7 +568,7 @@ describe("dispatch via onAfterInsert", () => {
               balance: payload.amount,
             });
           }
-          return { type: "effect" as const };
+          return {};
         },
         (event: StoredEvent) => {
           if (event.type === "Deposited") {
@@ -798,7 +578,7 @@ describe("dispatch via onAfterInsert", () => {
               amount: payload.amount,
             });
           }
-          return { type: "effect" as const };
+          return {};
         },
       ],
       processors: [],
@@ -968,29 +748,24 @@ describe("unknown model name in projector result", () => {
       key: "id",
     });
 
-    const sliceWithBadProjector = defineCommandSlice({
+    const sliceWithBadProjector = defineCommandSlice<
+      DepositInput,
+      DepositCtx,
+      z.output<typeof depositOutputSchema>,
+      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      never
+    >({
       name: "bad-projector",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      validate: [],
+      event: (ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
+        tags: [`account:${ctx.accountId}`],
+        payload: { accountId: ctx.accountId, amount: ctx.amount },
       }),
-
-      output: (result, ctx) => result.map(() => ({ account: ctx.account })),
-
+      output: (_event, ctx) => ok({ account: ctx.account }),
       projectors: [(_event: StoredEvent) => unregisteredModel.project({ id: "x", value: 1 })],
       processors: [],
     });
@@ -998,7 +773,6 @@ describe("unknown model name in projector result", () => {
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
 
-    // No projection adapters registered at all
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
@@ -1011,9 +785,9 @@ describe("unknown model name in projector result", () => {
   });
 });
 
-// ── Projection step tests ───────────────────────────────────────────
+// ── Projection step tests (query-slice DSL is preserved) ────────────
 
-describe("projection step", () => {
+describe("projection step in query slices", () => {
   const accountModel = defineReadModel({
     name: "accounts",
     schema: z.object({
@@ -1031,32 +805,27 @@ describe("projection step", () => {
     const { adapter, bind } = createInMemoryAdapter();
 
     // Deposit slice that projects to read model
-    const depositWithProjection = defineCommandSlice({
+    const depositWithProjection = defineCommandSlice<
+      DepositInput,
+      DepositCtx,
+      z.output<typeof depositOutputSchema>,
+      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      never
+    >({
       name: "deposit-proj",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      validate: [],
+      event: (ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
+        tags: [`account:${ctx.accountId}`],
+        payload: { accountId: ctx.accountId, amount: ctx.amount },
       }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
+      output: (event, ctx) =>
+        ok({
           account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
+        }),
       projectors: [
         (event: StoredEvent) => {
           if (event.type === "Deposited") {
@@ -1066,7 +835,7 @@ describe("projection step", () => {
               balance: payload.amount,
             });
           }
-          return { type: "effect" as const };
+          return {};
         },
       ],
       processors: [],
@@ -1107,52 +876,13 @@ describe("projection step", () => {
       handle: (ctx) => ok(ctx.accountRow),
     });
 
-    // Command slice with only a projection step (no tagQuery) — tests ConcurrencyError avoidance
-    const projectionOnlySlice = defineCommandSlice({
-      name: "projection-only-cmd",
-      inputSchema: z.object({ accountId: z.string() }),
-      outputSchema: z.any(),
-
-      state: state<{ accountId: string }>().pipe(
-        projection({
-          key: "accountRow" as const,
-          model: accountModel,
-          id: (ctx: { accountId: string }) => ctx.accountId,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: 1 },
-      }),
-
-      output: (result, ctx) => result.map(() => ctx),
-
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            const payload = event.payload as { accountId: string; amount: number };
-            return accountModel.project({
-              accountId: payload.accountId,
-              balance: payload.amount,
-            });
-          }
-          return { type: "effect" as const };
-        },
-      ],
-      processors: [],
-    });
-
     const app = createApp({
       eventStore,
       projectionAdapters: [
         { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "accounts" },
       ],
       inputAdapter: { adapter, bind },
-      slices: [depositWithProjection, queryOptional, queryRequired, projectionOnlySlice],
+      slices: [depositWithProjection, queryOptional, queryRequired],
     });
 
     return { app, eventStore, get };
@@ -1161,14 +891,11 @@ describe("projection step", () => {
   test("optional projection, record exists — context has Ok(T)", async () => {
     const { app } = buildProjectionApp();
 
-    // Seed the read model
     await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 100 });
 
-    // Query via optional projection
     const result = await app.dispatch("query-optional", { accountId: "acc-1" });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      // Optional returns Result — should be Ok
       const inner = result.value as { isOk: () => boolean; value: AccountRow };
       expect(inner.isOk()).toBe(true);
       expect(inner.value).toEqual({ accountId: "acc-1", balance: 100 });
@@ -1240,32 +967,27 @@ describe("replay", () => {
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
     const { adapter, bind } = createInMemoryAdapter();
 
-    const replayDepositSlice = defineCommandSlice({
+    const replayDepositSlice = defineCommandSlice<
+      DepositInput,
+      DepositCtx,
+      z.output<typeof depositOutputSchema>,
+      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      never
+    >({
       name: "replay-deposit",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      validate: [],
+      event: (ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
+        tags: [`account:${ctx.accountId}`],
+        payload: { accountId: ctx.accountId, amount: ctx.amount },
       }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
+      output: (event, ctx) =>
+        ok({
           account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
+        }),
       projectors: [makeProjector(accountModel)],
       processors: [],
     });
@@ -1285,35 +1007,25 @@ describe("replay", () => {
   test("full replay after truncate rebuilds correct read model state", async () => {
     const { app, eventStore, get } = buildReplayApp();
 
-    // Populate the read model through normal dispatch
     await app.dispatch("replay-deposit", { accountId: "acc-1", amount: 100 });
     await app.dispatch("replay-deposit", { accountId: "acc-2", amount: 200 });
 
-    // Verify initial state
     expect((await get("acc-1")).isOk()).toBe(true);
     expect((await get("acc-2")).isOk()).toBe(true);
 
-    // Simulate replay: create a fresh projection adapter (simulates truncate)
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    // Re-process all events through the projector manually
-    // Query all events by using a tag that matches everything — we use queryByTags
-    // with a broad fold. Since the in-memory event store stores all events linearly,
-    // we replay by processing through the projector function.
     const projector = makeProjector(accountModel);
-
-    // Get all events from the store via queryByTags with empty tags (matches everything)
     const queryResult = await eventStore.queryByTags([], (events) => events);
     const allEvents = queryResult.state as ReadonlyArray<StoredEvent>;
 
     for (const event of allEvents) {
       const result = projector(event);
-      if (result.type === "projection") {
+      if ("type" in result && result.type === "projection") {
         await freshAdapter.execute(result);
       }
     }
 
-    // Verify rebuilt state matches
     const acc1 = await freshGet("acc-1");
     expect(acc1.isOk()).toBe(true);
     if (acc1.isOk()) {
@@ -1330,12 +1042,10 @@ describe("replay", () => {
   test("replay rebuilds correct read model state from events", async () => {
     const { app, eventStore } = buildReplayApp();
 
-    // Dispatch three events
     await app.dispatch("replay-deposit", { accountId: "acc-1", amount: 10 });
     await app.dispatch("replay-deposit", { accountId: "acc-1", amount: 20 });
     await app.dispatch("replay-deposit", { accountId: "acc-2", amount: 30 });
 
-    // Simulate replay onto fresh adapter
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
     const projector = makeProjector(accountModel);
@@ -1344,19 +1054,17 @@ describe("replay", () => {
 
     for (const event of allEvents) {
       const result = projector(event);
-      if (result.type === "projection") {
+      if ("type" in result && result.type === "projection") {
         await freshAdapter.execute(result);
       }
     }
 
-    // acc-1 was last written with the second deposit (amount: 20)
     const acc1 = await freshGet("acc-1");
     expect(acc1.isOk()).toBe(true);
     if (acc1.isOk()) {
       expect(acc1.value.value).toEqual({ accountId: "acc-1", balance: 20 });
     }
 
-    // acc-2 was written with the third deposit (amount: 30)
     const acc2 = await freshGet("acc-2");
     expect(acc2.isOk()).toBe(true);
     if (acc2.isOk()) {
@@ -1368,8 +1076,7 @@ describe("replay", () => {
 // ── End-to-end integration ─────────────────────────────────────────
 
 describe("end-to-end integration", () => {
-  test("define model, define slice with projector, dispatch command, projector fires, read model populated, projection step reads it back", async () => {
-    // Step 1: Define the read model
+  test("command slice with projector populates read model read back via projection-step query slice", async () => {
     const balanceModel = defineReadModel({
       name: "balances",
       schema: z.object({
@@ -1379,53 +1086,44 @@ describe("end-to-end integration", () => {
       key: "accountId",
     });
 
-    // Step 2: Create projection adapter
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(balanceModel);
 
-    // Step 3: Define a command slice with a projector that accumulates balance
-    const depositSliceE2E = defineCommandSlice({
+    const depositSliceE2E = defineCommandSlice<
+      DepositInput,
+      DepositCtx,
+      z.output<typeof depositOutputSchema>,
+      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      never
+    >({
       name: "deposit-e2e",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      validate: [],
+      event: (ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
+        tags: [`account:${ctx.accountId}`],
+        payload: { accountId: ctx.accountId, amount: ctx.amount },
       }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
+      output: (event, ctx) =>
+        ok({
           account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
+        }),
       projectors: [
         (event: StoredEvent) => {
           if (event.type === "Deposited") {
             const payload = event.payload as { accountId: string; amount: number };
-            // Use upsert so repeated deposits overwrite (projector gets latest amount only)
             return balanceModel.project({
               accountId: payload.accountId,
               balance: payload.amount,
             });
           }
-          return { type: "effect" as const };
+          return {};
         },
       ],
       processors: [],
     });
 
-    // Step 4: Define a query slice that reads from the read model via projection step
     const getBalanceE2E = defineQuerySlice({
       name: "get-balance-e2e",
       inputSchema: z.object({ accountId: z.string() }),
@@ -1447,7 +1145,6 @@ describe("end-to-end integration", () => {
         }),
     });
 
-    // Step 5: Wire up the app
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
 
@@ -1460,28 +1157,24 @@ describe("end-to-end integration", () => {
       slices: [depositSliceE2E, getBalanceE2E],
     });
 
-    // Step 6: Dispatch a command — projector fires via onAfterInsert
     const depositResult = await app.dispatch("deposit-e2e", {
       accountId: "acc-1",
       amount: 250,
     });
     expect(depositResult.isOk()).toBe(true);
 
-    // Step 7: Verify the read model was populated
     const rawGet = await get("acc-1");
     expect(rawGet.isOk()).toBe(true);
     if (rawGet.isOk()) {
       expect(rawGet.value.value).toEqual({ accountId: "acc-1", balance: 250 });
     }
 
-    // Step 8: Read it back via a query slice using a projection step
     const queryResult = await app.dispatch("get-balance-e2e", { accountId: "acc-1" });
     expect(queryResult.isOk()).toBe(true);
     if (queryResult.isOk()) {
       expect(queryResult.value).toEqual({ accountId: "acc-1", balance: 250 });
     }
 
-    // Step 9: Dispatch another command and verify the query reads the updated value
     await app.dispatch("deposit-e2e", { accountId: "acc-1", amount: 500 });
 
     const queryResult2 = await app.dispatch("get-balance-e2e", { accountId: "acc-1" });
@@ -1495,7 +1188,6 @@ describe("end-to-end integration", () => {
 // ── Read model views ──────────────────────────────────────────────────
 
 describe("read model views", () => {
-  // Users model keyed by userId, with a view keyed by email
   const usersModel = defineReadModel({
     name: "users",
     schema: z.object({
@@ -1546,31 +1238,31 @@ describe("read model views", () => {
     const viewGet = viewAccessor.get;
     const { adapter, bind } = createInMemoryAdapter();
 
-    // Command slice that registers a user (projects to base model)
-    const registerUserSlice = defineCommandSlice({
+    const registerUserSlice = defineCommandSlice<
+      z.output<typeof registerUserInputSchema>,
+      z.output<typeof registerUserInputSchema>,
+      z.output<typeof registerUserOutputSchema>,
+      DomainEvent<"UserRegistered", User>,
+      never
+    >({
       name: "register-user",
       inputSchema: registerUserInputSchema,
       outputSchema: registerUserOutputSchema,
-
-      state: state<{ userId: string; email: string; name: string }>(),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx) => ok(ctx),
+      validate: [],
+      event: (ctx) => ({
         type: "UserRegistered" as const,
-        tags: [`user:${prepared.userId}`],
+        tags: [`user:${ctx.userId}`],
         payload: {
-          userId: prepared.userId,
-          email: prepared.email,
-          name: prepared.name,
+          userId: ctx.userId,
+          email: ctx.email,
+          name: ctx.name,
         },
       }),
-
-      output: (result) =>
-        result.map((event) => ({
-          userId: (event.payload as { userId: string }).userId,
-        })),
-
+      output: (event, _ctx) =>
+        ok({
+          userId: event.payload.userId,
+        }),
       projectors: [
         (event: StoredEvent) => {
           if (event.type === "UserRegistered") {
@@ -1581,13 +1273,12 @@ describe("read model views", () => {
               name: payload.name,
             });
           }
-          return { type: "effect" as const };
+          return {};
         },
       ],
       processors: [],
     });
 
-    // Query slice that looks up a user by email via the view
     const lookupByEmailSlice = defineQuerySlice({
       name: "lookup-by-email",
       inputSchema: lookupByEmailInputSchema,
@@ -1626,7 +1317,6 @@ describe("read model views", () => {
   test("projection resolves by view key (alternate lookup)", async () => {
     const { app } = buildViewApp();
 
-    // Register a user via the base model projector
     const registerResult = await app.dispatch("register-user", {
       userId: "u-1",
       email: "alice@example.com",
@@ -1634,7 +1324,6 @@ describe("read model views", () => {
     });
     expect(registerResult.isOk()).toBe(true);
 
-    // Look up by email via the view
     const lookupResult = await app.dispatch("lookup-by-email", {
       email: "alice@example.com",
     });
@@ -1661,280 +1350,7 @@ describe("read model views", () => {
   });
 });
 
-// ── Generate step tests ─────────────────────────────────────────────────
-
-describe("generate step", () => {
-  test("generator adds value to context", async () => {
-    const generateInputSchema = z.object({
-      accountId: z.string(),
-      amount: z.number().positive(),
-    });
-
-    type GenerateInput = z.output<typeof generateInputSchema>;
-
-    const generateOutputSchema = z.object({
-      code: z.string(),
-    });
-
-    const generateSlice = defineCommandSlice({
-      name: "generate-code",
-      inputSchema: generateInputSchema,
-      outputSchema: generateOutputSchema,
-
-      state: state<GenerateInput>().pipe(
-        generate({
-          key: "code" as const,
-          fn: (_ctx) => "generated-code",
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
-        type: "CodeGenerated" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { code: prepared.code },
-      }),
-
-      output: (result) =>
-        result.map((event) => ({
-          code: (event.payload as { code: string }).code,
-        })),
-
-      projectors: [],
-      processors: [],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const app = createApp({
-      eventStore,
-      inputAdapter: { adapter, bind },
-      slices: [generateSlice],
-    });
-
-    const result = await app.dispatch("generate-code", { accountId: "acc-1", amount: 10 });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ code: "generated-code" });
-    }
-  });
-
-  test("generator uses accumulated context", async () => {
-    const inputSchema = z.object({
-      accountId: z.string(),
-      amount: z.number().positive(),
-    });
-
-    type Input = z.output<typeof inputSchema>;
-
-    const outputSchema = z.object({
-      label: z.string(),
-    });
-
-    const slice = defineCommandSlice({
-      name: "generate-from-context",
-      inputSchema,
-      outputSchema,
-
-      state: state<Input>()
-        .pipe(
-          tagQuery({
-            key: "account" as const,
-            tags: (ctx) => [`account:${ctx.accountId}`],
-            fold: balanceFold,
-          }),
-        )
-        .pipe(
-          generate({
-            key: "label" as const,
-            fn: (ctx: Input & { readonly account: Balance }) => `balance:${ctx.account.balance}`,
-          }),
-        ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
-        type: "LabelGenerated" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { label: prepared.label },
-      }),
-
-      output: (result) =>
-        result.map((event) => ({
-          label: (event.payload as { label: string }).label,
-        })),
-
-      projectors: [],
-      processors: [],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    // Seed a deposit event so the balance fold has data
-    const depositApp = createApp({
-      eventStore,
-      inputAdapter: { adapter, bind },
-      slices: [depositSlice, slice],
-    });
-
-    await depositApp.dispatch("deposit", { accountId: "acc-1", amount: 42 });
-
-    const result = await depositApp.dispatch("generate-from-context", {
-      accountId: "acc-1",
-      amount: 1,
-    });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ label: "balance:42" });
-    }
-  });
-
-  test("async generator", async () => {
-    const inputSchema = z.object({
-      accountId: z.string(),
-    });
-
-    type Input = z.output<typeof inputSchema>;
-
-    const outputSchema = z.object({
-      token: z.string(),
-    });
-
-    const slice = defineCommandSlice({
-      name: "async-generate",
-      inputSchema,
-      outputSchema,
-
-      state: state<Input>().pipe(
-        generate({
-          key: "token" as const,
-          fn: async (_ctx) => "async-token-value",
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
-        type: "TokenGenerated" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { token: prepared.token },
-      }),
-
-      output: (result) =>
-        result.map((event) => ({
-          token: (event.payload as { token: string }).token,
-        })),
-
-      projectors: [],
-      processors: [],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const app = createApp({
-      eventStore,
-      inputAdapter: { adapter, bind },
-      slices: [slice],
-    });
-
-    const result = await app.dispatch("async-generate", { accountId: "acc-1" });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ token: "async-token-value" });
-    }
-  });
-
-  test("generator after optional not-found projection", async () => {
-    const accountModel = defineReadModel({
-      name: "gen_test_accounts",
-      schema: z.object({
-        accountId: z.string(),
-        balance: z.number(),
-      }),
-      key: "accountId",
-    });
-
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
-
-    const inputSchema = z.object({ accountId: z.string() });
-    type Input = z.output<typeof inputSchema>;
-
-    const outputSchema = z.object({ found: z.boolean() });
-
-    const slice = defineCommandSlice({
-      name: "generate-after-optional",
-      inputSchema,
-      outputSchema,
-
-      state: state<Input>()
-        .pipe(
-          projection({
-            key: "account" as const,
-            model: accountModel,
-            id: (ctx: Input) => ctx.accountId,
-          }),
-        )
-        .pipe(
-          generate({
-            key: "found" as const,
-            fn: (
-              ctx: Input & {
-                readonly account: import("neverthrow").Result<
-                  { accountId: string; balance: number },
-                  import("../index.js").ReadModelNotFound
-                >;
-              },
-            ) => ctx.account.isOk(),
-          }),
-        ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
-        type: "FoundChecked" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { found: prepared.found },
-      }),
-
-      output: (result) =>
-        result.map((event) => ({
-          found: (event.payload as { found: boolean }).found,
-        })),
-
-      projectors: [],
-      processors: [],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const app = createApp({
-      eventStore,
-      projectionAdapters: [
-        {
-          kind: "table",
-          adapter: projAdapter,
-          get,
-          constraints: {},
-          tableName: "gen_test_accounts",
-        },
-      ],
-      inputAdapter: { adapter, bind },
-      slices: [slice],
-    });
-
-    // No projection entry exists — optional projection returns err(ReadModelNotFound)
-    const result = await app.dispatch("generate-after-optional", { accountId: "acc-1" });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ found: false });
-    }
-  });
-});
+// ── Async projector ──────────────────────────────────────────────────
 
 describe("async projector", () => {
   test("async projector returning Promise<ProjectionResult> is awaited and stored", async () => {
@@ -1949,35 +1365,29 @@ describe("async projector", () => {
 
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
 
-    const asyncProjectorSlice = defineCommandSlice({
+    const asyncProjectorSlice = defineCommandSlice<
+      DepositInput,
+      DepositCtx,
+      z.output<typeof depositOutputSchema>,
+      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      never
+    >({
       name: "async-deposit",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-
-      state: state<DepositInput>().pipe(
-        tagQuery({
-          key: "account" as const,
-          tags: (ctx) => [`account:${ctx.accountId}`],
-          fold: balanceFold,
-        }),
-      ),
-
-      prepare: (ctx) => ok(ctx),
-
-      handle: (prepared, _ctx) => ({
+      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      validate: [],
+      event: (ctx) => ({
         type: "Deposited" as const,
-        tags: [`account:${prepared.accountId}`],
-        payload: { accountId: prepared.accountId, amount: prepared.amount },
+        tags: [`account:${ctx.accountId}`],
+        payload: { accountId: ctx.accountId, amount: ctx.amount },
       }),
-
-      output: (result, ctx) =>
-        result.map((event) => ({
+      output: (event, ctx) =>
+        ok({
           account: { balance: ctx.account.balance + event.payload.amount },
-        })),
-
+        }),
       projectors: [
         async (event: StoredEvent) => {
-          // Simulate async work (e.g., fetching context for projection)
           await Promise.resolve();
           if (event.type === "Deposited") {
             const payload = event.payload as { accountId: string; amount: number };
@@ -1986,7 +1396,7 @@ describe("async projector", () => {
               balance: payload.amount,
             });
           }
-          return { type: "effect" as const };
+          return {};
         },
       ],
       processors: [],

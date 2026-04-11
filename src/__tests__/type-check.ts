@@ -5,7 +5,7 @@
 
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent, StoredEvent } from "../index.js";
+import type { DomainEvent, SliceDeps, StoredEvent } from "../index.js";
 import {
   defineCommandSlice,
   defineQuerySlice,
@@ -91,63 +91,80 @@ const pricingModel = defineReadModel({
 
 type PricingRow = { propertyId: string; pricePerNight: number };
 
-// ── Command slice — pipe() composes typed state, no `unknown` anywhere ─
+// ── Command slice — new DSL (input/validate/event/output) ────────────
 
-const _createBookingSlice = defineCommandSlice({
+type CreateBookingCtx = CreateBookingInput & {
+  readonly property: PropertyState;
+  readonly pricing: Result<PricingRow, ReadModelNotFound>;
+};
+
+type CreateBookingError = { code: "PROPERTY_UNAVAILABLE"; message: string };
+
+const _createBookingSlice = defineCommandSlice<
+  CreateBookingInput,
+  CreateBookingCtx,
+  z.output<typeof createBookingOutputSchema>,
+  BookingCreated,
+  CreateBookingError
+>({
   name: "create-booking",
   inputSchema: createBookingInputSchema,
   outputSchema: createBookingOutputSchema,
 
-  state: state<CreateBookingInput>()
-    .pipe(
-      tagQuery({
-        key: "property" as const,
-        tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
-      }),
-    )
-    .pipe(
-      projection({
-        key: "pricing" as const,
-        model: pricingModel,
-        id: (ctx: CreateBookingInput & { property: PropertyState }) => ctx.propertyId,
-      }),
-    ),
-
-  prepare: (ctx) => {
-    // ctx is fully typed: CreateBookingInput & { property: PropertyState } & { pricing: Result<PricingRow, ReadModelNotFound> }
-    const _propertyCheck: PropertyState = ctx.property;
-    const _inputCheck: string = ctx.propertyId;
-    // pricing is optional (default) so it's a Result
-    const _pricingCheck: Result<PricingRow, ReadModelNotFound> = ctx.pricing;
-
-    if (!ctx.property.available) {
-      return err({
-        code: "PROPERTY_UNAVAILABLE",
-        message: "Property is not available",
-      });
-    }
-    return ok(ctx);
+  input: async (
+    ctx: CreateBookingInput,
+    deps: SliceDeps,
+  ): Promise<Result<CreateBookingCtx, CreateBookingError>> => {
+    const propertyResult = await deps.eventStore.queryByTags(
+      ["property", `property:${ctx.propertyId}`],
+      (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+    );
+    const pricingResult = await deps.projectionStore.get(pricingModel.name, ctx.propertyId);
+    const pricing: Result<PricingRow, ReadModelNotFound> = pricingResult.isOk()
+      ? ok(pricingResult.value.value as PricingRow)
+      : err(pricingResult.error);
+    return ok({
+      ...ctx,
+      property: propertyResult.state,
+      pricing,
+    });
   },
 
-  handle: (prepared, _ctx): BookingCreated => ({
+  validate: [
+    (ctx) => {
+      // ctx is fully typed: CreateBookingInput & { property: PropertyState } & { pricing: Result<PricingRow, ReadModelNotFound> }
+      const _propertyCheck: PropertyState = ctx.property;
+      const _inputCheck: string = ctx.propertyId;
+      const _pricingCheck: Result<PricingRow, ReadModelNotFound> = ctx.pricing;
+
+      if (!ctx.property.available) {
+        return err({
+          code: "PROPERTY_UNAVAILABLE" as const,
+          message: "Property is not available",
+        });
+      }
+      return ok(undefined);
+    },
+  ],
+
+  event: (ctx): BookingCreated => ({
     type: "BookingCreated",
-    tags: ["booking", `property:${prepared.propertyId}`, `tenant:${prepared.tenantId}`],
+    tags: ["booking", `property:${ctx.propertyId}`, `tenant:${ctx.tenantId}`],
     payload: {
       bookingId: crypto.randomUUID(),
       confirmedAt: new Date().toISOString(),
-      propertyId: prepared.propertyId,
-      tenantId: prepared.tenantId,
-      checkIn: prepared.checkIn,
-      checkOut: prepared.checkOut,
+      propertyId: ctx.propertyId,
+      tenantId: ctx.tenantId,
+      checkIn: ctx.checkIn,
+      checkOut: ctx.checkOut,
     },
   }),
 
-  output: (result) =>
-    result.map((event) => ({
+  output: (event, _ctx) =>
+    ok({
       bookingId: event.payload.bookingId,
       confirmedAt: event.payload.confirmedAt,
-    })),
+    }),
 
   projectors: [],
   processors: [],

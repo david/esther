@@ -12,15 +12,29 @@ A plain string attached to events. Tags form the query model -- events are retri
 
 ## Command Slice
 
-A slice that validates input against event-derived state, then appends new events. Defined with `defineCommandSlice`.
+A slice that resolves typed context from raw input, validates it against event-derived state, and appends a single event. Defined with `defineCommandSlice`. A command slice has the fields `input`, `validate`, `event`, `output`, and (optionally) `outputErr`.
+
+- `input(ctx, deps)`: resolves typed context — reads the event store or projection store via `deps`, returns `Result<TCtx, TError>`.
+- `validate`: an array of pure predicates `(ctx) => Result<void, TError>`; they run in order and short-circuit on first error.
+- `event(ctx)`: constructs the single domain event (no `Result` wrapper).
+- `output(event, ctx)`: maps the appended event plus final context into the slice's output shape.
+- `outputErr(error, ctx)`: maps an `input`/`validate` error into the output shape. Defaults to `err(error)`.
 
 ## Query Slice
 
-A slice that resolves state and returns a read-only result without appending events. Defined with `defineQuerySlice`.
+A slice that resolves state and returns a read-only result without appending events. Defined with `defineQuerySlice`. Query slices use the `state(...)pipe(...)` resolver to chain `tagQuery`, `projection`, and `generate` steps.
 
-## State Resolver
+## State Resolver (query slices)
 
-A composable pipeline (`state().pipe(...)`) that builds typed context for a slice by chaining `tagQuery` and `projection` steps.
+A composable pipeline (`state().pipe(...)`) that builds typed context for a query slice by chaining `tagQuery`, `projection`, and `generate` steps.
+
+## Step / compose
+
+Command slices build their `input` pipeline from `Step<TIn, TOut, TErr>` functions composed with `compose([...])`. A `Step` takes a context and returns `Promise<Result<TOut, TErr>>`.
+
+## castTagQuery
+
+A command-side primitive that resolves a *subject* via a cast check, then runs a tag query folded over `(events, subject)`. Produces a `Step` via `.toStep(deps)` for use inside a `compose([...])` chain.
 
 ## Read Model
 

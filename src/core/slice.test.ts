@@ -5,7 +5,7 @@ import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { ProjectionResult } from "./read-model.js";
 import type { CompileDeps, SliceProcessorFn, SliceProjectorFn } from "./slice.js";
-import { castTagQuery, defineCommandSlice, state } from "./slice.js";
+import { castTagQuery, defineCommandSlice } from "./slice.js";
 import type { DomainEvent } from "./types.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -56,18 +56,18 @@ function buildSlice(opts: {
   type Input = { id: string };
   type Evt = DomainEvent<"TestCreated", { readonly id: string }>;
 
-  return defineCommandSlice<Input, Input, Input, Input, Evt>({
+  return defineCommandSlice<Input, Input, Input, Evt, never>({
     name: "test-slice",
     inputSchema,
     outputSchema,
-    state: state<{ id: string }>(),
-    prepare: (ctx) => ok(ctx),
-    handle: (prepared) => ({
+    input: async (ctx) => ok(ctx),
+    validate: [],
+    event: (ctx) => ({
       type: "TestCreated" as const,
       tags: ["test:1"],
-      payload: { id: prepared.id },
+      payload: { id: ctx.id },
     }),
-    output: (_result, ctx) => ok({ id: ctx.id }),
+    output: (_event, ctx) => ok({ id: ctx.id }),
     projectors: opts.projectors,
     processors: opts.processors,
   });

@@ -8,7 +8,7 @@ Event sourcing framework built on Dynamic Consistency Boundaries (DCB).
 - **No `null`**, no optional properties, no implicit `any`.
 - **Errors are values**, not exceptions. All user-provided functions (handlers, validators, projectors, processors) return `Result` types via `neverthrow`. Framework-level errors (I/O failures, bugs) may throw.
 - **Discriminated unions** and **branded types** where appropriate.
-- Types flow end-to-end through the slice pipeline. `prepare` and `handle` receive fully typed contexts — no casting in user code.
+- Types flow end-to-end through the slice pipeline. `input`, `validate`, `event`, and `output` receive fully typed contexts — no casting in user code.
 
 ## Cast policy
 
@@ -40,7 +40,8 @@ src/
 │   ├── event-store.ts    # EventStore interface, EventFilter, hooks
 │   ├── read-model.ts     # defineReadModel, ReadModelHandle, ProjectionAdapter, ProjectionResult
 │   ├── effect-adapter.ts # EffectAdapter + registry
-│   ├── slice.ts          # state(), tagQuery(), projection(), defineCommandSlice/QuerySlice, ProjectionStore
+│   ├── slice.ts          # defineCommandSlice/QuerySlice, castTagQuery, state()/tagQuery()/projection()/generate() (query-slice DSL), ProjectionStore
+│   ├── compose.ts        # compose(), Step, CastAbsent (command-slice input pipeline)
 │   ├── pipeline.ts       # executeCommand, executeQuery
 │   └── app.ts            # createApp, ProjectionAdapterEntry
 ├── adapters/
