@@ -167,8 +167,19 @@ describe("generateCreateTableDDL — JSONB columns", () => {
 
 describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
   // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-  function createInMemorySql(): any {
+  function createInMemorySql(jsonbCols: Set<string> = new Set()): any {
     const tables: Record<string, Record<string, unknown>[]> = {};
+
+    // Real Postgres drivers parse JSONB columns back to JS values on read.
+    // The mock stores the stringified value (mirroring what the adapter writes)
+    // and parses it back on SELECT to model the driver behavior.
+    function parseJsonbCols(row: Record<string, unknown>): Record<string, unknown> {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(row)) {
+        out[k] = jsonbCols.has(k) && typeof v === "string" ? JSON.parse(v) : v;
+      }
+      return out;
+    }
 
     const sql = {
       async unsafe(query: string, params?: unknown[]): Promise<unknown[]> {
@@ -208,11 +219,13 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
           const tableName = tableMatch?.[1] ?? "";
           const rows = tables[tableName] ?? [];
           const keyParam = params?.[0];
-          return rows.filter((r) => {
-            const whereMatch = query.match(/WHERE "(\w+)" = \$1/);
-            const whereCol = whereMatch?.[1] ?? "";
-            return r[whereCol] === keyParam;
-          });
+          return rows
+            .filter((r) => {
+              const whereMatch = query.match(/WHERE "(\w+)" = \$1/);
+              const whereCol = whereMatch?.[1] ?? "";
+              return r[whereCol] === keyParam;
+            })
+            .map(parseJsonbCols);
         }
 
         return [];
@@ -235,7 +248,7 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
       }),
     });
 
-    const sql = createInMemorySql();
+    const sql = createInMemorySql(new Set(["blocks"]));
     const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
 
     const blocks = [
@@ -258,11 +271,11 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
     const result = await get("550e8400-e29b-41d4-a716-446655440000");
     expect(result.isOk()).toBe(true);
 
-    const stored = result._unsafeUnwrap().value as Record<string, unknown>;
-    // The adapter stringifies JSONB on write; the mock returns it as-is
-    // In real Postgres, the driver would parse JSONB back to objects.
-    // Here we verify the value was stringified for storage.
-    expect(stored.blocks).toBe(JSON.stringify(blocks));
+    const stored = result._unsafeUnwrap().value;
+    // The adapter stringifies JSONB on write; the mock parses it back on read
+    // (modeling the postgres driver). schema.parse() then validates the
+    // round-tripped value.
+    expect(stored.blocks).toEqual(blocks);
   });
 
   test("insert and read back JSONB object values", async () => {
@@ -277,7 +290,7 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
       }),
     });
 
-    const sql = createInMemorySql();
+    const sql = createInMemorySql(new Set(["settings"]));
     const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
 
     const settings = { theme: "dark", fontSize: 14 };
@@ -295,8 +308,8 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
     const result = await get("550e8400-e29b-41d4-a716-446655440000");
     expect(result.isOk()).toBe(true);
 
-    const stored = result._unsafeUnwrap().value as Record<string, unknown>;
-    expect(stored.settings).toBe(JSON.stringify(settings));
+    const stored = result._unsafeUnwrap().value;
+    expect(stored.settings).toEqual(settings);
   });
 });
 
@@ -371,7 +384,11 @@ describe("createPostgresViewGet", () => {
   }
 
   test("returns record when row exists", async () => {
-    const row = { userId: "abc-123", email: "alice@example.com", name: "Alice" };
+    const row = {
+      userId: "550e8400-e29b-41d4-a716-446655440000",
+      email: "alice@example.com",
+      name: "Alice",
+    };
     const sql = createMockSql([row]);
     const get = createPostgresViewGet(sql, viewHandle, usersHandle);
 
@@ -379,6 +396,17 @@ describe("createPostgresViewGet", () => {
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap().value).toEqual(row);
+  });
+
+  test("get rejects a row that does not match the schema", async () => {
+    // Row violates the schema: userId should be a uuid string, not a number.
+    // schema.parse() must throw, ensuring DB schema drift is caught and
+    // bad rows are not silently cast to T.
+    const badRow = { userId: 123, email: "alice@example.com", name: "Alice" };
+    const sql = createMockSql([badRow]);
+    const get = createPostgresViewGet(sql, viewHandle, usersHandle);
+
+    await expect(get("alice@example.com")).rejects.toThrow();
   });
 
   test("returns ReadModelNotFound when no rows match", async () => {

@@ -16,10 +16,8 @@ type PostgresClient = {
   (template: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function queryRows<T>(raw: unknown[]): T[] {
-  return raw as T[];
-}
+/** T accessed by column-name string at the DB boundary. */
+type DbRow = { readonly [col: string]: unknown };
 
 // ── Zod-to-DDL column mapping ──────────────────────────────────────────
 
@@ -106,33 +104,26 @@ DROP VIEW "${view.name}";
 
 // ── createPostgresViewGet ─────────────────────────────────────────────
 
-export function createPostgresViewGet<T>(
+export function createPostgresViewGet<T, S extends z.ZodObject<z.ZodRawShape>>(
   sql: PostgresClient,
   view: ReadModelViewHandle<T>,
-  base: ReadModelHandle<T>,
+  base: ReadModelHandle<T, S>,
 ): (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
   const columns = Object.keys(base.schema.shape);
   const selectColumns = columns.map((c) => `"${c}"`).join(", ");
 
   return async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
-    const rows = queryRows<Record<string, unknown>>(
-      await sql.unsafe(`SELECT ${selectColumns} FROM "${view.name}" WHERE "${view.key}" = $1`, [
-        id,
-      ]),
+    const raw = await sql.unsafe(
+      `SELECT ${selectColumns} FROM "${view.name}" WHERE "${view.key}" = $1`,
+      [id],
     );
 
-    if (rows.length === 0) {
+    if (raw.length === 0) {
       return err(ReadModelNotFound(view.name, id));
     }
 
-    const row = rows[0] as Record<string, unknown>;
-    const valueObj: Record<string, unknown> = {};
-    for (const col of columns) {
-      valueObj[col] = row[col];
-    }
-
     return ok({
-      value: valueObj as T,
+      value: base.schema.parse(raw[0]) as T,
     });
   };
 }
@@ -149,9 +140,9 @@ type PostgresProjectionAdapterResult<T> = {
 // SQL identifiers. We use sql.unsafe() only for structural SQL (table and
 // column names) while values are parameterized via $1, $2, etc.
 
-export function createPostgresProjectionAdapter<T>(
+export function createPostgresProjectionAdapter<T, S extends z.ZodObject<z.ZodRawShape>>(
   sql: PostgresClient,
-  handle: ReadModelHandle<T>,
+  handle: ReadModelHandle<T, S>,
 ): PostgresProjectionAdapterResult<T> {
   const { name: tableName, key, schema } = handle;
   const columns = Object.keys(schema.shape);
@@ -172,26 +163,15 @@ export function createPostgresProjectionAdapter<T>(
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
 
   function extractValues(value: T): unknown[] {
-    const record = value as Record<string, unknown>;
-    const vals: unknown[] = [];
-    for (const col of columns) {
-      const v = record[col];
-      vals.push(jsonbColumns.has(col) ? JSON.stringify(v) : v);
-    }
-    return vals;
+    const row = value as DbRow;
+    return columns.map((col) => (jsonbColumns.has(col) ? JSON.stringify(row[col]) : row[col]));
   }
 
   function extractUpdateValues(value: T): unknown[] {
-    const record = value as Record<string, unknown>;
-    // Values for the SET clause (all columns except key)
-    const setValues: unknown[] = [];
-    for (const col of columns) {
-      if (col !== key) {
-        const v = record[col];
-        setValues.push(jsonbColumns.has(col) ? JSON.stringify(v) : v);
-      }
-    }
-    return setValues;
+    const row = value as DbRow;
+    return columns
+      .filter((col) => col !== key)
+      .map((col) => (jsonbColumns.has(col) ? JSON.stringify(row[col]) : row[col]));
   }
 
   const adapter: ProjectionAdapter<T> = {
@@ -217,11 +197,9 @@ export function createPostgresProjectionAdapter<T>(
           const updateVals = extractUpdateValues(value);
           const keyParamIndex = updateVals.length + 1;
 
-          const updated = queryRows<Record<string, unknown>>(
-            await sql.unsafe(
-              `UPDATE "${tableName}" SET ${updatePlaceholders} WHERE "${key}" = $${keyParamIndex} RETURNING "${key}"`,
-              [...updateVals, keyValue],
-            ),
+          const updated = await sql.unsafe(
+            `UPDATE "${tableName}" SET ${updatePlaceholders} WHERE "${key}" = $${keyParamIndex} RETURNING "${key}"`,
+            [...updateVals, keyValue],
           );
 
           if (updated.length === 0) {
@@ -249,10 +227,9 @@ export function createPostgresProjectionAdapter<T>(
         }
 
         case "delete": {
-          const deleted = queryRows<Record<string, unknown>>(
-            await sql.unsafe(`DELETE FROM "${tableName}" WHERE "${key}" = $1 RETURNING 1`, [
-              keyValue,
-            ]),
+          const deleted = await sql.unsafe(
+            `DELETE FROM "${tableName}" WHERE "${key}" = $1 RETURNING 1`,
+            [keyValue],
           );
           if (deleted.length === 0) {
             throw new Error(
@@ -267,22 +244,17 @@ export function createPostgresProjectionAdapter<T>(
 
   async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
     const selectColumns = columns.map((c) => `"${c}"`).join(", ");
-    const rows = queryRows<Record<string, unknown>>(
-      await sql.unsafe(`SELECT ${selectColumns} FROM "${tableName}" WHERE "${key}" = $1`, [id]),
+    const raw = await sql.unsafe(
+      `SELECT ${selectColumns} FROM "${tableName}" WHERE "${key}" = $1`,
+      [id],
     );
 
-    if (rows.length === 0) {
+    if (raw.length === 0) {
       return err(ReadModelNotFound(tableName, id));
     }
 
-    const row = rows[0] as Record<string, unknown>;
-    const valueObj: Record<string, unknown> = {};
-    for (const col of columns) {
-      valueObj[col] = row[col];
-    }
-
     return ok({
-      value: valueObj as T,
+      value: schema.parse(raw[0]) as T,
     });
   }
 
