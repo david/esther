@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { EventStore } from "./event-store.js";
-import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice.js";
+import type { CommandSlice, CommandSliceV2, ProjectionStore, QuerySlice } from "./slice.js";
 import { type DomainEvent, SchemaError, type SliceError } from "./types.js";
 
 // ── Command pipeline ───────────────────────────────────────────────────
@@ -57,6 +57,74 @@ export async function executeCommand<
     throw new Error(
       `Output schema validation failed (framework bug): ${outputParse.error.message}`,
     );
+  }
+  return ok(outputParse.data);
+}
+
+// ── Command pipeline v2 (new DSL shape) ────────────────────────────────
+// Executes a CommandSliceV2 in the order:
+//   1. parse input via inputSchema
+//   2. run `input` step (composed Step chain). On err → outputErr branch.
+//   3. run `validate` predicates in order. First err → outputErr branch.
+//   4. call event(ctx) constructor.
+//   5. eventStore.append([event]) — projectors via onAfterInsert,
+//      processors via onAfterCommit (registered at compile time).
+//   6. success → output(event, ctx). error → outputErr(error, ctx).
+//   7. parse final result via outputSchema.
+
+export async function executeCommandV2<TInput, TCtx, TOutput, TEvent extends DomainEvent, TError>(
+  slice: CommandSliceV2<TInput, TCtx, TOutput, TEvent, TError>,
+  rawInput: unknown,
+  eventStore: EventStore,
+): Promise<Result<TOutput, SliceError>> {
+  // 1. Parse input
+  const parseResult = slice.inputSchema.safeParse(rawInput);
+  if (!parseResult.success) {
+    return err(SchemaError("Input validation failed", [parseResult.error.message]));
+  }
+  const input: TInput = parseResult.data;
+
+  // 2. Run input step chain
+  const inputResult = await slice.input(input);
+  if (inputResult.isErr()) {
+    return finishV2(slice, slice.outputErr(inputResult.error, input));
+  }
+  const ctx: TCtx = inputResult.value;
+
+  // 3. Run validate predicates in order
+  for (const predicate of slice.validate) {
+    const validateResult = predicate(ctx);
+    if (validateResult.isErr()) {
+      return finishV2(slice, slice.outputErr(validateResult.error, ctx));
+    }
+  }
+
+  // 4. Construct event
+  const event = slice.event(ctx);
+
+  // 5. Append event — projectors fire via onAfterInsert, processors via onAfterCommit
+  const appendResult = await eventStore.append([event]);
+  if (appendResult.isErr()) {
+    return err(appendResult.error);
+  }
+
+  // 6. Success branch — call output(event, ctx)
+  return finishV2(slice, slice.output(event, ctx));
+}
+
+function finishV2<TInput, TCtx, TOutput, TEvent extends DomainEvent, TError>(
+  slice: CommandSliceV2<TInput, TCtx, TOutput, TEvent, TError>,
+  outputResult: Result<TOutput, TError>,
+): Result<TOutput, SliceError> {
+  if (outputResult.isErr()) {
+    // Propagate user error as a SliceError-shaped value. We pass it through
+    // as-is; downstream callers (HTTP, tests) inspect the error union.
+    return err(outputResult.error as unknown as SliceError);
+  }
+  // 7. Validate ok value against outputSchema
+  const outputParse = slice.outputSchema.safeParse(outputResult.value);
+  if (!outputParse.success) {
+    return err(SchemaError("Output schema validation failed", [outputParse.error.message]));
   }
   return ok(outputParse.data);
 }
