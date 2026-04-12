@@ -209,14 +209,24 @@ describe("createReadInterpreter — eventsByTags", () => {
 
     const interpreter = createReadInterpreter(deps);
 
-    const descriptor = eventsByTagsDescriptor(["thing:1"], (events) =>
-      events.reduce((sum, e) => {
-        const p = e.payload;
-        if (typeof p === "object" && p !== null && "n" in p && typeof p.n === "number") {
-          return sum + p.n;
-        }
-        return sum;
-      }, 0),
+    const descriptor = eventsByTagsDescriptor(
+      ["thing:1"],
+      [
+        z.object({
+          type: z.literal("ThingHappened"),
+          tags: z.array(z.string()),
+          payload: z.object({ n: z.number() }),
+          position: z.bigint(),
+        }),
+      ],
+      (events) =>
+        events.reduce((sum, e) => {
+          const p = e.payload;
+          if (typeof p === "object" && p !== null && "n" in p && typeof p.n === "number") {
+            return sum + p.n;
+          }
+          return sum;
+        }, 0),
     );
 
     const result = await interpreter.resolve(descriptor);

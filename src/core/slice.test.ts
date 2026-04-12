@@ -29,6 +29,7 @@ describe("castTagQuery", () => {
         check: async () => ok(subject),
       },
       tags: tagsSpy,
+      schemas: [],
       fold: foldSpy,
     });
 
@@ -70,6 +71,7 @@ describe("castTagQuery", () => {
         check: async () => err(cause),
       },
       tags: tagsSpy,
+      schemas: [],
       fold: foldSpy,
     });
 
@@ -218,6 +220,7 @@ describe("compose builder", () => {
       key: "state" as const,
       cast: { check: async () => ok({ id: "u1" }) },
       tags: (s) => [`user:${s.id}`],
+      schemas: [],
       fold: (events, _s) => ({ count: events.length }),
     });
 
@@ -235,6 +238,7 @@ describe("compose builder", () => {
       key: "state" as const,
       cast: { check: async () => err({ type: "NotFound" as const }) },
       tags: () => [],
+      schemas: [],
       fold: () => ({}),
     });
 

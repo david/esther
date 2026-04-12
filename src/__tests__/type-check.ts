@@ -222,6 +222,7 @@ const _getPropertySlice = defineQuerySlice({
     tagQuery({
       key: "property" as const,
       tags: (ctx) => ["property", `property:${ctx.propertyId}`],
+      schemas: [],
       fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
     }),
   ),
@@ -278,6 +279,7 @@ const _generateFlowSlice = defineQuerySlice({
       tagQuery({
         key: "property" as const,
         tags: (ctx) => ["property", `property:${ctx.propertyId}`],
+        schemas: [],
         fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
       }),
     )

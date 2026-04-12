@@ -129,6 +129,7 @@ describe("command pipeline v2 — wiring", () => {
         check: async (_ctx: ProbeInput) => err({ type: "NotFound" as const }),
       },
       tags: (_subject) => ["nope"],
+      schemas: [],
       fold: (_events, _subject) => ({}),
     });
 
@@ -427,6 +428,7 @@ describe("command pipeline v2 — wiring", () => {
         },
       },
       tags: (subject) => [`user:${subject.id}`],
+      schemas: [],
       fold: (_events, subject) => ({ found: subject.id }),
     });
 
