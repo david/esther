@@ -165,22 +165,22 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
 }
 
 // ── castTagQuery — NEW DSL primitive (alongside tagQuery) ─────────────
-// Resolves a *subject* via `cast.check`, then runs `tags(subject)` and
-// `fold(events, subject)`. The unwrapped subject is bound under
-// `<key>Subject` (convention) so downstream steps can read fields
-// without unwrapping a Result. On absent, forwards the cause error directly.
+// Resolves a *subject* via a declarative projection lookup (model + id),
+// then runs `tags(subject)` and `fold(events, subject)`. The unwrapped
+// subject is bound under `<key>Subject` (convention) so downstream steps
+// can read fields without unwrapping a Result. On absent, returns the
+// descriptor's `absent` error value.
 
-export type CastCheck<TInput, TSubject, TCause> = (
-  ctx: TInput,
-  deps: SliceDeps,
-) => Promise<Result<TSubject, TCause>>;
+export type CastDescriptor<TInput, TSubject, TCause> = {
+  readonly model: ReadModelHandle<TSubject> | ReadModelViewHandle<TSubject>;
+  readonly id: (ctx: TInput) => string;
+  readonly absent: TCause;
+};
 
 export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> = {
   readonly _tag: "castTagQuery";
   readonly key: TKey;
-  readonly cast: {
-    readonly check: CastCheck<TInput, TSubject, TCause>;
-  };
+  readonly cast: CastDescriptor<TInput, TSubject, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
   readonly schemas: ReadonlyArray<z.ZodType>;
   readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
@@ -195,9 +195,7 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
 
 export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
   readonly key: TKey;
-  readonly cast: {
-    readonly check: CastCheck<TInput, TSubject, TCause>;
-  };
+  readonly cast: CastDescriptor<TInput, TSubject, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
   readonly schemas: ReadonlyArray<z.ZodType>;
   readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
@@ -210,11 +208,10 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
     TCause
   > => {
     return async (ctx) => {
-      const checkResult = await descriptor.cast.check(ctx, deps);
-      if (checkResult.isErr()) {
-        return err(checkResult.error);
-      }
-      const subject = checkResult.value;
+      const id = descriptor.cast.id(ctx);
+      const lookup = await deps.projectionStore.get(descriptor.cast.model.name, id);
+      if (lookup.isErr()) return err(descriptor.cast.absent);
+      const subject = lookup.value.value as TSubject;
       const tags = descriptor.tags(subject);
       const queryResult = await deps.eventStore.queryByTags(tags, descriptor.schemas, (events) =>
         descriptor.fold(events, subject),
