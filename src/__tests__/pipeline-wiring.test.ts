@@ -499,7 +499,8 @@ describe("command pipeline v2 — wiring", () => {
       const r = await app.dispatch("probe-bad-output-success", { a: 1 });
       expect(r.isErr()).toBe(true);
       if (r.isErr()) {
-        expect("_tag" in r.error && r.error._tag).toBe("SchemaError");
+        const error = r.error as { _tag: string };
+        expect(error._tag).toBe("SchemaError");
       }
     }
 
@@ -520,7 +521,8 @@ describe("command pipeline v2 — wiring", () => {
       const r = await app.dispatch("probe-bad-output-err", { a: 1 });
       expect(r.isErr()).toBe(true);
       if (r.isErr()) {
-        expect("_tag" in r.error && r.error._tag).toBe("SchemaError");
+        const error = r.error as { _tag: string };
+        expect(error._tag).toBe("SchemaError");
       }
     }
   });

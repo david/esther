@@ -3,7 +3,7 @@ import type { z } from "zod";
 import type { CastAbsent, Step } from "./compose.js";
 import type { EventStore } from "./event-store.js";
 import type { ReadModelHandle, ReadModelNotFound, ReadModelViewHandle } from "./read-model.js";
-import type { DomainEvent, SliceError, StoredEvent, ValidationError } from "./types.js";
+import type { DomainEvent, StoredEvent, ValidationError } from "./types.js";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
 
@@ -297,7 +297,7 @@ export function generate<TKey extends string, TContext, TValue>(descriptor: {
 
 export type CompiledSlice = {
   readonly name: string;
-  readonly execute: (rawInput: unknown) => Promise<Result<unknown, SliceError>>;
+  readonly execute: (rawInput: unknown) => Promise<Result<unknown, unknown>>;
 };
 
 // ── Compile dependencies ──────────────────────────────────────────────

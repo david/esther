@@ -14,7 +14,6 @@ import type {
 } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
 import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.js";
-import type { SliceError } from "./types.js";
 
 // ── App config ─────────────────────────────────────────────────────────
 
@@ -47,7 +46,7 @@ export type AppConfig = {
       readonly stop: () => Promise<void>;
     };
     readonly bind: (
-      dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, SliceError>>,
+      dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, unknown>>,
     ) => void;
   };
   readonly slices: ReadonlyArray<RegisterableSlice>;
@@ -60,7 +59,7 @@ export type AppConfig = {
 export type App = {
   readonly start: () => Promise<void>;
   readonly stop: () => Promise<void>;
-  readonly dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, SliceError>>;
+  readonly dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, unknown>>;
 };
 
 // ── Create app ─────────────────────────────────────────────────────────
@@ -168,7 +167,7 @@ export function createApp(config: AppConfig): App {
     compiled.set(slice.name, slice.compile(deps));
   }
 
-  async function dispatch(sliceName: string, input: unknown): Promise<Result<unknown, SliceError>> {
+  async function dispatch(sliceName: string, input: unknown): Promise<Result<unknown, unknown>> {
     const entry = compiled.get(sliceName);
     if (!entry) {
       throw new Error(`Unknown slice: ${sliceName}`);

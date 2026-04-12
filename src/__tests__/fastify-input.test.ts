@@ -3,15 +3,15 @@ import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
 import { createFastifyInputAdapter } from "../adapters/fastify/input.js";
 import { ReadModelNotFound } from "../core/read-model.js";
-import type { ConstraintError, SchemaError, SliceError } from "../core/types.js";
+import type { ConstraintError, SchemaError } from "../core/types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function mockDispatch(result: Result<unknown, SliceError>) {
+function mockDispatch(result: Result<unknown, unknown>) {
   return async (_sliceName: string, _input: unknown) => result;
 }
 
-function createBoundAdapter(result: Result<unknown, SliceError>) {
+function createBoundAdapter(result: Result<unknown, unknown>) {
   const { adapter, bind } = createFastifyInputAdapter({ port: 0 });
   bind(mockDispatch(result));
   return adapter;

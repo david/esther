@@ -20,16 +20,23 @@ export type StepError = CastAbsent | { readonly type: string; readonly [k: strin
 
 // ── compose ────────────────────────────────────────────────────────────
 // Pure reducer: thread ctx through each step, short-circuit on first err.
-// The body uses a single `any` for the accumulated ctx because TypeScript
-// cannot statically express the per-step accumulation of arbitrary patches
-// across a heterogeneous tuple. The exported overloads keep callers typed.
+//
+// Cast justification (acc as TCtx):
+// TypeScript cannot track the progressive type accumulation of
+// `{ ...acc, ...patch }` across a dynamic for-loop over heterogeneous
+// steps. Each step adds a different TPatch to the accumulator, but the
+// loop body cannot express "acc starts as TInitial and after step[i]
+// becomes TInitial & TPatch0 & ... & TPatchN". The `any` accumulator
+// and final `as TCtx` cast are unavoidable — callers get correct types
+// via the function signature. This is the same limitation as `addField`
+// in slice.ts (computed property keys).
 
 export function compose<TCtx, TError>(
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous step array; per-step accumulation is not expressible at the body level
   steps: ReadonlyArray<Step<any, any, TError>>,
 ): (ctx: TCtx) => Promise<Result<TCtx, TError>> {
   return async (initialCtx: TCtx) => {
-    // biome-ignore lint/suspicious/noExplicitAny: see comment above
+    // biome-ignore lint/suspicious/noExplicitAny: see compose justification above
     let acc: any = initialCtx;
     for (const step of steps) {
       const result = await step(acc);

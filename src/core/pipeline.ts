@@ -19,7 +19,7 @@ export async function executeCommand<TInput, TCtx, TOutput, TEvent extends Domai
   rawInput: unknown,
   eventStore: EventStore,
   projectionStore: ProjectionStore,
-): Promise<Result<TOutput, SliceError>> {
+): Promise<Result<TOutput, SliceError | TError>> {
   // 1. Parse input
   const parseResult = slice.inputSchema.safeParse(rawInput);
   if (!parseResult.success) {
@@ -58,11 +58,9 @@ export async function executeCommand<TInput, TCtx, TOutput, TEvent extends Domai
 function finishCommand<TInput, TCtx, TOutput, TEvent extends DomainEvent, TError>(
   slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError>,
   outputResult: Result<TOutput, TError>,
-): Result<TOutput, SliceError> {
+): Result<TOutput, SliceError | TError> {
   if (outputResult.isErr()) {
-    // Propagate user error as a SliceError-shaped value. We pass it through
-    // as-is; downstream callers (HTTP, tests) inspect the error union.
-    return err(outputResult.error as unknown as SliceError);
+    return err(outputResult.error);
   }
   // 7. Validate ok value against outputSchema
   const outputParse = slice.outputSchema.safeParse(outputResult.value);

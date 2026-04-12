@@ -48,7 +48,7 @@ export function createFastifyInputAdapter(config: FastifyAdapterConfig): {
     }
 
     const error = result.error;
-    if ("_tag" in error) {
+    if (typeof error === "object" && error !== null && "_tag" in error) {
       switch (error._tag) {
         case "ConstraintError":
           return reply.status(409).send({ error });

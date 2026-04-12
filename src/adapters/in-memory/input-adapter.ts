@@ -1,5 +1,4 @@
 import type { Result } from "neverthrow";
-import type { SliceError } from "../../core/types.js";
 
 // ── Input adapter interface ────────────────────────────────────────────
 
@@ -10,10 +9,7 @@ export type InputAdapter = {
 
 // ── Dispatch function type (provided by app) ───────────────────────────
 
-export type DispatchFn = (
-  sliceName: string,
-  input: unknown,
-) => Promise<Result<unknown, SliceError>>;
+export type DispatchFn = (sliceName: string, input: unknown) => Promise<Result<unknown, unknown>>;
 
 // ── In-memory input adapter (for testing) ──────────────────────────────
 
