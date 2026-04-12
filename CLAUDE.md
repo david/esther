@@ -10,6 +10,15 @@ Event sourcing framework built on Dynamic Consistency Boundaries (DCB).
 - **Discriminated unions** and **branded types** where appropriate.
 - Types flow end-to-end through the slice pipeline. `input`, `validate`, `event`, and `output` receive fully typed contexts — no casting in user code.
 
+## No direct I/O in app modules
+
+Slices, read models, projectors, and processors must never talk to the outside world directly.
+
+- **Inputs** declare dependencies when they need external data — the framework resolves them.
+- **Processors and projectors** return effects — the framework executes them.
+
+No `async` functions or direct adapter calls inside app module definitions. If a module needs external data, extend the framework's declarative DSL.
+
 ## Cast policy
 
 Casts (`as`) are only permitted at these boundaries:

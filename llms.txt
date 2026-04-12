@@ -8,14 +8,14 @@
 import { z } from "zod";
 import { ok, err } from "neverthrow";
 import {
-  compose, castTagQuery,
+  compose, castTagQuery, generate,
   state, tagQuery, projection,
   defineReadModel,
   defineCommandSlice, defineQuerySlice,
   createApp,
   createInMemoryEventStore, createInMemoryProjectionAdapter, createInMemoryAdapter,
 } from "esther";
-import type { DomainEvent, StoredEvent, ReadModelHandle, SliceDeps, Step } from "esther";
+import type { DomainEvent, StoredEvent, ReadModelHandle } from "esther";
 ```
 
 ## Events
@@ -86,21 +86,21 @@ defineCommandSlice({
   inputSchema: placeOrderInputSchema,
   outputSchema: placeOrderOutputSchema,
 
-  // input: resolve typed context from raw input + framework deps
-  input: async (ctx, deps: SliceDeps) => {
-    const inv = await deps.eventStore.queryByTags(
-      ["product", `product:${ctx.productId}`],
-      (events): InventoryState => events.reduce(reducer, initial),
-    );
-    return ok({ ...ctx, inventory: inv.state });
-  },
+  // input: resolve typed context declaratively via compose pipeline
+  input: compose<PlaceOrderInput>()
+    .add(tagQuery({
+      key: "inventory" as const,
+      tags: (ctx) => ["product", `product:${ctx.productId}`],
+      schemas: [ProductAddedSchema],
+      fold: (events): InventoryState => events.reduce(reducer, initial),
+    })),
 
-  // validate: array of pure predicates that run in order
+  // validate: array of pure predicates that return error arrays
   validate: [
     (ctx) => {
       if (ctx.inventory.quantity < ctx.amount)
-        return err({ code: "OUT_OF_STOCK", message: "Not enough" });
-      return ok(undefined);
+        return [{ type: "OutOfStock" as const, message: "Not enough" }];
+      return [];
     },
   ],
 
@@ -114,34 +114,37 @@ defineCommandSlice({
   // output: shape the response from the appended event + ctx
   output: (event, _ctx) => ok({ orderId: event.payload.orderId }),
 
-  // outputErr (optional): map error shapes from input/validate to response
-  outputErr: (e, _ctx) => err(e),
-
-  projectors: [],
-  processors: [],
+  // outputErr (optional): handler map keyed by error type
+  outputErr: {
+    OutOfStock: (errors, _ctx) => err(errors[0]!),
+  },
 });
 ```
 
-For complex input pipelines, compose `Step` functions with `compose(...)`:
+For complex input pipelines, compose declarative steps with `compose().add(...)`:
 
 ```typescript
-const loadInventory: Step<Input, Input & { inventory: InventoryState }, never> =
-  async (ctx) => { /* ... */ };
-
-input: compose<Input, never>([loadInventory]),
+input: compose<Input>()
+  .add(tagQuery({ key: "inventory" as const, tags: (ctx) => [...], schemas: [...], fold: ... }))
+  .add(generate({ key: "token" as const, fn: () => crypto.randomUUID() })),
 ```
 
-`castTagQuery` is a higher-level primitive that resolves a subject via a cast check, then runs a tag query against it:
+`castTagQuery` is a higher-level primitive that resolves a subject via a declarative projection lookup, then runs a tag query against it:
 
 ```typescript
 const subject = castTagQuery({
   key: "account" as const,
-  cast: { check: async (ctx, deps) => /* Result<Subject, Cause> */ },
+  cast: {
+    model: accountsByEmail,
+    id: (ctx) => ctx.email,
+    absent: { type: "NotFound" } as const,
+  },
   tags: (subject) => [`account:${subject.id}`],
+  schemas: [DepositedSchema, WithdrawnSchema],
   fold: (events, subject) => events.reduce(reducer, initial),
 });
 
-input: async (ctx, deps) => compose([subject.toStep(deps)])(ctx),
+input: compose<Input>().add(subject),
 ```
 
 ## Query slice state pipeline
@@ -290,6 +293,7 @@ The Fastify adapter maps `ConstraintError` to HTTP 409, `SchemaError` to 400, an
 8. Tags are your query model -- design them for the queries you need.
 9. The `output(event, ctx)` function shapes the command result from the appended event and the final context. `outputErr(error, ctx)` maps `input`/`validate` errors.
 10. Define read models with `defineReadModel` and use the returned handle in both projectors and `projection()` steps.
+11. App modules (slices, projectors, processors) must not do I/O directly. Declare dependencies; return effects.
 
 ## Full example
 
@@ -331,19 +335,19 @@ export const transferSlice = defineCommandSlice<
   inputSchema: transferInputSchema,
   outputSchema: transferOutputSchema,
 
-  input: async (ctx, deps) => {
-    const fromResult = await deps.eventStore.queryByTags(
-      ["account", `account:${ctx.fromAccountId}`],
-      (events): AccountBalance => events.reduce(balanceReducer, { balance: 0 }),
-    );
-    return ok({ ...ctx, fromBalance: fromResult.state });
-  },
+  input: compose<TransferInput>()
+    .add(tagQuery({
+      key: "fromBalance" as const,
+      tags: (ctx) => ["account", `account:${ctx.fromAccountId}`],
+      schemas: [MoneyTransferredSchema],
+      fold: (events): AccountBalance => events.reduce(balanceReducer, { balance: 0 }),
+    })),
 
   validate: [
     (ctx) => {
       if (ctx.fromBalance.balance < ctx.amount)
-        return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
-      return ok(undefined);
+        return [{ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" }];
+      return [];
     },
   ],
 
@@ -359,8 +363,5 @@ export const transferSlice = defineCommandSlice<
   }),
 
   output: (event, _ctx) => ok({ transferId: event.payload.transferId }),
-
-  projectors: [],
-  processors: [],
 });
 ```
