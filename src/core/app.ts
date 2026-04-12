@@ -2,7 +2,14 @@ import { err, type Result } from "neverthrow";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { Constraints, ProjectionAdapter, ReadModelNotFound } from "./read-model.js";
+import type { Processor } from "./processor.js";
+import { createReadInterpreter } from "./read-interpreter.js";
+import type {
+  Constraints,
+  ProjectionAdapter,
+  ProjectionQueryAdapter,
+  ReadModelNotFound,
+} from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
 import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.js";
 import type { SliceError } from "./types.js";
@@ -40,6 +47,8 @@ export type AppConfig = {
     ) => void;
   };
   readonly slices: ReadonlyArray<RegisterableSlice>;
+  readonly processors?: ReadonlyArray<Processor> | undefined;
+  readonly projectionQuery?: ProjectionQueryAdapter | undefined;
 };
 
 // ── App instance ───────────────────────────────────────────────────────
@@ -110,6 +119,32 @@ export function createApp(config: AppConfig): App {
   const effectRegistry: EffectAdapterRegistry = createEffectAdapterRegistry();
   for (const adapter of config.effectAdapters ?? []) {
     effectRegistry.register(adapter);
+  }
+
+  // Wire processors via onAfterCommit
+  if (config.processors) {
+    const noopProjectionQuery: ProjectionQueryAdapter = {
+      async query() {
+        return [];
+      },
+    };
+
+    const readInterpreter = createReadInterpreter({
+      eventStore,
+      projectionStore,
+      projectionQuery: config.projectionQuery ?? noopProjectionQuery,
+    });
+
+    for (const processor of config.processors) {
+      for (const binding of processor.bindings) {
+        eventStore.onAfterCommit({ eventTypes: [binding.eventType] }, async (event) => {
+          const result = await binding.run(event, readInterpreter);
+          if (result !== undefined && result !== null) {
+            await effectRegistry.execute(result);
+          }
+        });
+      }
+    }
   }
 
   // Compile each slice — the compile closure captured the generics

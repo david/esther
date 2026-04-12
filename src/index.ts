@@ -36,6 +36,12 @@ export type {
 } from "./core/event-store.js";
 // ── Pipeline ───────────────────────────────────────────────────────────
 export { executeCommand, executeQuery } from "./core/pipeline.js";
+// ── Processor ──────────────────────────────────────────────────────────
+export {
+  defineProcessor,
+  type Processor,
+  type ProcessorEventBinding,
+} from "./core/processor.js";
 // ── Read interpreter ───────────────────────────────────────────────────
 export {
   createReadInterpreter,
