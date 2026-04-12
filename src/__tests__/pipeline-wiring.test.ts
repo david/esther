@@ -139,10 +139,7 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-cast-absent",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ status: z.string(), code: z.string() }),
-      input: async (ctx: ProbeInput, deps) =>
-        compose<ProbeInput, { type: string }>([
-          cast.toStep(deps) as Step<ProbeInput, unknown, { type: string }>,
-        ])(ctx),
+      input: compose<ProbeInput>().add(cast),
       validate: [
         (_ctx) => {
           validateCalled = true;
@@ -159,7 +156,8 @@ describe("command pipeline v2 — wiring", () => {
       },
       outputErr: (e, _ctx) => {
         outputErrCalled += 1;
-        return ok({ status: "absent", code: e.type });
+        const code: string = e.type;
+        return ok({ status: "absent", code });
       },
     });
 
@@ -427,10 +425,7 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-cast-uses-projection",
       inputSchema: loginSchema,
       outputSchema: z.object({ userId: z.string() }),
-      input: async (ctx: LoginInput, deps) =>
-        compose<LoginInput, { type: "NoUser" }>([
-          cast.toStep(deps) as Step<LoginInput, unknown, { type: "NoUser" }>,
-        ])(ctx),
+      input: compose<LoginInput>().add(cast),
       validate: [],
       event: (ctx) => ({
         type: "Probe" as const,
