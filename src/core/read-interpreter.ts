@@ -60,7 +60,7 @@ export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterprete
   }
 
   async function resolveEventsByTags<T>(descriptor: EventsByTagsDescriptor<T>): Promise<T> {
-    const result = await eventStore.queryByTags(descriptor.tags, descriptor.fold);
+    const result = await eventStore.queryByTags(descriptor.tags, descriptor.schemas, descriptor.fold);
     return result.state;
   }
 

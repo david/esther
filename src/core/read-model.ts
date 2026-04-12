@@ -152,6 +152,7 @@ export type QueryDescriptor<T> = {
 export type EventsByTagsDescriptor<T> = {
   readonly _tag: "eventsByTags";
   readonly tags: ReadonlyArray<string>;
+  readonly schemas: ReadonlyArray<z.ZodType>;
   readonly fold: (events: ReadonlyArray<StoredEvent>) => T;
 };
 
@@ -228,9 +229,10 @@ export function queryDescriptor<T>(input: {
 
 export function eventsByTagsDescriptor<T>(
   tags: ReadonlyArray<string>,
+  schemas: ReadonlyArray<z.ZodType>,
   fold: (events: ReadonlyArray<StoredEvent>) => T,
 ): EventsByTagsDescriptor<T> {
-  return { _tag: "eventsByTags", tags, fold };
+  return { _tag: "eventsByTags", tags, schemas, fold };
 }
 
 // ── ProjectionQueryAdapter ──────────────────────────────────────────

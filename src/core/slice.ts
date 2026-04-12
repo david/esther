@@ -97,7 +97,7 @@ function buildResolver<TInput, TContext>(
 
         if (step._tag === "tagQuery") {
           const tags = step.tags(prev.context);
-          const result = await eventStore.queryByTags(tags, step.fold);
+          const result = await eventStore.queryByTags(tags, step.schemas, step.fold);
           return ok({
             context: addField(prev.context, step.key, result.state),
           });
@@ -151,12 +151,14 @@ export type TagQueryStep<TKey extends string, TInput, TState> = {
   readonly _tag: "tagQuery";
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
+  readonly schemas: ReadonlyArray<z.ZodType>;
   readonly fold: (events: ReadonlyArray<StoredEvent>) => TState;
 };
 
 export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
+  readonly schemas: ReadonlyArray<z.ZodType>;
   readonly fold: (events: ReadonlyArray<StoredEvent>) => TState;
 }): TagQueryStep<TKey, TInput, TState> {
   return { _tag: "tagQuery", ...descriptor };
@@ -180,6 +182,7 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
     readonly check: CastCheck<TInput, TSubject, TCause>;
   };
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+  readonly schemas: ReadonlyArray<z.ZodType>;
   readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
   readonly toStep: (
     deps: SliceDeps,
@@ -196,6 +199,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
     readonly check: CastCheck<TInput, TSubject, TCause>;
   };
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+  readonly schemas: ReadonlyArray<z.ZodType>;
   readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
 }): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause> {
   const toStep = (
@@ -212,7 +216,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
       }
       const subject = checkResult.value;
       const tags = descriptor.tags(subject);
-      const queryResult = await deps.eventStore.queryByTags(tags, (events) =>
+      const queryResult = await deps.eventStore.queryByTags(tags, descriptor.schemas, (events) =>
         descriptor.fold(events, subject),
       );
       const withState = addField({}, descriptor.key, queryResult.state);
@@ -229,6 +233,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
     key: descriptor.key,
     cast: descriptor.cast,
     tags: descriptor.tags,
+    schemas: descriptor.schemas,
     fold: descriptor.fold,
     toStep,
   };
