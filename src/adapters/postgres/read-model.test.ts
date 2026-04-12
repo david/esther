@@ -167,19 +167,8 @@ describe("generateCreateTableDDL — JSONB columns", () => {
 
 describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
   // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-  function createInMemorySql(jsonbCols: Set<string> = new Set()): any {
+  function createInMemorySql(): any {
     const tables: Record<string, Record<string, unknown>[]> = {};
-
-    // Real Postgres drivers parse JSONB columns back to JS values on read.
-    // The mock stores the stringified value (mirroring what the adapter writes)
-    // and parses it back on SELECT to model the driver behavior.
-    function parseJsonbCols(row: Record<string, unknown>): Record<string, unknown> {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(row)) {
-        out[k] = jsonbCols.has(k) && typeof v === "string" ? JSON.parse(v) : v;
-      }
-      return out;
-    }
 
     const sql = {
       async unsafe(query: string, params?: unknown[]): Promise<unknown[]> {
@@ -225,7 +214,7 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
               const whereCol = whereMatch?.[1] ?? "";
               return r[whereCol] === keyParam;
             })
-            .map(parseJsonbCols);
+            .map((r) => ({ ...r }));
         }
 
         return [];
@@ -248,7 +237,7 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
       }),
     });
 
-    const sql = createInMemorySql(new Set(["blocks"]));
+    const sql = createInMemorySql();
     const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
 
     const blocks = [
@@ -272,9 +261,8 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
     expect(result.isOk()).toBe(true);
 
     const stored = result._unsafeUnwrap().value;
-    // The adapter stringifies JSONB on write; the mock parses it back on read
-    // (modeling the postgres driver). schema.parse() then validates the
-    // round-tripped value.
+    // The adapter passes raw JS values for JSONB columns; the postgres driver
+    // handles serialization natively. schema.parse() validates the round-trip.
     expect(stored.blocks).toEqual(blocks);
   });
 
@@ -290,7 +278,7 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
       }),
     });
 
-    const sql = createInMemorySql(new Set(["settings"]));
+    const sql = createInMemorySql();
     const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
 
     const settings = { theme: "dark", fontSize: 14 };
@@ -310,6 +298,89 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
 
     const stored = result._unsafeUnwrap().value;
     expect(stored.settings).toEqual(settings);
+  });
+});
+
+// ── JSONB double-encoding regression ──────────────────────────────
+
+describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
+  // This test verifies the adapter passes raw JS values for JSONB columns
+  // to postgres.js (which serializes JSONB natively), rather than calling
+  // JSON.stringify which would double-encode arrays/objects into strings.
+  test("JSONB array column is passed as raw array, not a JSON string", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "service",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        items: z.array(z.object({ name: z.string() })),
+      }),
+    });
+
+    // Capture the raw params sent to sql.unsafe
+    let capturedParams: unknown[] | undefined;
+
+    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
+    const sql: any = {
+      async unsafe(_query: string, params?: unknown[]): Promise<unknown[]> {
+        capturedParams = params;
+        return [];
+      },
+    };
+
+    const { adapter } = createPostgresProjectionAdapter(sql, handle);
+
+    const items = [{ name: "Hymn" }, { name: "Prayer" }];
+    const projection = handle.project(
+      { id: "550e8400-e29b-41d4-a716-446655440000", items },
+      "insert",
+    );
+
+    await adapter.execute(projection);
+
+    // The items param (index 1) must be the raw array, not a JSON string
+    expect(capturedParams).toBeDefined();
+    expect(capturedParams?.[1]).toEqual(items);
+    expect(typeof capturedParams?.[1]).not.toBe("string");
+  });
+
+  test("JSONB object column is passed as raw object, not a JSON string", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "prefs",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        config: z.object({ locale: z.string() }),
+      }),
+    });
+
+    let capturedParams: unknown[] | undefined;
+
+    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
+    const sql: any = {
+      async unsafe(_query: string, params?: unknown[]): Promise<unknown[]> {
+        capturedParams = params;
+        return [];
+      },
+    };
+
+    const { adapter } = createPostgresProjectionAdapter(sql, handle);
+
+    const config = { locale: "en-US" };
+    const projection = handle.project(
+      { id: "550e8400-e29b-41d4-a716-446655440000", config },
+      "insert",
+    );
+
+    await adapter.execute(projection);
+
+    expect(capturedParams).toBeDefined();
+    expect(capturedParams?.[1]).toEqual(config);
+    expect(typeof capturedParams?.[1]).not.toBe("string");
   });
 });
 

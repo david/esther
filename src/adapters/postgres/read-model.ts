@@ -200,31 +200,18 @@ export function createPostgresProjectionAdapter<T, S extends z.ZodObject<z.ZodRa
   const { name: tableName, key, schema } = handle;
   const columns = Object.keys(schema.shape);
 
-  // Identify JSONB columns for serialization
-  const jsonbColumns = new Set<string>();
-  for (const col of columns) {
-    const fieldType = schema.shape[col];
-    if (fieldType === undefined) continue;
-    const typeName = fieldType._def.typeName as string;
-    if (typeName === "ZodArray" || typeName === "ZodObject") {
-      jsonbColumns.add(col);
-    }
-  }
-
   // Pre-build quoted column lists
   const quotedColumns = columns.map((c) => `"${c}"`).join(", ");
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
 
   function extractValues(value: T): unknown[] {
     const row = value as DbRow;
-    return columns.map((col) => (jsonbColumns.has(col) ? JSON.stringify(row[col]) : row[col]));
+    return columns.map((col) => row[col]);
   }
 
   function extractUpdateValues(value: T): unknown[] {
     const row = value as DbRow;
-    return columns
-      .filter((col) => col !== key)
-      .map((col) => (jsonbColumns.has(col) ? JSON.stringify(row[col]) : row[col]));
+    return columns.filter((col) => col !== key).map((col) => row[col]);
   }
 
   const adapter: ProjectionAdapter<T> = {
