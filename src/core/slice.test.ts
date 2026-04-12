@@ -54,7 +54,7 @@ describe("castTagQuery", () => {
     expect(foldSpy.mock.calls[0]?.[1]).toEqual(subject);
   });
 
-  test("absent: returns CastAbsent err, tags/fold never invoked", async () => {
+  test("absent: returns cause err directly, tags/fold never invoked", async () => {
     const eventStore = createInMemoryEventStore();
     const cause = { type: "NotFound" as const, reason: "x" };
 
@@ -78,11 +78,7 @@ describe("castTagQuery", () => {
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error).toEqual({
-        type: "CastAbsent",
-        key: "state",
-        cause,
-      });
+      expect(result.error).toEqual(cause);
     }
     expect(tagsSpy).not.toHaveBeenCalled();
     expect(foldSpy).not.toHaveBeenCalled();

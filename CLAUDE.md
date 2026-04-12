@@ -41,7 +41,7 @@ src/
 │   ├── read-model.ts     # defineReadModel, ReadModelHandle, ProjectionAdapter, ProjectionResult
 │   ├── effect-adapter.ts # EffectAdapter + registry
 │   ├── slice.ts          # defineCommandSlice/QuerySlice, castTagQuery, state()/tagQuery()/projection()/generate() (query-slice DSL), ProjectionStore
-│   ├── compose.ts        # compose(), Step, CastAbsent (command-slice input pipeline)
+│   ├── compose.ts        # compose(), Step, StepError (command-slice input pipeline)
 │   ├── pipeline.ts       # executeCommand, executeQuery
 │   └── app.ts            # createApp, ProjectionAdapterEntry
 ├── adapters/

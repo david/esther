@@ -6,17 +6,9 @@ import { ok, type Result } from "neverthrow";
 
 export type Step<TIn, TPatch, TError> = (ctx: TIn) => Promise<Result<TPatch, TError>>;
 
-// ── CastAbsent — typed error produced by castTagQuery on absent ───────
-
-export type CastAbsent<TKey extends string = string, TCause = unknown> = {
-  readonly type: "CastAbsent";
-  readonly key: TKey;
-  readonly cause: TCause;
-};
-
 // ── StepError — union of errors a composed pipeline may surface ───────
 
-export type StepError = CastAbsent | { readonly type: string; readonly [k: string]: unknown };
+export type StepError = { readonly type: string; readonly [k: string]: unknown };
 
 // ── compose ────────────────────────────────────────────────────────────
 // Pure reducer: thread ctx through each step, short-circuit on first err.

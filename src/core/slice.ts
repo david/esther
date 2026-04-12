@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
-import type { CastAbsent, Step } from "./compose.js";
+import type { Step } from "./compose.js";
 import type { EventStore } from "./event-store.js";
 import type { ReadModelHandle, ReadModelNotFound, ReadModelViewHandle } from "./read-model.js";
 import type { DomainEvent, StoredEvent, ValidationError } from "./types.js";
@@ -166,7 +166,7 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
 // Resolves a *subject* via `cast.check`, then runs `tags(subject)` and
 // `fold(events, subject)`. The unwrapped subject is bound under
 // `<key>Subject` (convention) so downstream steps can read fields
-// without unwrapping a Result. On absent, produces a typed CastAbsent.
+// without unwrapping a Result. On absent, forwards the cause error directly.
 
 export type CastCheck<TInput, TSubject, TCause> = (
   ctx: TInput,
@@ -186,7 +186,7 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
   ) => Step<
     TInput,
     { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
-    CastAbsent<TKey, TCause>
+    TCause
   >;
 };
 
@@ -203,16 +203,12 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
   ): Step<
     TInput,
     { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
-    CastAbsent<TKey, TCause>
+    TCause
   > => {
     return async (ctx) => {
       const checkResult = await descriptor.cast.check(ctx, deps);
       if (checkResult.isErr()) {
-        return err({
-          type: "CastAbsent",
-          key: descriptor.key,
-          cause: checkResult.error,
-        });
+        return err(checkResult.error);
       }
       const subject = checkResult.value;
       const tags = descriptor.tags(subject);
