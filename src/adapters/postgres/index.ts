@@ -1,4 +1,5 @@
 import { err, ok } from "neverthrow";
+import type { z } from "zod";
 import type {
   EventFilter,
   EventStore,
@@ -94,8 +95,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
               [
                 id,
                 event.type,
-                JSON.stringify(event.tags),
-                JSON.stringify(event.payload),
+                event.tags,
+                event.payload,
                 position.toString(),
               ],
             );
@@ -140,7 +141,14 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       }
     },
 
-    async queryByTags(tags, fold) {
+    async queryByTags(
+      tags: ReadonlyArray<string>,
+      schemasOrFold: ReadonlyArray<z.ZodType> | ((events: ReadonlyArray<StoredEvent>) => unknown),
+      maybeFold?: (events: ReadonlyArray<unknown>) => unknown,
+    ) {
+      const schemas = Array.isArray(schemasOrFold) ? schemasOrFold : null;
+      const fold = schemas ? maybeFold! : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
+
       if (tags.length === 0) {
         return { state: fold([]) };
       }
@@ -152,8 +160,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       const rows = queryRows<{
         id: string;
         type: string;
-        tags: string;
-        payload: string;
+        tags: readonly string[];
+        payload: unknown;
         position: string;
         timestamp: Date;
       }>(
@@ -166,13 +174,30 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         ),
       );
 
+      if (schemas) {
+        const parsed = rows.map((row) => {
+          const raw = {
+            type: row.type,
+            tags: row.tags,
+            payload: row.payload,
+            position: BigInt(row.position),
+          };
+          for (const schema of schemas) {
+            const result = schema.safeParse(raw);
+            if (result.success) return result.data;
+          }
+          throw new Error(
+            `Event at position ${row.position} (type "${row.type}") does not match any provided schema`,
+          );
+        });
+        return { state: fold(parsed) };
+      }
+
       const events: StoredEvent[] = rows.map((row) => ({
         id: EventId(row.id),
         type: row.type,
-        tags: JSON.parse(typeof row.tags === "string" ? row.tags : JSON.stringify(row.tags)),
-        payload: JSON.parse(
-          typeof row.payload === "string" ? row.payload : JSON.stringify(row.payload),
-        ),
+        tags: row.tags,
+        payload: row.payload,
         position: BigInt(row.position),
         timestamp: new Date(row.timestamp),
       }));

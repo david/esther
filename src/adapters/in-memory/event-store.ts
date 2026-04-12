@@ -1,4 +1,5 @@
 import { ok } from "neverthrow";
+import type { z } from "zod";
 import type {
   EventFilter,
   EventStore,
@@ -54,10 +55,30 @@ export function createInMemoryEventStore(): EventStore {
       return ok({ events: stored });
     },
 
-    async queryByTags(tags, fold) {
+    async queryByTags(
+      tags: ReadonlyArray<string>,
+      schemasOrFold: ReadonlyArray<z.ZodType> | ((events: ReadonlyArray<StoredEvent>) => unknown),
+      maybeFold?: (events: ReadonlyArray<unknown>) => unknown,
+    ) {
+      const schemas = Array.isArray(schemasOrFold) ? schemasOrFold : null;
+      const fold = schemas ? maybeFold! : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
+
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
-      const state = fold(matching);
-      return { state };
+
+      if (schemas) {
+        const parsed = matching.map((event) => {
+          for (const schema of schemas) {
+            const result = schema.safeParse(event);
+            if (result.success) return result.data;
+          }
+          throw new Error(
+            `Event at position ${event.position} (type "${event.type}") does not match any provided schema`,
+          );
+        });
+        return { state: fold(parsed) };
+      }
+
+      return { state: fold(matching) };
     },
 
     onAfterInsert(filter, handler) {

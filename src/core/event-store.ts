@@ -1,4 +1,5 @@
 import type { Result } from "neverthrow";
+import type { z } from "zod";
 import type { AppendResult, DomainEvent, SliceError, StoredEvent } from "./types.js";
 
 // ── Event filter for store-level hooks ─────────────────────────────────
@@ -23,12 +24,18 @@ export type EventStore = {
     events: ReadonlyArray<DomainEvent>,
   ) => Promise<Result<AppendResult, SliceError>>;
 
-  readonly queryByTags: <TState>(
-    tags: ReadonlyArray<string>,
-    fold: (events: ReadonlyArray<StoredEvent>) => TState,
-  ) => Promise<{
-    readonly state: TState;
-  }>;
+  readonly queryByTags: {
+    <TSchema extends z.ZodType, TState>(
+      tags: ReadonlyArray<string>,
+      schemas: ReadonlyArray<TSchema>,
+      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+    ): Promise<{ readonly state: TState }>;
+
+    <TState>(
+      tags: ReadonlyArray<string>,
+      fold: (events: ReadonlyArray<StoredEvent>) => TState,
+    ): Promise<{ readonly state: TState }>;
+  };
 
   readonly onAfterInsert: (filter: EventFilter, handler: OnAfterInsertHandler) => void;
   readonly onAfterCommit: (filter: EventFilter, handler: OnAfterCommitHandler) => void;
