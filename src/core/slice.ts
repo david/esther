@@ -111,11 +111,10 @@ function buildResolver<TInput, TContext>(
         }
 
         // projection — read from projection store
-        const projStep = step as ProjectionStep<string, TContext, unknown, boolean>;
-        const id = projStep.id(prev.context);
-        const readResult = await projectionStore.get(projStep.model.name, id);
+        const id = step.id(prev.context);
+        const readResult = await projectionStore.get(step.model.name, id);
 
-        if (projStep.required) {
+        if (step.required) {
           if (readResult.isErr()) {
             return err(readResult.error);
           }
@@ -213,7 +212,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
           type: "CastAbsent",
           key: descriptor.key,
           cause: checkResult.error,
-        } as const);
+        });
       }
       const subject = checkResult.value;
       const tags = descriptor.tags(subject);
@@ -221,6 +220,8 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
         descriptor.fold(events, subject),
       );
       const withState = addField({}, descriptor.key, queryResult.state);
+      // as const required: without it TS widens the template literal to string,
+      // losing the `${TKey}Subject` mapped type needed by addField's return type
       const subjectKey = `${descriptor.key}Subject` as const;
       const patch = addField(withState, subjectKey, subject);
       return ok(patch);
@@ -275,7 +276,7 @@ export function projection<TKey extends string, TInput, TValue>(descriptor: {
     key: descriptor.key,
     model: descriptor.model,
     id: descriptor.id,
-    required: (descriptor.required ?? false) as boolean,
+    required: descriptor.required ?? false,
   };
 }
 
