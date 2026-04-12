@@ -78,8 +78,6 @@ const depositSlice = defineCommandSlice<
     ok({
       account: { balance: ctx.account.balance + event.payload.amount },
     }),
-  projectors: [],
-  processors: [],
 });
 
 // ── Withdraw slice (with validation) ──────────────────────────────────
@@ -125,8 +123,6 @@ const withdrawSlice = defineCommandSlice<
     ok({
       account: { balance: ctx.account.balance - event.payload.amount },
     }),
-  projectors: [],
-  processors: [],
 });
 
 // ── readBalance helper ────────────────────────────────────────────────
@@ -180,8 +176,6 @@ const creditSlice = defineCommandSlice<
       accountId: event.payload.accountId,
       newBalance: ctx.account.balance + event.payload.amount,
     }),
-  projectors: [],
-  processors: [],
 });
 
 const rejectInputSchema = z.object({ accountId: z.string() });
@@ -207,8 +201,6 @@ const rejectSlice = defineCommandSlice<
   },
   output: (_event, _ctx) => ok({ rejected: false }),
   outputErr: (e, _ctx) => err(e),
-  projectors: [],
-  processors: [],
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -225,6 +217,27 @@ function buildApp() {
 
   return { app, eventStore };
 }
+
+// ── Event schemas for read model bindings ────────────────────────────
+
+const DepositedEventSchema = z.object({
+  type: z.literal("Deposited"),
+  tags: z.array(z.string()),
+  payload: z.object({
+    accountId: z.string(),
+    amount: z.number(),
+  }),
+});
+
+const UserRegisteredEventSchema = z.object({
+  type: z.literal("UserRegistered"),
+  tags: z.array(z.string()),
+  payload: z.object({
+    userId: z.string(),
+    email: z.string(),
+    name: z.string(),
+  }),
+});
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -435,8 +448,8 @@ describe("constraint metadata registration", () => {
   });
 });
 
-describe("dispatch via onAfterInsert", () => {
-  test("projector registered on slice dispatches to projection adapter", async () => {
+describe("read model event bindings via createApp", () => {
+  test("event binding on read model dispatches to projection adapter on matching event", async () => {
     const accountModel = defineReadModel({
       name: "accounts",
       schema: z.object({
@@ -444,45 +457,19 @@ describe("dispatch via onAfterInsert", () => {
         balance: z.number(),
       }),
       key: "accountId",
+      events: [
+        {
+          schema: DepositedEventSchema,
+          handler: (event, { project }) =>
+            project({
+              accountId: event.payload.accountId,
+              balance: event.payload.amount,
+            }),
+        },
+      ],
     });
 
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
-
-    const projectorSlice = defineCommandSlice<
-      DepositInput,
-      DepositCtx,
-      z.output<typeof depositOutputSchema>,
-      DomainEvent<"Deposited", { accountId: string; amount: number }>,
-      never
-    >({
-      name: "deposit-with-projection",
-      inputSchema: depositInputSchema,
-      outputSchema: depositOutputSchema,
-      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
-      validate: [],
-      event: (ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${ctx.accountId}`],
-        payload: { accountId: ctx.accountId, amount: ctx.amount },
-      }),
-      output: (event, ctx) =>
-        ok({
-          account: { balance: ctx.account.balance + event.payload.amount },
-        }),
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            const payload = event.payload as { accountId: string; amount: number };
-            return accountModel.project({
-              accountId: payload.accountId,
-              balance: payload.amount,
-            });
-          }
-          return {};
-        },
-      ],
-      processors: [],
-    });
 
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
@@ -490,14 +477,21 @@ describe("dispatch via onAfterInsert", () => {
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "accounts" },
+        {
+          kind: "table",
+          adapter: projAdapter,
+          get,
+          constraints: {},
+          tableName: "accounts",
+          handle: accountModel,
+        },
       ],
       inputAdapter: { adapter, bind },
-      slices: [projectorSlice],
+      slices: [depositSlice],
     });
 
     // First deposit — event position 0
-    await app.dispatch("deposit-with-projection", { accountId: "acc-1", amount: 100 });
+    await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
 
     const result1 = await get("acc-1");
     expect(result1.isOk()).toBe(true);
@@ -506,7 +500,7 @@ describe("dispatch via onAfterInsert", () => {
     }
 
     // Second deposit — verifies upsert overwrites
-    await app.dispatch("deposit-with-projection", { accountId: "acc-1", amount: 200 });
+    await app.dispatch("deposit", { accountId: "acc-1", amount: 200 });
 
     const result2 = await get("acc-1");
     expect(result2.isOk()).toBe(true);
@@ -523,6 +517,16 @@ describe("dispatch via onAfterInsert", () => {
         balance: z.number(),
       }),
       key: "accountId",
+      events: [
+        {
+          schema: DepositedEventSchema,
+          handler: (event, { project }) =>
+            project({
+              accountId: event.payload.accountId,
+              balance: event.payload.amount,
+            }),
+        },
+      ],
     });
 
     const ledgerModel = defineReadModel({
@@ -532,57 +536,21 @@ describe("dispatch via onAfterInsert", () => {
         amount: z.number(),
       }),
       key: "entryId",
+      events: [
+        {
+          schema: DepositedEventSchema,
+          handler: (event, { project }) =>
+            project({
+              entryId: `entry-${event.payload.accountId}`,
+              amount: event.payload.amount,
+            }),
+        },
+      ],
     });
 
     const { adapter: accountAdapter, get: getAccount } =
       createInMemoryProjectionAdapter(accountModel);
     const { adapter: ledgerAdapter, get: getLedger } = createInMemoryProjectionAdapter(ledgerModel);
-
-    const dualProjectorSlice = defineCommandSlice<
-      DepositInput,
-      DepositCtx,
-      z.output<typeof depositOutputSchema>,
-      DomainEvent<"Deposited", { accountId: string; amount: number }>,
-      never
-    >({
-      name: "deposit-dual",
-      inputSchema: depositInputSchema,
-      outputSchema: depositOutputSchema,
-      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
-      validate: [],
-      event: (ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${ctx.accountId}`],
-        payload: { accountId: ctx.accountId, amount: ctx.amount },
-      }),
-      output: (event, ctx) =>
-        ok({
-          account: { balance: ctx.account.balance + event.payload.amount },
-        }),
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            const payload = event.payload as { accountId: string; amount: number };
-            return accountModel.project({
-              accountId: payload.accountId,
-              balance: payload.amount,
-            });
-          }
-          return {};
-        },
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            const payload = event.payload as { accountId: string; amount: number };
-            return ledgerModel.project({
-              entryId: `entry-${payload.accountId}`,
-              amount: payload.amount,
-            });
-          }
-          return {};
-        },
-      ],
-      processors: [],
-    });
 
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
@@ -596,6 +564,7 @@ describe("dispatch via onAfterInsert", () => {
           get: getAccount,
           constraints: {},
           tableName: "accounts",
+          handle: accountModel,
         },
         {
           kind: "table",
@@ -603,13 +572,14 @@ describe("dispatch via onAfterInsert", () => {
           get: getLedger,
           constraints: {},
           tableName: "ledger",
+          handle: ledgerModel,
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [dualProjectorSlice],
+      slices: [depositSlice],
     });
 
-    await app.dispatch("deposit-dual", { accountId: "acc-1", amount: 100 });
+    await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
 
     const accountResult = await getAccount("acc-1");
     expect(accountResult.isOk()).toBe(true);
@@ -738,53 +708,6 @@ describe("duplicate model names at createApp", () => {
   });
 });
 
-// ── Unknown model name routing ─────────────────────────────────────
-
-describe("unknown model name in projector result", () => {
-  test("throws when projector returns result for unregistered model", async () => {
-    const unregisteredModel = defineReadModel({
-      name: "ghost",
-      schema: z.object({ id: z.string(), value: z.number() }),
-      key: "id",
-    });
-
-    const sliceWithBadProjector = defineCommandSlice<
-      DepositInput,
-      DepositCtx,
-      z.output<typeof depositOutputSchema>,
-      DomainEvent<"Deposited", { accountId: string; amount: number }>,
-      never
-    >({
-      name: "bad-projector",
-      inputSchema: depositInputSchema,
-      outputSchema: depositOutputSchema,
-      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
-      validate: [],
-      event: (ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${ctx.accountId}`],
-        payload: { accountId: ctx.accountId, amount: ctx.amount },
-      }),
-      output: (_event, ctx) => ok({ account: ctx.account }),
-      projectors: [(_event: StoredEvent) => unregisteredModel.project({ id: "x", value: 1 })],
-      processors: [],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const app = createApp({
-      eventStore,
-      inputAdapter: { adapter, bind },
-      slices: [sliceWithBadProjector],
-    });
-
-    await expect(
-      app.dispatch("bad-projector", { accountId: "acc-1", amount: 100 }),
-    ).rejects.toThrow('No projection adapter registered for model "ghost"');
-  });
-});
-
 // ── Projection step tests (query-slice DSL is preserved) ────────────
 
 describe("projection step in query slices", () => {
@@ -795,6 +718,16 @@ describe("projection step in query slices", () => {
       balance: z.number(),
     }),
     key: "accountId",
+    events: [
+      {
+        schema: DepositedEventSchema,
+        handler: (event, { project }) =>
+          project({
+            accountId: event.payload.accountId,
+            balance: event.payload.amount,
+          }),
+      },
+    ],
   });
 
   type AccountRow = { accountId: string; balance: number };
@@ -803,43 +736,6 @@ describe("projection step in query slices", () => {
     const eventStore = createInMemoryEventStore();
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
     const { adapter, bind } = createInMemoryAdapter();
-
-    // Deposit slice that projects to read model
-    const depositWithProjection = defineCommandSlice<
-      DepositInput,
-      DepositCtx,
-      z.output<typeof depositOutputSchema>,
-      DomainEvent<"Deposited", { accountId: string; amount: number }>,
-      never
-    >({
-      name: "deposit-proj",
-      inputSchema: depositInputSchema,
-      outputSchema: depositOutputSchema,
-      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
-      validate: [],
-      event: (ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${ctx.accountId}`],
-        payload: { accountId: ctx.accountId, amount: ctx.amount },
-      }),
-      output: (event, ctx) =>
-        ok({
-          account: { balance: ctx.account.balance + event.payload.amount },
-        }),
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            const payload = event.payload as { accountId: string; amount: number };
-            return accountModel.project({
-              accountId: payload.accountId,
-              balance: payload.amount,
-            });
-          }
-          return {};
-        },
-      ],
-      processors: [],
-    });
 
     // Query slice that reads via optional projection step
     const queryOptional = defineQuerySlice({
@@ -879,10 +775,17 @@ describe("projection step in query slices", () => {
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "accounts" },
+        {
+          kind: "table",
+          adapter: projAdapter,
+          get,
+          constraints: {},
+          tableName: "accounts",
+          handle: accountModel,
+        },
       ],
       inputAdapter: { adapter, bind },
-      slices: [depositWithProjection, queryOptional, queryRequired],
+      slices: [depositSlice, queryOptional, queryRequired],
     });
 
     return { app, eventStore, get };
@@ -891,7 +794,7 @@ describe("projection step in query slices", () => {
   test("optional projection, record exists — context has Ok(T)", async () => {
     const { app } = buildProjectionApp();
 
-    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 100 });
+    await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
 
     const result = await app.dispatch("query-optional", { accountId: "acc-1" });
     expect(result.isOk()).toBe(true);
@@ -917,7 +820,7 @@ describe("projection step in query slices", () => {
   test("required projection, record exists — context has T", async () => {
     const { app } = buildProjectionApp();
 
-    await app.dispatch("deposit-proj", { accountId: "acc-1", amount: 200 });
+    await app.dispatch("deposit", { accountId: "acc-1", amount: 200 });
 
     const result = await app.dispatch("query-required", { accountId: "acc-1" });
     expect(result.isOk()).toBe(true);
@@ -947,20 +850,17 @@ describe("replay", () => {
       balance: z.number(),
     }),
     key: "accountId",
+    events: [
+      {
+        schema: DepositedEventSchema,
+        handler: (event, { project }) =>
+          project({
+            accountId: event.payload.accountId,
+            balance: event.payload.amount,
+          }),
+      },
+    ],
   });
-
-  function makeProjector(model: typeof accountModel) {
-    return (event: StoredEvent) => {
-      if (event.type === "Deposited") {
-        const payload = event.payload as { accountId: string; amount: number };
-        return model.project({
-          accountId: payload.accountId,
-          balance: payload.amount,
-        });
-      }
-      return { type: "effect" as const };
-    };
-  }
 
   function buildReplayApp() {
     const eventStore = createInMemoryEventStore();
@@ -988,14 +888,19 @@ describe("replay", () => {
         ok({
           account: { balance: ctx.account.balance + event.payload.amount },
         }),
-      projectors: [makeProjector(accountModel)],
-      processors: [],
     });
 
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "replayAccounts" },
+        {
+          kind: "table",
+          adapter: projAdapter,
+          get,
+          constraints: {},
+          tableName: "replayAccounts",
+          handle: accountModel,
+        },
       ],
       inputAdapter: { adapter, bind },
       slices: [replayDepositSlice],
@@ -1015,13 +920,16 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const projector = makeProjector(accountModel);
     const queryResult = await eventStore.queryByTags([], (events) => events);
     const allEvents = queryResult.state as ReadonlyArray<StoredEvent>;
 
     for (const event of allEvents) {
-      const result = projector(event);
-      if ("type" in result && result.type === "projection") {
+      if (event.type === "Deposited") {
+        const payload = event.payload as { accountId: string; amount: number };
+        const result = accountModel.project({
+          accountId: payload.accountId,
+          balance: payload.amount,
+        });
         await freshAdapter.execute(result);
       }
     }
@@ -1048,13 +956,16 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const projector = makeProjector(accountModel);
     const queryResult = await eventStore.queryByTags([], (events) => events);
     const allEvents = queryResult.state as ReadonlyArray<StoredEvent>;
 
     for (const event of allEvents) {
-      const result = projector(event);
-      if ("type" in result && result.type === "projection") {
+      if (event.type === "Deposited") {
+        const payload = event.payload as { accountId: string; amount: number };
+        const result = accountModel.project({
+          accountId: payload.accountId,
+          balance: payload.amount,
+        });
         await freshAdapter.execute(result);
       }
     }
@@ -1076,7 +987,7 @@ describe("replay", () => {
 // ── End-to-end integration ─────────────────────────────────────────
 
 describe("end-to-end integration", () => {
-  test("command slice with projector populates read model read back via projection-step query slice", async () => {
+  test("command slice with read model events populates read model read back via projection-step query slice", async () => {
     const balanceModel = defineReadModel({
       name: "balances",
       schema: z.object({
@@ -1084,6 +995,16 @@ describe("end-to-end integration", () => {
         balance: z.number(),
       }),
       key: "accountId",
+      events: [
+        {
+          schema: DepositedEventSchema,
+          handler: (event, { project }) =>
+            project({
+              accountId: event.payload.accountId,
+              balance: event.payload.amount,
+            }),
+        },
+      ],
     });
 
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(balanceModel);
@@ -1109,19 +1030,6 @@ describe("end-to-end integration", () => {
         ok({
           account: { balance: ctx.account.balance + event.payload.amount },
         }),
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "Deposited") {
-            const payload = event.payload as { accountId: string; amount: number };
-            return balanceModel.project({
-              accountId: payload.accountId,
-              balance: payload.amount,
-            });
-          }
-          return {};
-        },
-      ],
-      processors: [],
     });
 
     const getBalanceE2E = defineQuerySlice({
@@ -1151,7 +1059,14 @@ describe("end-to-end integration", () => {
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "balances" },
+        {
+          kind: "table",
+          adapter: projAdapter,
+          get,
+          constraints: {},
+          tableName: "balances",
+          handle: balanceModel,
+        },
       ],
       inputAdapter: { adapter, bind },
       slices: [depositSliceE2E, getBalanceE2E],
@@ -1196,6 +1111,17 @@ describe("read model views", () => {
       name: z.string(),
     }),
     key: "userId",
+    events: [
+      {
+        schema: UserRegisteredEventSchema,
+        handler: (event, { project }) =>
+          project({
+            userId: event.payload.userId,
+            email: event.payload.email,
+            name: event.payload.name,
+          }),
+      },
+    ],
   });
 
   const usersByEmail = defineReadModelView({
@@ -1263,20 +1189,6 @@ describe("read model views", () => {
         ok({
           userId: event.payload.userId,
         }),
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "UserRegistered") {
-            const payload = event.payload as User;
-            return usersModel.project({
-              userId: payload.userId,
-              email: payload.email,
-              name: payload.name,
-            });
-          }
-          return {};
-        },
-      ],
-      processors: [],
     });
 
     const lookupByEmailSlice = defineQuerySlice({
@@ -1304,7 +1216,14 @@ describe("read model views", () => {
     const app = createApp({
       eventStore,
       projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "users" },
+        {
+          kind: "table",
+          adapter: projAdapter,
+          get,
+          constraints: {},
+          tableName: "users",
+          handle: usersModel,
+        },
         { kind: "view", name: usersByEmail.name, get: viewGet },
       ],
       inputAdapter: { adapter, bind },
@@ -1346,80 +1265,6 @@ describe("read model views", () => {
     expect(lookupResult.isErr()).toBe(true);
     if (lookupResult.isErr()) {
       expect(lookupResult.error).toEqual(ReadModelNotFound("users_by_email", "nobody@example.com"));
-    }
-  });
-});
-
-// ── Async projector ──────────────────────────────────────────────────
-
-describe("async projector", () => {
-  test("async projector returning Promise<ProjectionResult> is awaited and stored", async () => {
-    const accountModel = defineReadModel({
-      name: "async_accounts",
-      schema: z.object({
-        accountId: z.string(),
-        balance: z.number(),
-      }),
-      key: "accountId",
-    });
-
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
-
-    const asyncProjectorSlice = defineCommandSlice<
-      DepositInput,
-      DepositCtx,
-      z.output<typeof depositOutputSchema>,
-      DomainEvent<"Deposited", { accountId: string; amount: number }>,
-      never
-    >({
-      name: "async-deposit",
-      inputSchema: depositInputSchema,
-      outputSchema: depositOutputSchema,
-      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
-      validate: [],
-      event: (ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${ctx.accountId}`],
-        payload: { accountId: ctx.accountId, amount: ctx.amount },
-      }),
-      output: (event, ctx) =>
-        ok({
-          account: { balance: ctx.account.balance + event.payload.amount },
-        }),
-      projectors: [
-        async (event: StoredEvent) => {
-          await Promise.resolve();
-          if (event.type === "Deposited") {
-            const payload = event.payload as { accountId: string; amount: number };
-            return accountModel.project({
-              accountId: payload.accountId,
-              balance: payload.amount,
-            });
-          }
-          return {};
-        },
-      ],
-      processors: [],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const app = createApp({
-      eventStore,
-      projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "async_accounts" },
-      ],
-      inputAdapter: { adapter, bind },
-      slices: [asyncProjectorSlice],
-    });
-
-    await app.dispatch("async-deposit", { accountId: "acc-1", amount: 100 });
-
-    const result = await get("acc-1");
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value.value).toEqual({ accountId: "acc-1", balance: 100 });
     }
   });
 });

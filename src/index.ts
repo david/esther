@@ -92,8 +92,6 @@ export {
   type QuerySlice,
   type RegisterableSlice,
   type SliceDeps,
-  type SliceProcessorFn,
-  type SliceProjectorFn,
   type StateResolver,
   state,
   type TagQueryStep,

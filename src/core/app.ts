@@ -162,7 +162,7 @@ export function createApp(config: AppConfig): App {
   // Compile each slice — the compile closure captured the generics
   // at defineCommandSlice/defineQuerySlice time, so no casts here.
   const compiled = new Map<string, CompiledSlice>();
-  const deps = { eventStore, projectionAdapterRegistry, projectionStore, effectRegistry };
+  const deps = { eventStore, projectionStore };
 
   for (const slice of slices) {
     compiled.set(slice.name, slice.compile(deps));

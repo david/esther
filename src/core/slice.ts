@@ -1,23 +1,9 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type { CastAbsent, Step } from "./compose.js";
-import type { EffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type {
-  ProjectionAdapter,
-  ProjectionResult,
-  ReadModelHandle,
-  ReadModelNotFound,
-  ReadModelViewHandle,
-} from "./read-model.js";
-import type {
-  DomainEvent,
-  EffectResult,
-  InlineResult,
-  SliceError,
-  StoredEvent,
-  ValidationError,
-} from "./types.js";
+import type { ReadModelHandle, ReadModelNotFound, ReadModelViewHandle } from "./read-model.js";
+import type { DomainEvent, SliceError, StoredEvent, ValidationError } from "./types.js";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
 
@@ -50,18 +36,6 @@ function addField<TObj, TKey extends string, TValue>(
   value: TValue,
 ): TObj & { readonly [K in TKey]: TValue } {
   return { ...obj, [key]: value } as TObj & { readonly [K in TKey]: TValue };
-}
-
-// ── Type guards ────────────────────────────────────────────────────────
-
-function isProjectionResult(r: unknown): r is ProjectionResult<unknown> {
-  if (typeof r !== "object" || r === null || !("type" in r)) return false;
-  return r.type === "projection";
-}
-
-function isEffectResult(r: unknown): r is EffectResult {
-  if (typeof r !== "object" || r === null || !("type" in r)) return false;
-  return r.type === "effect";
 }
 
 // ── State resolver ─────────────────────────────────────────────────────
@@ -318,13 +292,6 @@ export function generate<TKey extends string, TContext, TValue>(descriptor: {
   return { _tag: "generate", ...descriptor };
 }
 
-// ── Slice-level projector / processor ──────────────────────────────────
-
-export type SliceProjectorFn = (
-  event: StoredEvent,
-) => InlineResult | Record<string, never> | Promise<InlineResult | Record<string, never>>;
-export type SliceProcessorFn = (event: StoredEvent) => InlineResult | Record<string, never>;
-
 // ── Compiled slice ─────────────────────────────────────────────────────
 
 export type CompiledSlice = {
@@ -336,10 +303,7 @@ export type CompiledSlice = {
 
 export type CompileDeps = {
   readonly eventStore: EventStore;
-  // biome-ignore lint/suspicious/noExplicitAny: type erased at registry level
-  readonly projectionAdapterRegistry: Map<string, ProjectionAdapter<any>>;
   readonly projectionStore: ProjectionStore;
-  readonly effectRegistry: EffectAdapterRegistry;
 };
 
 // ── Registerable slice ─────────────────────────────────────────────────
@@ -369,8 +333,6 @@ export type CommandSlice<
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
   readonly outputErr: (error: TError, ctx: TCtx | TInput) => Result<TOutput, TError>;
-  readonly projectors: ReadonlyArray<SliceProjectorFn>;
-  readonly processors: ReadonlyArray<SliceProcessorFn>;
 };
 
 // ── Query slice (fully generic) ────────────────────────────────────────
@@ -382,38 +344,6 @@ export type QuerySlice<TInput, TContext, TOutput> = RegisterableSlice & {
   readonly resolveState: StateResolver<TInput, TContext>;
   readonly handle: (context: TContext) => Result<TOutput, ValidationError>;
 };
-
-// ── Register projectors/processors as onAfterInsert handlers ──────────
-
-function registerHandlers(
-  slice: {
-    readonly projectors: ReadonlyArray<SliceProjectorFn>;
-    readonly processors: ReadonlyArray<SliceProcessorFn>;
-  },
-  deps: CompileDeps,
-): void {
-  for (const projectorFn of slice.projectors) {
-    deps.eventStore.onAfterInsert({ tags: [] }, async (event: StoredEvent) => {
-      const result = await projectorFn(event);
-      if (isProjectionResult(result)) {
-        const adapter = deps.projectionAdapterRegistry.get(result.name);
-        if (!adapter) {
-          throw new Error(`No projection adapter registered for model "${result.name}"`);
-        }
-        await adapter.execute(result);
-      }
-    });
-  }
-
-  for (const processorFn of slice.processors) {
-    deps.eventStore.onAfterCommit({ tags: [] }, async (event: StoredEvent) => {
-      const result = processorFn(event);
-      if (isEffectResult(result)) {
-        await deps.effectRegistry.execute(result);
-      }
-    });
-  }
-}
 
 // ── defineCommandSlice ─────────────────────────────────────────────────
 
@@ -434,8 +364,6 @@ export type CommandSliceDefinition<
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
   readonly outputErr?: ((error: TError, ctx: TCtx | TInput) => Result<TOutput, TError>) | undefined;
-  readonly projectors: ReadonlyArray<SliceProjectorFn>;
-  readonly processors: ReadonlyArray<SliceProcessorFn>;
 };
 
 export function defineCommandSlice<
@@ -468,10 +396,7 @@ export function defineCommandSlice<
     event: definition.event,
     output: definition.output,
     outputErr: definition.outputErr ?? defaultOutputErr,
-    projectors: definition.projectors,
-    processors: definition.processors,
     compile: (deps) => {
-      registerHandlers(slice, deps);
       return {
         name: slice.name,
         execute: async (rawInput) => {

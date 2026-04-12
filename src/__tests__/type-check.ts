@@ -165,9 +165,6 @@ const _createBookingSlice = defineCommandSlice<
       bookingId: event.payload.bookingId,
       confirmedAt: event.payload.confirmedAt,
     }),
-
-  projectors: [],
-  processors: [],
 });
 
 // ── Query slice with required projection ─────────────────────────────

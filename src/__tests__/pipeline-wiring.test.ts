@@ -13,7 +13,6 @@ import {
   defineReadModel,
   type RegisterableSlice,
   type Step,
-  type StoredEvent,
 } from "../index.js";
 
 // ── Probe domain ───────────────────────────────────────────────────────
@@ -54,16 +53,7 @@ function buildAppWith(slice: RegisterableSlice) {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("command pipeline v2 — wiring", () => {
-  test("happy path: compose → validate → event → append → projectors → processors → output", async () => {
-    const probeModel = defineReadModel({
-      name: "probe_rows",
-      schema: z.object({ id: z.string(), a: z.number() }),
-      key: "id",
-    });
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(probeModel);
-
-    const effectSpy: Array<unknown> = [];
-
+  test("happy path: compose → validate → event → append → output", async () => {
     const slice = defineCommandSlice({
       name: "probe-happy",
       inputSchema: probeInputSchema,
@@ -76,42 +66,12 @@ describe("command pipeline v2 — wiring", () => {
         payload: { a: ctx.a },
       }),
       output: (event, _ctx) => ok({ ok: true, a: (event.payload as { a: number }).a }),
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "Probe") {
-            const a = (event.payload as { a: number }).a;
-            return probeModel.project({ id: "probe", a });
-          }
-          return {};
-        },
-      ],
-      processors: [
-        (event: StoredEvent) => {
-          if (event.type === "Probe") {
-            return { type: "effect" as const, marker: "probe-effect" };
-          }
-          return {};
-        },
-      ],
     });
 
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
     const app = createApp({
       eventStore,
-      projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "probe_rows" },
-      ],
-      effectAdapters: [
-        {
-          name: "probe-effect-adapter",
-          match: (e) => "marker" in e && e.marker === "probe-effect",
-          execute: async (e) => {
-            effectSpy.push(e);
-            return {};
-          },
-        },
-      ],
       inputAdapter: { adapter, bind },
       slices: [slice],
     });
@@ -127,14 +87,6 @@ describe("command pipeline v2 — wiring", () => {
       // (e) outputSchema validation ran (result has expected shape)
       expect(result.value).toEqual({ ok: true, a: 1 });
     }
-    // (b) read model has the projection
-    const row = await get("probe");
-    expect(row.isOk()).toBe(true);
-    if (row.isOk()) {
-      expect(row.value.value).toEqual({ id: "probe", a: 1 });
-    }
-    // (c) processor effect spy fired exactly once, post-commit
-    expect(effectSpy.length).toBe(1);
   });
 
   test("event not constructed on validate failure", async () => {
@@ -151,8 +103,6 @@ describe("command pipeline v2 — wiring", () => {
       },
       output: (_event, _ctx) => ok({}),
       outputErr: (e, _ctx) => ok({ failed: e.type }),
-      projectors: [],
-      processors: [],
     });
 
     const { app, eventStore } = buildAppWith(slice);
@@ -215,8 +165,6 @@ describe("command pipeline v2 — wiring", () => {
         outputErrCalled += 1;
         return ok({ status: "absent", code: e.cause.type });
       },
-      projectors: [],
-      processors: [],
     });
 
     const app = createApp({
@@ -255,8 +203,6 @@ describe("command pipeline v2 — wiring", () => {
         throw new Error("output() must not run");
       },
       outputErr: (e, _ctx) => ok({ failed: e.type }),
-      projectors: [],
-      processors: [],
     });
 
     const { app } = buildAppWith(slice);
@@ -287,8 +233,6 @@ describe("command pipeline v2 — wiring", () => {
       },
       output: (_event, _ctx) => ok({}),
       outputErr: (e, _ctx) => ok({ first: e.type }),
-      projectors: [],
-      processors: [],
     });
 
     const { app } = buildAppWith(slice);
@@ -319,8 +263,6 @@ describe("command pipeline v2 — wiring", () => {
         payload: {},
       }),
       output: (_event, _ctx) => ok({ ok: true }),
-      projectors: [],
-      processors: [],
     });
 
     const { app } = buildAppWith(slice);
@@ -341,8 +283,6 @@ describe("command pipeline v2 — wiring", () => {
         payload: { marker: "unique-xyz" },
       }),
       output: (_event, _ctx) => ok({ ok: true }),
-      projectors: [],
-      processors: [],
     });
 
     const { app, eventStore } = buildAppWith(slice);
@@ -350,103 +290,6 @@ describe("command pipeline v2 — wiring", () => {
     const queried = await eventStore.queryByTags(["probe:marker"], (events) => events);
     expect(queried.state.length).toBe(1);
     expect((queried.state[0]?.payload as { marker: string }).marker).toBe("unique-xyz");
-  });
-
-  test("projectors still fire (in-transaction)", async () => {
-    const probeModel = defineReadModel({
-      name: "probe_proj",
-      schema: z.object({ id: z.string(), n: z.number() }),
-      key: "id",
-    });
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(probeModel);
-
-    const slice = defineCommandSlice({
-      name: "probe-projector-fires",
-      inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
-      input: compose<ProbeInput, never>([bindA]),
-      validate: [],
-      event: (ctx) => ({
-        type: "Probe" as const,
-        tags: ["probe:proj"],
-        payload: { a: ctx.a },
-      }),
-      output: (_event, _ctx) => ok({ ok: true }),
-      projectors: [
-        (event: StoredEvent) => {
-          if (event.type === "Probe") {
-            return probeModel.project({
-              id: "row",
-              n: (event.payload as { a: number }).a,
-            });
-          }
-          return {};
-        },
-      ],
-      processors: [],
-    });
-
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-    const app = createApp({
-      eventStore,
-      projectionAdapters: [
-        { kind: "table", adapter: projAdapter, get, constraints: {}, tableName: "probe_proj" },
-      ],
-      inputAdapter: { adapter, bind },
-      slices: [slice],
-    });
-
-    await app.dispatch("probe-projector-fires", { a: 7 });
-    // Synchronous read after dispatch returns — projector ran in-transaction.
-    const row = await get("row");
-    expect(row.isOk()).toBe(true);
-    if (row.isOk()) {
-      expect(row.value.value).toEqual({ id: "row", n: 7 });
-    }
-  });
-
-  test("processors still fire (post-commit)", async () => {
-    const order: Array<string> = [];
-    const eventStore = createInMemoryEventStore();
-    const { adapter, bind } = createInMemoryAdapter();
-
-    const slice = defineCommandSlice({
-      name: "probe-processor-fires",
-      inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
-      input: compose<ProbeInput, never>([bindA]),
-      validate: [],
-      event: (_ctx) => ({
-        type: "Probe" as const,
-        tags: ["probe:proc"],
-        payload: {},
-      }),
-      output: (_event, _ctx) => ok({ ok: true }),
-      projectors: [],
-      processors: [(_event: StoredEvent) => ({ type: "effect" as const, marker: "post-commit" })],
-    });
-
-    const app = createApp({
-      eventStore,
-      effectAdapters: [
-        {
-          name: "post-commit-spy",
-          match: (e) => "marker" in e && e.marker === "post-commit",
-          execute: async (_e) => {
-            // At this point the event must already be observable in the store.
-            const queried = await eventStore.queryByTags(["probe:proc"], (events) => events);
-            order.push(queried.state.length > 0 ? "after-commit" : "before-commit");
-            return {};
-          },
-        },
-      ],
-      inputAdapter: { adapter, bind },
-      slices: [slice],
-    });
-
-    await app.dispatch("probe-processor-fires", { a: 1 });
-    expect(order).toEqual(["after-commit"]);
   });
 
   test("output receives plain TEvent (no Result wrapper)", async () => {
@@ -463,8 +306,6 @@ describe("command pipeline v2 — wiring", () => {
       }),
       // Crucially: no .isOk() call. event is the plain TEvent.
       output: (event, _ctx) => ok({ marker: event.payload.marker ?? "missing" }),
-      projectors: [],
-      processors: [],
     });
 
     const { app } = buildAppWith(slice);
@@ -488,8 +329,6 @@ describe("command pipeline v2 — wiring", () => {
         payload: {},
       }),
       output: (_event, ctx) => ok({ mark: ctx.mark }),
-      projectors: [],
-      processors: [],
     });
 
     const { app } = buildAppWith(slice);
@@ -517,8 +356,6 @@ describe("command pipeline v2 — wiring", () => {
           if (e.type === "A") return ok({ kind: "A-response" });
           return ok({ kind: "B-response" });
         },
-        projectors: [],
-        processors: [],
       });
 
     {
@@ -546,8 +383,6 @@ describe("command pipeline v2 — wiring", () => {
       event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
       output: (_event, _ctx) => ok({}),
       // outputErr omitted on purpose — must default to (e) => err(e).
-      projectors: [],
-      processors: [],
     });
 
     const { app } = buildAppWith(slice);
@@ -613,8 +448,6 @@ describe("command pipeline v2 — wiring", () => {
       output: (_event, ctx) =>
         ok({ userId: (ctx as unknown as { userSubject: UserSubject }).userSubject.id }),
       outputErr: (_e, _ctx) => ok({ userId: "none" }),
-      projectors: [],
-      processors: [],
     });
 
     const eventStore = createInMemoryEventStore();
@@ -661,8 +494,6 @@ describe("command pipeline v2 — wiring", () => {
         event: (_ctx) => ({ type: "Probe" as const, tags: ["probe:bad-out"], payload: {} }),
         // wrong shape — missing `must`
         output: (_event, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }),
-        projectors: [],
-        processors: [],
       });
       const { app } = buildAppWith(slice);
       const r = await app.dispatch("probe-bad-output-success", { a: 1 });
@@ -684,8 +515,6 @@ describe("command pipeline v2 — wiring", () => {
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ must: "ok" }),
         outputErr: (_e, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }),
-        projectors: [],
-        processors: [],
       });
       const { app } = buildAppWith(slice);
       const r = await app.dispatch("probe-bad-output-err", { a: 1 });
