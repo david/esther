@@ -1,3 +1,4 @@
+import type { Result } from "neverthrow";
 import type { z } from "zod";
 import type { StoredEvent } from "./types.js";
 
@@ -40,11 +41,29 @@ export type ReadModelHandle<
   readonly schema: S;
   readonly constraints: Constraints;
   readonly project: (value: T, operation?: Operation) => ProjectionResult<T>;
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous bindings with different event schemas and read shapes
+  readonly events?: ReadonlyArray<ReadModelEventBinding<T, any, any>> | undefined;
 };
 
 export type ProjectionAdapter<T> = {
   readonly name: string;
   readonly execute: (result: ProjectionResult<T>) => Promise<void>;
+};
+
+// ── Read model event bindings ──────────────────────────────────────────
+
+export type ReadModelEventBinding<T, TEventSchema extends z.ZodType, TReads> = {
+  readonly schema: TEventSchema;
+  readonly reads?: {
+    readonly [K in keyof TReads]: (event: z.infer<TEventSchema>) => ReadDescriptor<TReads[K]>;
+  };
+  readonly handler: (
+    event: z.infer<TEventSchema>,
+    ctx: {
+      readonly project: (value: T, operation?: Operation) => ProjectionResult<T>;
+      readonly get: (id: string) => Promise<Result<{ value: T }, ReadModelNotFound>>;
+    } & TReads,
+  ) => ProjectionResult<T> | undefined;
 };
 
 // ── Validation ──────────────────────────────────────────────────────
@@ -236,6 +255,8 @@ type DefineReadModelInput<S extends z.ZodObject<z.ZodRawShape>> = {
   readonly key: string & keyof z.infer<S>;
   readonly schema: S;
   readonly constraints?: Constraints;
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous bindings with different event schemas and read shapes
+  readonly events?: ReadonlyArray<ReadModelEventBinding<z.infer<S>, any, any>>;
 };
 
 export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
@@ -243,7 +264,7 @@ export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
 ): ReadModelHandle<z.infer<S>, S> {
   type T = z.infer<S>;
 
-  const { name, key, schema, constraints = {} } = input;
+  const { name, key, schema, constraints = {}, events } = input;
 
   // Validate model name
   if (!NAME_PATTERN.test(name)) {
@@ -290,11 +311,12 @@ export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
     }
   }
 
-  return {
+  const handle: ReadModelHandle<T, S> = {
     name,
     key,
     schema,
     constraints,
+    events,
     project(value: T, operation: Operation = "upsert"): ProjectionResult<T> {
       const keyValue = String(value[key as keyof T]);
       return {
@@ -306,6 +328,8 @@ export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
       };
     },
   };
+
+  return handle;
 }
 
 // ── defineReadModelView ─────────────────────────────────────────────

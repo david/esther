@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { defineReadModel, defineReadModelView, type ReadModelViewHandle } from "./read-model.js";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
+import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.js";
+import { createApp } from "./app.js";
+import {
+  defineReadModel,
+  defineReadModelView,
+  getDescriptor,
+  type ReadModelEventBinding,
+  type ReadModelViewHandle,
+} from "./read-model.js";
 
 // ── Valid schema for testing ────────────────────────────────────────
 
@@ -266,5 +275,305 @@ describe("defineReadModelView", () => {
         key: "name",
       }),
     ).toThrow();
+  });
+});
+
+// ── Read model events ─────────────────────────────────────────────────
+
+function createNoopInputAdapter() {
+  return {
+    adapter: {
+      start: async () => {},
+      stop: async () => {},
+    },
+    bind: () => {},
+  };
+}
+
+const MemberAddedSchema = z.object({
+  type: z.literal("MemberAdded"),
+  tags: z.array(z.string()),
+  payload: z.object({
+    memberId: z.string(),
+    name: z.string(),
+    age: z.number(),
+    active: z.boolean(),
+    createdAt: z.string(),
+  }),
+});
+
+const MemberDeactivatedSchema = z.object({
+  type: z.literal("MemberDeactivated"),
+  tags: z.array(z.string()),
+  payload: z.object({
+    memberId: z.string(),
+  }),
+});
+
+describe("read model events", () => {
+  test("simple binding with no reads: event dispatches projection", async () => {
+    const eventStore = createInMemoryEventStore();
+
+    const model = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      events: [
+        {
+          schema: MemberAddedSchema,
+          handler: (event, ctx) =>
+            ctx.project({
+              id: event.payload.memberId,
+              name: event.payload.name,
+              age: event.payload.age,
+              active: event.payload.active,
+              createdAt: event.payload.createdAt,
+            }),
+        },
+      ],
+    });
+
+    const projResult = createInMemoryProjectionAdapter(model);
+
+    createApp({
+      eventStore,
+      inputAdapter: createNoopInputAdapter(),
+      slices: [],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projResult.adapter,
+          get: projResult.get,
+          constraints: {},
+          tableName: "member",
+          handle: model,
+        },
+      ],
+    });
+
+    const memberId = "550e8400-e29b-41d4-a716-446655440000";
+    await eventStore.append([
+      {
+        type: "MemberAdded",
+        tags: [`member:${memberId}`],
+        payload: {
+          memberId,
+          name: "Alice",
+          age: 30,
+          active: true,
+          createdAt: "2026-01-01T00:00:00Z",
+        },
+      },
+    ]);
+
+    const result = await projResult.get(memberId);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.value).toEqual({
+        id: memberId,
+        name: "Alice",
+        age: 30,
+        active: true,
+        createdAt: "2026-01-01T00:00:00Z",
+      });
+    }
+  });
+
+  test("binding with reads: handler receives resolved read and projects accordingly", async () => {
+    const eventStore = createInMemoryEventStore();
+
+    // Define a lookup handle (without events) to reference in reads,
+    // breaking the circular initializer reference.
+    const memberLookup = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+    });
+
+    type Member = z.infer<typeof memberSchema>;
+
+    const addBinding: ReadModelEventBinding<Member, typeof MemberAddedSchema, unknown> = {
+      schema: MemberAddedSchema,
+      handler: (event, ctx) =>
+        ctx.project({
+          id: event.payload.memberId,
+          name: event.payload.name,
+          age: event.payload.age,
+          active: event.payload.active,
+          createdAt: event.payload.createdAt,
+        }),
+    };
+
+    // biome-ignore lint/suspicious/noExplicitAny: type erasure needed for heterogeneous event binding array
+    const deactivateBinding: ReadModelEventBinding<Member, any, any> = {
+      schema: MemberDeactivatedSchema,
+      reads: {
+        current: (event: z.infer<typeof MemberDeactivatedSchema>) =>
+          getDescriptor(memberLookup, event.payload.memberId),
+      },
+      handler: (_event, ctx) => {
+        if (ctx.current === undefined) return undefined;
+        const member = ctx.current;
+        if (
+          typeof member !== "object" ||
+          member === null ||
+          !("id" in member) ||
+          !("name" in member) ||
+          !("age" in member) ||
+          !("active" in member) ||
+          !("createdAt" in member)
+        ) {
+          return undefined;
+        }
+        return ctx.project({
+          id: String(member.id),
+          name: String(member.name),
+          age: Number(member.age),
+          active: false,
+          createdAt: String(member.createdAt),
+        });
+      },
+    };
+
+    const model = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      events: [addBinding, deactivateBinding],
+    });
+
+    const projResult = createInMemoryProjectionAdapter(model);
+
+    createApp({
+      eventStore,
+      inputAdapter: createNoopInputAdapter(),
+      slices: [],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projResult.adapter,
+          get: projResult.get,
+          constraints: {},
+          tableName: "member",
+          handle: model,
+        },
+      ],
+    });
+
+    const memberId = "550e8400-e29b-41d4-a716-446655440001";
+
+    // First add a member
+    await eventStore.append([
+      {
+        type: "MemberAdded",
+        tags: [`member:${memberId}`],
+        payload: {
+          memberId,
+          name: "Bob",
+          age: 25,
+          active: true,
+          createdAt: "2026-01-01T00:00:00Z",
+        },
+      },
+    ]);
+
+    // Then deactivate
+    await eventStore.append([
+      {
+        type: "MemberDeactivated",
+        tags: [`member:${memberId}`],
+        payload: { memberId },
+      },
+    ]);
+
+    const result = await projResult.get(memberId);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const value = result.value.value;
+      expect(value.active).toBe(false);
+    }
+  });
+
+  test("handler that returns undefined: no projection dispatched", async () => {
+    const eventStore = createInMemoryEventStore();
+
+    const UnrelatedSchema = z.object({
+      type: z.literal("UnrelatedEvent"),
+      tags: z.array(z.string()),
+      payload: z.object({}),
+    });
+
+    const model = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      events: [
+        {
+          schema: UnrelatedSchema,
+          handler: () => {
+            // intentionally returns undefined
+            return undefined;
+          },
+        },
+      ],
+    });
+
+    const projResult = createInMemoryProjectionAdapter(model);
+
+    createApp({
+      eventStore,
+      inputAdapter: createNoopInputAdapter(),
+      slices: [],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projResult.adapter,
+          get: projResult.get,
+          constraints: {},
+          tableName: "member",
+          handle: model,
+        },
+      ],
+    });
+
+    await eventStore.append([
+      {
+        type: "UnrelatedEvent",
+        tags: ["x:y"],
+        payload: {},
+      },
+    ]);
+
+    // No projection should have been written
+    const result = await projResult.get("any-id");
+    expect(result.isErr()).toBe(true);
+  });
+
+  test("events field is exposed on the handle", () => {
+    const binding: ReadModelEventBinding<
+      z.infer<typeof memberSchema>,
+      typeof MemberAddedSchema,
+      unknown
+    > = {
+      schema: MemberAddedSchema,
+      handler: (event, ctx) =>
+        ctx.project({
+          id: event.payload.memberId,
+          name: event.payload.name,
+          age: event.payload.age,
+          active: event.payload.active,
+          createdAt: event.payload.createdAt,
+        }),
+    };
+
+    const model = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      events: [binding],
+    });
+
+    expect(model.events).toBeDefined();
+    expect(model.events).toHaveLength(1);
   });
 });

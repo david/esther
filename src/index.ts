@@ -64,6 +64,7 @@ export {
   type QueryDescriptor,
   queryDescriptor,
   type ReadDescriptor,
+  type ReadModelEventBinding,
   type ReadModelHandle,
   ReadModelNotFound,
   type ReadModelViewHandle,

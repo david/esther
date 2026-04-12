@@ -2,12 +2,14 @@ import { err, type Result } from "neverthrow";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
-import type { Processor } from "./processor.js";
-import { createReadInterpreter } from "./read-interpreter.js";
+import { extractEventType, type Processor } from "./processor.js";
+import { createReadInterpreter, type ReadInterpreter } from "./read-interpreter.js";
 import type {
   Constraints,
   ProjectionAdapter,
   ProjectionQueryAdapter,
+  ReadDescriptor,
+  ReadModelHandle,
   ReadModelNotFound,
 } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
@@ -23,6 +25,8 @@ export type ProjectionAdapterTableEntry = {
   readonly get: (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
   readonly constraints: Constraints;
   readonly tableName: string;
+  // biome-ignore lint/suspicious/noExplicitAny: read model handle type is erased at the registry level
+  readonly handle?: ReadModelHandle<any>;
 };
 
 export type ProjectionAdapterViewEntry = {
@@ -121,19 +125,24 @@ export function createApp(config: AppConfig): App {
     effectRegistry.register(adapter);
   }
 
-  // Wire processors via onAfterCommit
-  if (config.processors) {
+  // Shared read interpreter — created lazily if processors or read model events need it
+  function getReadInterpreter(): ReadInterpreter {
     const noopProjectionQuery: ProjectionQueryAdapter = {
       async query() {
         return [];
       },
     };
 
-    const readInterpreter = createReadInterpreter({
+    return createReadInterpreter({
       eventStore,
       projectionStore,
       projectionQuery: config.projectionQuery ?? noopProjectionQuery,
     });
+  }
+
+  // Wire processors via onAfterCommit
+  if (config.processors) {
+    const readInterpreter = getReadInterpreter();
 
     for (const processor of config.processors) {
       for (const binding of processor.bindings) {
@@ -146,6 +155,9 @@ export function createApp(config: AppConfig): App {
       }
     }
   }
+
+  // Wire read model event bindings via onAfterInsert
+  wireReadModelEvents(config.projectionAdapters ?? [], eventStore, getReadInterpreter());
 
   // Compile each slice — the compile closure captured the generics
   // at defineCommandSlice/defineQuerySlice time, so no casts here.
@@ -175,4 +187,71 @@ export function createApp(config: AppConfig): App {
     },
     dispatch,
   };
+}
+
+// ── Read model event wiring helpers ───────────────────────────────────
+
+type ReadFn = (event: unknown) => ReadDescriptor<unknown>;
+
+function isReadFn(value: unknown): value is ReadFn {
+  return typeof value === "function";
+}
+
+function iterateReadMap(reads: object): ReadonlyArray<readonly [string, ReadFn]> {
+  const result: Array<readonly [string, ReadFn]> = [];
+  for (const [key, value] of Object.entries(reads)) {
+    if (isReadFn(value)) {
+      result.push([key, value]);
+    }
+  }
+  return result;
+}
+
+function wireReadModelEvents(
+  projectionAdapters: ReadonlyArray<ProjectionAdapterEntry>,
+  eventStore: EventStore,
+  readInterpreter: ReadInterpreter,
+): void {
+  for (const entry of projectionAdapters) {
+    if (entry.kind !== "table") continue;
+    if (entry.handle === undefined) continue;
+    const events = entry.handle.events;
+    if (events === undefined) continue;
+
+    const adapter = entry.adapter;
+    const boundProject = entry.handle.project;
+    const boundGet = entry.get;
+
+    for (const binding of events) {
+      const eventType = extractEventType(binding.schema);
+      const readEntries = binding.reads !== undefined ? iterateReadMap(binding.reads) : [];
+
+      eventStore.onAfterInsert({ eventTypes: [eventType] }, async (event) => {
+        let resolvedReads: unknown;
+        if (readEntries.length === 0) {
+          resolvedReads = {};
+        } else {
+          const resolvedEntries: Array<readonly [string, unknown]> = [];
+          for (const [key, fn] of readEntries) {
+            const descriptor = fn(event);
+            resolvedEntries.push([key, await readInterpreter.resolve(descriptor)]);
+          }
+          resolvedReads = Object.fromEntries(resolvedEntries);
+        }
+
+        const ctx = Object.assign(
+          {
+            project: boundProject,
+            get: boundGet,
+          },
+          resolvedReads,
+        );
+
+        const result = binding.handler(event, ctx);
+        if (result !== undefined && result !== null) {
+          await adapter.execute(result);
+        }
+      });
+    }
+  }
 }
