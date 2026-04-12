@@ -79,6 +79,7 @@ export {
   type CastTagQueryDescriptor,
   type CommandSlice,
   type CommandSliceDefinition,
+  type OutputErrHandlers,
   type CompileDeps,
   type CompiledSlice,
   castTagQuery,

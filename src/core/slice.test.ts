@@ -120,29 +120,73 @@ describe("defineCommandSlice outputErr", () => {
       ok({ message: "success" }),
   };
 
-  test("outputErr receives full error array", () => {
+  test("handler map dispatches to correct handler by error type", () => {
     const slice = defineCommandSlice({
       ...baseDefinition,
-      outputErr: (errors, _ctx) => ok({ message: errors.map((e) => e.type).join(",") }),
+      outputErr: {
+        NoUser: (errors, _ctx) => ok({ message: `NoUser:${errors.length}` }),
+        RateLimited: (errors, _ctx) => ok({ message: `RateLimited:${errors.length}` }),
+      },
+    });
+
+    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "NoUser" }];
+    const result = slice.outputErr(errors, { email: "test@example.com" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ message: "NoUser:2" });
+    }
+  });
+
+  test("errs win over oks when multiple error types present", () => {
+    const slice = defineCommandSlice({
+      ...baseDefinition,
+      outputErr: {
+        NoUser: (_errors, _ctx) => ok({ message: "recovered" }),
+        RateLimited: (_errors, _ctx) => err({ type: "RateLimited" as const }),
+      },
+    });
+
+    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "RateLimited" }];
+    const result = slice.outputErr(errors, { email: "test@example.com" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual({ type: "RateLimited" });
+    }
+  });
+
+  test("all oks returns first ok", () => {
+    const slice = defineCommandSlice({
+      ...baseDefinition,
+      outputErr: {
+        NoUser: (_errors, _ctx) => ok({ message: "first" }),
+        RateLimited: (_errors, _ctx) => ok({ message: "second" }),
+      },
     });
 
     const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "RateLimited" }];
     const result = slice.outputErr(errors, { email: "test@example.com" });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual({ message: "NoUser,RateLimited" });
+      expect(result.value).toEqual({ message: "first" });
     }
   });
 
-  test("default outputErr propagates first error", () => {
-    const slice = defineCommandSlice(baseDefinition);
-
-    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "RateLimited" }];
-    const result = slice.outputErr(errors, { email: "test@example.com" });
-    expect(result.isErr()).toBe(true);
-    if (result.isErr()) {
-      expect(result.error).toEqual({ type: "NoUser" });
-    }
+  test("slices with TError = never don't need outputErr", () => {
+    const slice = defineCommandSlice({
+      name: "test/no-errors",
+      inputSchema,
+      outputSchema,
+      input: async (ctx: TestInput): Promise<Result<TestInput, never>> => ok(ctx),
+      validate: [] as ReadonlyArray<ValidatePredicate<TestInput, never>>,
+      event: (_ctx: TestInput): TestEvent => ({
+        type: "TestEvent" as const,
+        tags: [],
+        payload: {},
+      }),
+      output: (_event: TestEvent, _ctx: TestInput): Result<TestOutput, never> =>
+        ok({ message: "success" }),
+    });
+    expect(slice._tag).toBe("command");
   });
 });
 

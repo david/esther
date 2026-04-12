@@ -30,6 +30,7 @@ export type StoredEvent<TType extends string = string, TPayload = unknown> = Dom
 // ── Errors ─────────────────────────────────────────────────────────────
 
 export type ValidationError = {
+  readonly type: "ValidationError";
   readonly code: string;
   readonly message: string;
 };

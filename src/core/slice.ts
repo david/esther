@@ -315,12 +315,51 @@ export type RegisterableSlice = {
 
 export type ValidatePredicate<TCtx, TError> = (ctx: TCtx) => ReadonlyArray<TError>;
 
+export type OutputErrHandlers<
+  TError extends { readonly type: string },
+  TOutput,
+  TCtx,
+  TInput,
+> = {
+  readonly [K in TError["type"]]: (
+    errors: ReadonlyArray<Extract<TError, { readonly type: K }>>,
+    ctx: TCtx | TInput,
+  ) => Result<TOutput, TError>;
+};
+
+function normalizeOutputErrHandlers<
+  TError extends { readonly type: string },
+  TOutput,
+  TCtx,
+  TInput,
+>(
+  handlers: OutputErrHandlers<TError, TOutput, TCtx, TInput>,
+): (errors: ReadonlyArray<TError>, ctx: TCtx | TInput) => Result<TOutput, TError> {
+  return (errors, ctx) => {
+    const groups = new Map<string, TError[]>();
+    for (const e of errors) {
+      const existing = groups.get(e.type);
+      if (existing) existing.push(e);
+      else groups.set(e.type, [e]);
+    }
+    let firstOk: Result<TOutput, TError> | undefined;
+    for (const [type, group] of groups) {
+      // biome-ignore lint/suspicious/noExplicitAny: dynamic dispatch — handler map is keyed by TError["type"] but TS cannot narrow a Record<string, Function> lookup to the correct overload
+      const handler = (handlers as Record<string, any>)[type];
+      const result = handler(group, ctx);
+      if (result.isErr()) return result;
+      if (!firstOk) firstOk = result;
+    }
+    return firstOk ?? err(errors[0] as TError);
+  };
+}
+
 export type CommandSlice<
   TInput,
   TCtx,
   TOutput,
   TEvent extends DomainEvent,
-  TError,
+  TError extends { readonly type: string },
 > = RegisterableSlice & {
   readonly _tag: "command";
   readonly inputSchema: z.ZodType<TInput>;
@@ -349,7 +388,7 @@ export type CommandSliceDefinition<
   TCtx,
   TOutput,
   TEvent extends DomainEvent,
-  TError,
+  TError extends { readonly type: string },
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 > = {
@@ -362,15 +401,16 @@ export type CommandSliceDefinition<
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
-  readonly outputErr?: ((errors: ReadonlyArray<TError>, ctx: TCtx | TInput) => Result<TOutput, TError>) | undefined;
-};
+} & ([TError] extends [never]
+  ? { readonly outputErr?: undefined }
+  : { readonly outputErr: OutputErrHandlers<TError, TOutput, TCtx, TInput> });
 
 export function defineCommandSlice<
   TInput,
   TCtx,
   TOutput,
   TEvent extends DomainEvent,
-  TError,
+  TError extends { readonly type: string } = never,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(
@@ -388,6 +428,10 @@ export function defineCommandSlice<
   const inputFn: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>> =
     typeof defInput === "function" ? defInput : (ctx, deps) => defInput.execute(ctx, deps);
 
+  const outputErrFn = definition.outputErr
+    ? normalizeOutputErrHandlers(definition.outputErr as OutputErrHandlers<TError, TOutput, TCtx, TInput>)
+    : (_errors: ReadonlyArray<TError>, _ctx: TCtx | TInput) => err(_errors[0]!);
+
   const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {
     _tag: "command",
     name: definition.name ?? "anonymous-command",
@@ -397,7 +441,7 @@ export function defineCommandSlice<
     validate: definition.validate,
     event: definition.event,
     output: definition.output,
-    outputErr: definition.outputErr ?? ((errors, _ctx) => err(errors[0]!)),
+    outputErr: outputErrFn,
     compile: (deps) => {
       return {
         name: slice.name,

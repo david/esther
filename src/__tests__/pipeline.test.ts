@@ -55,14 +55,14 @@ async function loadAccountCtx<TCtx extends { readonly accountId: string }>(
 
 type DepositCtx = DepositInput & { readonly account: Balance };
 
-type DepositError = { code: "INSUFFICIENT_FUNDS"; message: string };
+type DepositError = { readonly type: "InsufficientFunds"; code: "INSUFFICIENT_FUNDS"; message: string };
 
 const depositSlice = defineCommandSlice<
   DepositInput,
   DepositCtx,
   z.output<typeof depositOutputSchema>,
   DomainEvent<"Deposited", { accountId: string; amount: number }>,
-  DepositError
+  never
 >({
   name: "deposit",
   inputSchema: depositInputSchema,
@@ -100,7 +100,7 @@ const withdrawSlice = defineCommandSlice<
   WithdrawCtx,
   z.output<typeof withdrawOutputSchema>,
   DomainEvent<"Withdrawn", { accountId: string; amount: number }>,
-  { code: string; message: string }
+  { readonly type: "InsufficientFunds"; code: string; message: string }
 >({
   name: "withdraw",
   inputSchema: withdrawInputSchema,
@@ -109,7 +109,7 @@ const withdrawSlice = defineCommandSlice<
   validate: [
     (ctx) => {
       if (ctx.account.balance < ctx.amount) {
-        return [{ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" }];
+        return [{ type: "InsufficientFunds" as const, code: "INSUFFICIENT_FUNDS", message: "Not enough balance" }];
       }
       return [];
     },
@@ -123,6 +123,7 @@ const withdrawSlice = defineCommandSlice<
     ok({
       account: { balance: ctx.account.balance - event.payload.amount },
     }),
+  outputErr: { InsufficientFunds: (errors, _ctx) => err(errors[0]!) },
 });
 
 // ── readBalance helper ────────────────────────────────────────────────
@@ -159,7 +160,7 @@ const creditSlice = defineCommandSlice<
   CreditCtx,
   z.output<typeof creditOutputSchema>,
   CreditApplied,
-  { code: string; message: string }
+  never
 >({
   name: "credit",
   inputSchema: creditInputSchema,
@@ -182,7 +183,7 @@ const rejectInputSchema = z.object({ accountId: z.string() });
 
 const rejectOutputSchema = z.object({ rejected: z.boolean() });
 
-type RejectError = { code: "ALWAYS_FAILS"; message: string };
+type RejectError = { readonly type: "AlwaysFails"; code: "ALWAYS_FAILS"; message: string };
 
 const rejectSlice = defineCommandSlice<
   z.output<typeof rejectInputSchema>,
@@ -195,12 +196,12 @@ const rejectSlice = defineCommandSlice<
   inputSchema: rejectInputSchema,
   outputSchema: rejectOutputSchema,
   input: async (ctx) => ok(ctx),
-  validate: [(_ctx) => [{ code: "ALWAYS_FAILS", message: "This always fails" } as const]],
+  validate: [(_ctx) => [{ type: "AlwaysFails" as const, code: "ALWAYS_FAILS", message: "This always fails" } as const]],
   event: (_ctx) => {
     throw new Error("should not reach event");
   },
   output: (_event, _ctx) => ok({ rejected: false }),
-  outputErr: (errors, _ctx) => err(errors[0]!),
+  outputErr: { AlwaysFails: (errors, _ctx) => err(errors[0]!) },
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -258,7 +259,7 @@ describe("command pipeline", () => {
     const result = await app.dispatch("reject", { accountId: "acc-1" });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error).toEqual({ code: "ALWAYS_FAILS", message: "This always fails" });
+      expect(result.error).toEqual({ type: "AlwaysFails", code: "ALWAYS_FAILS", message: "This always fails" });
     }
   });
 
@@ -296,6 +297,7 @@ describe("command pipeline", () => {
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error).toEqual({
+        type: "InsufficientFunds",
         code: "INSUFFICIENT_FUNDS",
         message: "Not enough balance",
       });

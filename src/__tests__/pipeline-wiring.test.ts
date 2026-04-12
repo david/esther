@@ -102,7 +102,7 @@ describe("command pipeline v2 — wiring", () => {
         throw new Error("event() must not run");
       },
       output: (_event, _ctx) => ok({}),
-      outputErr: (errors, _ctx) => ok({ failed: errors[0]!.type }),
+      outputErr: { rate: (errors, _ctx) => ok({ failed: errors[0]!.type }) },
     });
 
     const { app, eventStore } = buildAppWith(slice);
@@ -154,10 +154,12 @@ describe("command pipeline v2 — wiring", () => {
         outputCalled = true;
         throw new Error("output() must not run");
       },
-      outputErr: (errors, _ctx) => {
-        outputErrCalled += 1;
-        const code: string = errors[0]!.type;
-        return ok({ status: "absent", code });
+      outputErr: {
+        NotFound: (errors, _ctx) => {
+          outputErrCalled += 1;
+          const code: string = errors[0]!.type;
+          return ok({ status: "absent", code });
+        },
       },
     });
 
@@ -196,7 +198,7 @@ describe("command pipeline v2 — wiring", () => {
         outputCalled = true;
         throw new Error("output() must not run");
       },
-      outputErr: (errors, _ctx) => ok({ failed: errors[0]!.type }),
+      outputErr: { rate: (errors, _ctx) => ok({ failed: errors[0]!.type }) },
     });
 
     const { app } = buildAppWith(slice);
@@ -211,6 +213,8 @@ describe("command pipeline v2 — wiring", () => {
 
   test("validate collects all errors", async () => {
     type ValErr = { type: "first" } | { type: "second" };
+    let firstSeen = 0;
+    let secondSeen = 0;
     const slice = defineCommandSlice({
       name: "probe-validate-order",
       inputSchema: probeInputSchema,
@@ -224,15 +228,22 @@ describe("command pipeline v2 — wiring", () => {
         throw new Error("event must not run");
       },
       output: (_event, _ctx) => ok({}),
-      outputErr: (errors, _ctx) => ok({ collected: errors.map((e) => e.type) }),
+      outputErr: {
+        first: (errors, _ctx) => { firstSeen = errors.length; return ok({ kind: "first" }); },
+        second: (errors, _ctx) => { secondSeen = errors.length; return ok({ kind: "second" }); },
+      },
     });
 
     const { app } = buildAppWith(slice);
     const result = await app.dispatch("probe-validate-order", { a: 1 });
 
+    // Both handlers were called — validate collected both error types
+    expect(firstSeen).toBe(1);
+    expect(secondSeen).toBe(1);
+    // All oks → returns first ok
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual({ collected: ["first", "second"] });
+      expect(result.value).toEqual({ kind: "first" });
     }
   });
 
@@ -344,10 +355,9 @@ describe("command pipeline v2 — wiring", () => {
         ],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ kind: "ok" }),
-        outputErr: (errors, _ctx) => {
-          const e = errors[0]!;
-          if (e.type === "A") return ok({ kind: "A-response" });
-          return ok({ kind: "B-response" });
+        outputErr: {
+          A: (_errors, _ctx) => ok({ kind: "A-response" }),
+          B: (_errors, _ctx) => ok({ kind: "B-response" }),
         },
       });
 
@@ -365,24 +375,24 @@ describe("command pipeline v2 — wiring", () => {
     }
   });
 
-  test("outputErr default pass-through when slice omits it", async () => {
+  test("outputErr handler propagates error", async () => {
     type RateErr = { type: "rate"; code: string };
     const slice = defineCommandSlice({
-      name: "probe-no-outputErr",
+      name: "probe-propagate-outputErr",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema,
       input: compose<ProbeInput, RateErr>([bindA]),
       validate: [(_ctx) => [{ type: "rate" as const, code: "X" as const }]],
       event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
       output: (_event, _ctx) => ok({}),
-      // outputErr omitted on purpose — must default to (e) => err(e).
+      outputErr: { rate: (errors, _ctx) => err<never, RateErr>(errors[0]!) },
     });
 
     const { app } = buildAppWith(slice);
-    const result = await app.dispatch("probe-no-outputErr", { a: 1 });
+    const result = await app.dispatch("probe-propagate-outputErr", { a: 1 });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error).toEqual({ type: "rate", code: "X" } as never);
+      expect(result.error).toEqual({ type: "rate", code: "X" });
     }
   });
 
@@ -433,7 +443,7 @@ describe("command pipeline v2 — wiring", () => {
       }),
       output: (_event, ctx) =>
         ok({ userId: (ctx as unknown as { userSubject: UserSubject }).userSubject.id }),
-      outputErr: (_errors, _ctx) => ok({ userId: "none" }),
+      outputErr: { NoUser: (_errors, _ctx) => ok({ userId: "none" }) },
     });
 
     const eventStore = createInMemoryEventStore();
@@ -501,7 +511,7 @@ describe("command pipeline v2 — wiring", () => {
         validate: [(_ctx) => [{ type: "bad" as const }]],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ must: "ok" }),
-        outputErr: (_errors, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }),
+        outputErr: { bad: (_errors, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }) },
       });
       const { app } = buildAppWith(slice);
       const r = await app.dispatch("probe-bad-output-err", { a: 1 });

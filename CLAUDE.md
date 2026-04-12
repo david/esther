@@ -19,6 +19,7 @@ Casts (`as`) are only permitted at these boundaries:
 3. **Storage/serialization boundaries** — `queryRows<T>()` in postgres adapter, `data.get(k) as T` in notifying adapter. Deserialization and heterogeneous store retrieval are inherently untyped.
 4. **Zod internals** — `_def.typeName` and `_def.checks` access in `src/core/zod-internals.ts`. Zod does not expose these in public types.
 5. **`compose()` accumulator** in `src/core/compose.ts` — `acc as TCtx`. TypeScript cannot track progressive type accumulation (`{ ...acc, ...patch }`) across a dynamic for-loop over heterogeneous steps. Same limitation as `addField` (computed property keys). Callers get correct types via the function signature.
+6. **`normalizeOutputErrHandlers()`** in `src/core/slice.ts` — `handlers as Record<string, any>` for dynamic dispatch. The handler map is keyed by `TError["type"]` but TypeScript cannot narrow a computed property access on a mapped type at runtime. Callers get correct types via `OutputErrHandlers`.
 
 **Nowhere else.** If you need a cast, redesign instead. If truly unavoidable, add it to this list with justification.
 

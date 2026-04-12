@@ -98,7 +98,7 @@ type CreateBookingCtx = CreateBookingInput & {
   readonly pricing: Result<PricingRow, ReadModelNotFound>;
 };
 
-type CreateBookingError = { code: "PROPERTY_UNAVAILABLE"; message: string };
+type CreateBookingError = { readonly type: "PropertyUnavailable"; code: "PROPERTY_UNAVAILABLE"; message: string };
 
 const _createBookingSlice = defineCommandSlice<
   CreateBookingInput,
@@ -139,6 +139,7 @@ const _createBookingSlice = defineCommandSlice<
 
       if (!ctx.property.available) {
         return [{
+          type: "PropertyUnavailable" as const,
           code: "PROPERTY_UNAVAILABLE" as const,
           message: "Property is not available",
         }];
@@ -165,6 +166,10 @@ const _createBookingSlice = defineCommandSlice<
       bookingId: event.payload.bookingId,
       confirmedAt: event.payload.confirmedAt,
     }),
+
+  outputErr: {
+    PropertyUnavailable: (errors, _ctx) => err(errors[0]!),
+  },
 });
 
 // ── Query slice with required projection ─────────────────────────────
