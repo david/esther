@@ -46,6 +46,23 @@ const initialPropertyState: PropertyState = {
   bookedRanges: [],
 };
 
+const BookingCreatedSchema = z.object({
+  type: z.literal("BookingCreated"),
+  tags: z.array(z.string()),
+  payload: z.object({
+    bookingId: z.string(),
+    confirmedAt: z.string(),
+    propertyId: z.string(),
+    tenantId: z.string(),
+    checkIn: z.string(),
+    checkOut: z.string(),
+  }),
+});
+
+type BookingCreatedEvent = z.infer<typeof BookingCreatedSchema>;
+
+const propertySchemas = [BookingCreatedSchema];
+
 const propertyReducer = (state: PropertyState, event: StoredEvent): PropertyState => {
   switch (event.type) {
     case "BookingCreated":
@@ -117,7 +134,23 @@ const _createBookingSlice = defineCommandSlice<
   ): Promise<Result<CreateBookingCtx, CreateBookingError>> => {
     const propertyResult = await deps.eventStore.queryByTags(
       ["property", `property:${ctx.propertyId}`],
-      (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+      propertySchemas,
+      (events): PropertyState =>
+        events.reduce(
+          (acc: PropertyState, event) => {
+            if (event.type === "BookingCreated") {
+              return {
+                available: false,
+                bookedRanges: [
+                  ...acc.bookedRanges,
+                  { checkIn: event.payload.checkIn, checkOut: event.payload.checkOut },
+                ],
+              };
+            }
+            return acc;
+          },
+          initialPropertyState,
+        ),
     );
     const pricingResult = await deps.projectionStore.get(pricingModel.name, ctx.propertyId);
     const pricing: Result<PricingRow, ReadModelNotFound> = pricingResult.isOk()

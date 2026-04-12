@@ -55,32 +55,23 @@ export function createInMemoryEventStore(): EventStore {
       return ok({ events: stored });
     },
 
-    async queryByTags(
+    async queryByTags<TSchema extends z.ZodType, TState>(
       tags: ReadonlyArray<string>,
-      schemasOrFold: ReadonlyArray<z.ZodType> | ((events: ReadonlyArray<StoredEvent>) => unknown),
-      maybeFold?: (events: ReadonlyArray<unknown>) => unknown,
-    ) {
-      const schemas = Array.isArray(schemasOrFold) ? schemasOrFold : null;
-      const fold = schemas
-        ? maybeFold!
-        : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
-
+      schemas: ReadonlyArray<TSchema>,
+      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+    ): Promise<{ readonly state: TState }> {
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
 
-      if (schemas) {
-        const parsed = matching.map((event) => {
-          for (const schema of schemas) {
-            const result = schema.safeParse(event);
-            if (result.success) return result.data;
-          }
-          throw new Error(
-            `Event at position ${event.position} (type "${event.type}") does not match any provided schema`,
-          );
-        });
-        return { state: fold(parsed) };
-      }
-
-      return { state: fold(matching) };
+      const parsed = matching.map((event) => {
+        for (const schema of schemas) {
+          const result = schema.safeParse(event);
+          if (result.success) return result.data;
+        }
+        throw new Error(
+          `Event at position ${event.position} (type "${event.type}") does not match any provided schema`,
+        );
+      });
+      return { state: fold(parsed) };
     },
 
     onAfterInsert(filter, handler) {

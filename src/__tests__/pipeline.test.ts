@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent, StoredEvent } from "../index.js";
+import type { DomainEvent } from "../index.js";
 import {
   createApp,
   createInMemoryAdapter,
@@ -30,15 +30,39 @@ const depositOutputSchema = z.object({
   account: z.object({ balance: z.number() }),
 });
 
+// ── Schemas for test domain events ──────────────────────────────────
+
+const accountPayload = z.object({ accountId: z.string(), amount: z.number() });
+
+const DepositedSchema = z.object({
+  type: z.literal("Deposited"),
+  tags: z.array(z.string()),
+  payload: accountPayload,
+});
+
+const WithdrawnSchema = z.object({
+  type: z.literal("Withdrawn"),
+  tags: z.array(z.string()),
+  payload: accountPayload,
+});
+
+const CreditAppliedSchema = z.object({
+  type: z.literal("CreditApplied"),
+  tags: z.array(z.string()),
+  payload: accountPayload,
+});
+
+const accountSchemas = [DepositedSchema, WithdrawnSchema, CreditAppliedSchema];
+
+type AccountEvent = z.infer<typeof DepositedSchema> | z.infer<typeof WithdrawnSchema> | z.infer<typeof CreditAppliedSchema>;
+
 type Balance = { balance: number };
 
-const balanceFold = (events: ReadonlyArray<StoredEvent>): Balance =>
+const balanceFold = (events: ReadonlyArray<AccountEvent>): Balance =>
   events.reduce(
     (acc: Balance, e) => {
-      if (e.type === "Deposited")
-        return { balance: acc.balance + (e.payload as { amount: number }).amount };
-      if (e.type === "Withdrawn")
-        return { balance: acc.balance - (e.payload as { amount: number }).amount };
+      if (e.type === "Deposited") return { balance: acc.balance + e.payload.amount };
+      if (e.type === "Withdrawn") return { balance: acc.balance - e.payload.amount };
       return acc;
     },
     { balance: 0 },
@@ -49,7 +73,7 @@ async function loadAccountCtx<TCtx extends { readonly accountId: string }>(
   ctx: TCtx,
   deps: SliceDeps,
 ): Promise<TCtx & { readonly account: Balance }> {
-  const result = await deps.eventStore.queryByTags([`account:${ctx.accountId}`], balanceFold);
+  const result = await deps.eventStore.queryByTags([`account:${ctx.accountId}`], accountSchemas, balanceFold);
   return { ...ctx, account: result.state };
 }
 
@@ -133,7 +157,7 @@ async function readBalance(
   eventStore: ReturnType<typeof createInMemoryEventStore>,
   accountId: string,
 ): Promise<number> {
-  const result = await eventStore.queryByTags([`account:${accountId}`], balanceFold);
+  const result = await eventStore.queryByTags([`account:${accountId}`], accountSchemas, balanceFold);
   return result.state.balance;
 }
 
@@ -922,12 +946,12 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags([], (events) => events);
-    const allEvents = queryResult.state as ReadonlyArray<StoredEvent>;
+    const queryResult = await eventStore.queryByTags([], accountSchemas, (events) => events);
+    const allEvents = queryResult.state;
 
     for (const event of allEvents) {
       if (event.type === "Deposited") {
-        const payload = event.payload as { accountId: string; amount: number };
+        const { payload } = event;
         const result = accountModel.project({
           accountId: payload.accountId,
           balance: payload.amount,
@@ -958,12 +982,12 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags([], (events) => events);
-    const allEvents = queryResult.state as ReadonlyArray<StoredEvent>;
+    const queryResult = await eventStore.queryByTags([], accountSchemas, (events) => events);
+    const allEvents = queryResult.state;
 
     for (const event of allEvents) {
       if (event.type === "Deposited") {
-        const payload = event.payload as { accountId: string; amount: number };
+        const { payload } = event;
         const result = accountModel.project({
           accountId: payload.accountId,
           balance: payload.amount,

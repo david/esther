@@ -20,7 +20,7 @@ import type { ProjectionStore } from "./slice.js";
 //    on hit, `undefined` on `ReadModelNotFound`.
 //  - `query`: calls `projectionQuery.query`; returns an array of
 //    values (empty if no matches).
-//  - `eventsByTags`: calls `eventStore.queryByTags(tags, fold)` and
+//  - `eventsByTags`: calls `eventStore.queryByTags(tags, schemas, fold)` and
 //    returns the folded state.
 //
 // The return type is `Promise<unknown>` because the three variants

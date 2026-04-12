@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import type { DomainEvent } from "../../core/types.js";
 import { createInMemoryEventStore } from "./event-store.js";
+
+const AnyEventSchema = z.object({
+  type: z.string(),
+  tags: z.array(z.string()),
+  payload: z.record(z.unknown()),
+}).passthrough();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -99,7 +106,7 @@ describe("queryByTags", () => {
     const store = createInMemoryEventStore();
     await store.append([makeEvent("TestHappened", ["a"])]);
 
-    const result = await store.queryByTags(["a"], (events) => events.length);
+    const result = await store.queryByTags(["a"], [AnyEventSchema], (events) => events.length);
 
     expect(result).toEqual({ state: 1 });
     expect("position" in result).toBe(false);

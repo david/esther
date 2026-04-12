@@ -22,6 +22,14 @@ import {
 
 type ProbeEvent = DomainEvent<"Probe", { a?: number; marker?: string }>;
 
+const ProbeSchema = z.object({
+  type: z.literal("Probe"),
+  tags: z.array(z.string()),
+  payload: z.object({ a: z.number().optional(), marker: z.string().optional() }),
+});
+
+const probeSchemas = [ProbeSchema];
+
 const probeInputSchema = z.object({
   a: z.number(),
 });
@@ -79,7 +87,7 @@ describe("command pipeline v2 — wiring", () => {
     const result = await app.dispatch("probe-happy", { a: 1 });
 
     // (a) event queryable by tag
-    const queried = await eventStore.queryByTags(["probe:1"], (events) => events);
+    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events) => events);
     expect(queried.state.length).toBe(1);
     // (d) result is ok
     expect(result.isOk()).toBe(true);
@@ -113,7 +121,7 @@ describe("command pipeline v2 — wiring", () => {
     if (result.isOk()) {
       expect(result.value).toEqual({ failed: "rate" });
     }
-    const queried = await eventStore.queryByTags(["probe:1"], (events) => events);
+    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events) => events);
     expect(queried.state.length).toBe(0);
   });
 
@@ -180,7 +188,7 @@ describe("command pipeline v2 — wiring", () => {
     expect(outputCalled).toBe(false);
     expect(validateCalled).toBe(false);
     expect(outputErrCalled).toBe(1);
-    const queried = await eventStore.queryByTags(["nope"], (events) => events);
+    const queried = await eventStore.queryByTags(["nope"], probeSchemas, (events) => events);
     expect(queried.state.length).toBe(0);
   });
 
@@ -291,9 +299,9 @@ describe("command pipeline v2 — wiring", () => {
 
     const { app, eventStore } = buildAppWith(slice);
     await app.dispatch("probe-append-event", { a: 1 });
-    const queried = await eventStore.queryByTags(["probe:marker"], (events) => events);
+    const queried = await eventStore.queryByTags(["probe:marker"], probeSchemas, (events) => events);
     expect(queried.state.length).toBe(1);
-    expect((queried.state[0]?.payload as { marker: string }).marker).toBe("unique-xyz");
+    expect(queried.state[0]?.payload.marker).toBe("unique-xyz");
   });
 
   test("output receives plain TEvent (no Result wrapper)", async () => {

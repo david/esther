@@ -170,51 +170,33 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       }
     },
 
-    async queryByTags(
+    async queryByTags<TSchema extends z.ZodType, TState>(
       tags: ReadonlyArray<string>,
-      schemasOrFold: ReadonlyArray<z.ZodType> | ((events: ReadonlyArray<StoredEvent>) => unknown),
-      maybeFold?: (events: ReadonlyArray<unknown>) => unknown,
-    ) {
-      const schemas = Array.isArray(schemasOrFold) ? schemasOrFold : null;
-      const fold = schemas
-        ? maybeFold!
-        : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
-
+      schemas: ReadonlyArray<TSchema>,
+      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+    ): Promise<{ readonly state: TState }> {
       if (tags.length === 0) {
         return { state: fold([]) };
       }
 
       const rows = await fetchEventRows(sql, tags);
 
-      if (schemas) {
-        const parsed = rows.map((row) => {
-          const raw = {
-            type: row.type,
-            tags: row.tags,
-            payload: row.payload,
-            position: BigInt(row.position),
-          };
-          for (const schema of schemas) {
-            const result = schema.safeParse(raw);
-            if (result.success) return result.data;
-          }
-          throw new Error(
-            `Event at position ${row.position} (type "${row.type}") does not match any provided schema`,
-          );
-        });
-        return { state: fold(parsed) };
-      }
-
-      const events: StoredEvent[] = rows.map((row) => ({
-        id: EventId(row.id),
-        type: row.type,
-        tags: row.tags,
-        payload: row.payload,
-        position: BigInt(row.position),
-        timestamp: new Date(row.timestamp),
-      }));
-
-      return { state: fold(events) };
+      const parsed = rows.map((row) => {
+        const raw = {
+          type: row.type,
+          tags: row.tags,
+          payload: row.payload,
+          position: BigInt(row.position),
+        };
+        for (const schema of schemas) {
+          const result = schema.safeParse(raw);
+          if (result.success) return result.data;
+        }
+        throw new Error(
+          `Event at position ${row.position} (type "${row.type}") does not match any provided schema`,
+        );
+      });
+      return { state: fold(parsed) };
     },
 
     onAfterInsert(filter, handler) {
