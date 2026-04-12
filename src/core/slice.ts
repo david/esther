@@ -313,7 +313,7 @@ export type RegisterableSlice = {
 
 // ── Command slice ──────────────────────────────────────────────────────
 
-export type ValidatePredicate<TCtx, TError> = (ctx: TCtx) => Result<void, TError>;
+export type ValidatePredicate<TCtx, TError> = (ctx: TCtx) => ReadonlyArray<TError>;
 
 export type CommandSlice<
   TInput,
@@ -329,7 +329,7 @@ export type CommandSlice<
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
-  readonly outputErr: (error: TError, ctx: TCtx | TInput) => Result<TOutput, TError>;
+  readonly outputErr: (errors: ReadonlyArray<TError>, ctx: TCtx | TInput) => Result<TOutput, TError>;
 };
 
 // ── Query slice (fully generic) ────────────────────────────────────────
@@ -341,37 +341,6 @@ export type QuerySlice<TInput, TContext, TOutput> = RegisterableSlice & {
   readonly resolveState: StateResolver<TInput, TContext>;
   readonly handle: (context: TContext) => Result<TOutput, ValidationError>;
 };
-
-// ── OutputErr map types ───────────────────────────────────────────────
-
-type OutputErrEntry<TOutput, TError> =
-  | Result<TOutput, TError>
-  | ((error: TError, ctx: unknown) => Result<TOutput, TError>);
-
-type OutputErrMap<TOutput, TError> = {
-  readonly [errorType: string]: OutputErrEntry<TOutput, TError>;
-};
-
-export type OutputErrOption<TOutput, TError, TCtx, TInput> =
-  | OutputErrMap<TOutput, TError>
-  | ((error: TError, ctx: TCtx | TInput) => Result<TOutput, TError>);
-
-function normalizeOutputErr<TOutput, TError, TCtx, TInput>(
-  outputErr: OutputErrOption<TOutput, TError, TCtx, TInput> | undefined,
-): (error: TError, ctx: TCtx | TInput) => Result<TOutput, TError> {
-  if (outputErr === undefined) return (e, _ctx) => err(e);
-  if (typeof outputErr === "function") return outputErr;
-  return (error, ctx) => {
-    const key = (error as { type?: string }).type;
-    if (key !== undefined && key in outputErr) {
-      const entry = outputErr[key];
-      if (entry !== undefined) {
-        return typeof entry === "function" ? entry(error, ctx) : entry;
-      }
-    }
-    return err(error);
-  };
-}
 
 // ── defineCommandSlice ─────────────────────────────────────────────────
 
@@ -393,7 +362,7 @@ export type CommandSliceDefinition<
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
-  readonly outputErr?: OutputErrOption<TOutput, TError, TCtx, TInput> | undefined;
+  readonly outputErr?: ((errors: ReadonlyArray<TError>, ctx: TCtx | TInput) => Result<TOutput, TError>) | undefined;
 };
 
 export function defineCommandSlice<
@@ -428,7 +397,7 @@ export function defineCommandSlice<
     validate: definition.validate,
     event: definition.event,
     output: definition.output,
-    outputErr: normalizeOutputErr(definition.outputErr),
+    outputErr: definition.outputErr ?? ((errors, _ctx) => err(errors[0]!)),
     compile: (deps) => {
       return {
         name: slice.name,

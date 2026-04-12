@@ -30,16 +30,17 @@ export async function executeCommand<TInput, TCtx, TOutput, TEvent extends Domai
   // 2. Run input step chain — threads framework deps into user's `input` fn
   const inputResult = await slice.input(input, { eventStore, projectionStore });
   if (inputResult.isErr()) {
-    return finishCommand(slice, slice.outputErr(inputResult.error, input));
+    return finishCommand(slice, slice.outputErr([inputResult.error], input));
   }
   const ctx: TCtx = inputResult.value;
 
-  // 3. Run validate predicates in order
+  // 3. Run all validate predicates, collect errors
+  const validationErrors: TError[] = [];
   for (const predicate of slice.validate) {
-    const validateResult = predicate(ctx);
-    if (validateResult.isErr()) {
-      return finishCommand(slice, slice.outputErr(validateResult.error, ctx));
-    }
+    validationErrors.push(...predicate(ctx));
+  }
+  if (validationErrors.length > 0) {
+    return finishCommand(slice, slice.outputErr(validationErrors, ctx));
   }
 
   // 4. Construct event

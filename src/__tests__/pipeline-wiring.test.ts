@@ -59,7 +59,7 @@ describe("command pipeline v2 — wiring", () => {
       inputSchema: probeInputSchema,
       outputSchema: z.object({ ok: z.boolean(), a: z.number() }),
       input: compose<ProbeInput, never>([bindA]),
-      validate: [(_ctx) => ok(undefined)],
+      validate: [(_ctx) => []],
       event: (ctx) => ({
         type: "Probe" as const,
         tags: ["probe:1"],
@@ -96,13 +96,13 @@ describe("command pipeline v2 — wiring", () => {
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema,
       input: compose<ProbeInput, { readonly type: "rate" }>([bindA]),
-      validate: [(_ctx) => err({ type: "rate" as const })],
+      validate: [(_ctx) => [{ type: "rate" as const }]],
       event: (_ctx) => {
         eventCalled = true;
         throw new Error("event() must not run");
       },
       output: (_event, _ctx) => ok({}),
-      outputErr: (e, _ctx) => ok({ failed: e.type }),
+      outputErr: (errors, _ctx) => ok({ failed: errors[0]!.type }),
     });
 
     const { app, eventStore } = buildAppWith(slice);
@@ -143,7 +143,7 @@ describe("command pipeline v2 — wiring", () => {
       validate: [
         (_ctx) => {
           validateCalled = true;
-          return ok(undefined);
+          return [];
         },
       ],
       event: (_ctx) => {
@@ -154,9 +154,9 @@ describe("command pipeline v2 — wiring", () => {
         outputCalled = true;
         throw new Error("output() must not run");
       },
-      outputErr: (e, _ctx) => {
+      outputErr: (errors, _ctx) => {
         outputErrCalled += 1;
-        const code: string = e.type;
+        const code: string = errors[0]!.type;
         return ok({ status: "absent", code });
       },
     });
@@ -188,7 +188,7 @@ describe("command pipeline v2 — wiring", () => {
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema,
       input: compose<ProbeInput, { type: "rate" }>([bindA]),
-      validate: [(_ctx) => err({ type: "rate" as const })],
+      validate: [(_ctx) => [{ type: "rate" as const }]],
       event: (_ctx) => {
         throw new Error("event() must not run");
       },
@@ -196,7 +196,7 @@ describe("command pipeline v2 — wiring", () => {
         outputCalled = true;
         throw new Error("output() must not run");
       },
-      outputErr: (e, _ctx) => ok({ failed: e.type }),
+      outputErr: (errors, _ctx) => ok({ failed: errors[0]!.type }),
     });
 
     const { app } = buildAppWith(slice);
@@ -209,24 +209,22 @@ describe("command pipeline v2 — wiring", () => {
     }
   });
 
-  test("validate runs in order, first failure short-circuits", async () => {
-    type FirstErr = { type: "first" };
+  test("validate collects all errors", async () => {
+    type ValErr = { type: "first" } | { type: "second" };
     const slice = defineCommandSlice({
       name: "probe-validate-order",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema,
-      input: compose<ProbeInput, FirstErr>([bindA]),
+      input: compose<ProbeInput, ValErr>([bindA]),
       validate: [
-        (_ctx): Result<void, FirstErr> => err({ type: "first" }),
-        (_ctx): Result<void, FirstErr> => {
-          throw new Error("second predicate must not run");
-        },
+        (_ctx) => [{ type: "first" as const }],
+        (_ctx) => [{ type: "second" as const }],
       ],
       event: (_ctx) => {
         throw new Error("event must not run");
       },
       output: (_event, _ctx) => ok({}),
-      outputErr: (e, _ctx) => ok({ first: e.type }),
+      outputErr: (errors, _ctx) => ok({ collected: errors.map((e) => e.type) }),
     });
 
     const { app } = buildAppWith(slice);
@@ -234,7 +232,7 @@ describe("command pipeline v2 — wiring", () => {
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual({ first: "first" });
+      expect(result.value).toEqual({ collected: ["first", "second"] });
     }
   });
 
@@ -248,7 +246,7 @@ describe("command pipeline v2 — wiring", () => {
       validate: [
         (ctx) => {
           observed = ctx.counter;
-          return ok(undefined);
+          return [];
         },
       ],
       event: (_ctx) => ({
@@ -316,7 +314,7 @@ describe("command pipeline v2 — wiring", () => {
       inputSchema: probeInputSchema,
       outputSchema: z.object({ mark: z.string() }),
       input: async (_ctx: ProbeInput) => ok({ mark: "from-input" }),
-      validate: [(_ctx) => ok(undefined)],
+      validate: [(_ctx) => []],
       event: (_ctx) => ({
         type: "Probe" as const,
         tags: ["probe:ctx-out"],
@@ -342,11 +340,12 @@ describe("command pipeline v2 — wiring", () => {
         outputSchema: z.object({ kind: z.string() }),
         input: compose<ProbeInput, AB>([bindA]),
         validate: [
-          (_ctx): Result<void, AB> => (which === "A" ? err({ type: "A" }) : err({ type: "B" })),
+          (_ctx) => (which === "A" ? [{ type: "A" as const }] : [{ type: "B" as const }]),
         ],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ kind: "ok" }),
-        outputErr: (e, _ctx) => {
+        outputErr: (errors, _ctx) => {
+          const e = errors[0]!;
           if (e.type === "A") return ok({ kind: "A-response" });
           return ok({ kind: "B-response" });
         },
@@ -373,7 +372,7 @@ describe("command pipeline v2 — wiring", () => {
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema,
       input: compose<ProbeInput, RateErr>([bindA]),
-      validate: [(_ctx): Result<void, RateErr> => err({ type: "rate", code: "X" })],
+      validate: [(_ctx) => [{ type: "rate" as const, code: "X" as const }]],
       event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
       output: (_event, _ctx) => ok({}),
       // outputErr omitted on purpose — must default to (e) => err(e).
@@ -434,7 +433,7 @@ describe("command pipeline v2 — wiring", () => {
       }),
       output: (_event, ctx) =>
         ok({ userId: (ctx as unknown as { userSubject: UserSubject }).userSubject.id }),
-      outputErr: (_e, _ctx) => ok({ userId: "none" }),
+      outputErr: (_errors, _ctx) => ok({ userId: "none" }),
     });
 
     const eventStore = createInMemoryEventStore();
@@ -499,10 +498,10 @@ describe("command pipeline v2 — wiring", () => {
         inputSchema: probeInputSchema,
         outputSchema: z.object({ must: z.string() }),
         input: compose<ProbeInput, Bad>([bindA]),
-        validate: [(_ctx): Result<void, Bad> => err({ type: "bad" })],
+        validate: [(_ctx) => [{ type: "bad" as const }]],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ must: "ok" }),
-        outputErr: (_e, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }),
+        outputErr: (_errors, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }),
       });
       const { app } = buildAppWith(slice);
       const r = await app.dispatch("probe-bad-output-err", { a: 1 });

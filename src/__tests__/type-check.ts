@@ -138,12 +138,12 @@ const _createBookingSlice = defineCommandSlice<
       const _pricingCheck: Result<PricingRow, ReadModelNotFound> = ctx.pricing;
 
       if (!ctx.property.available) {
-        return err({
+        return [{
           code: "PROPERTY_UNAVAILABLE" as const,
           message: "Property is not available",
-        });
+        }];
       }
-      return ok(undefined);
+      return [];
     },
   ],
 

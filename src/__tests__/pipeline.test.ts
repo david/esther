@@ -109,9 +109,9 @@ const withdrawSlice = defineCommandSlice<
   validate: [
     (ctx) => {
       if (ctx.account.balance < ctx.amount) {
-        return err({ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" });
+        return [{ code: "INSUFFICIENT_FUNDS", message: "Not enough balance" }];
       }
-      return ok(undefined);
+      return [];
     },
   ],
   event: (ctx) => ({
@@ -195,12 +195,12 @@ const rejectSlice = defineCommandSlice<
   inputSchema: rejectInputSchema,
   outputSchema: rejectOutputSchema,
   input: async (ctx) => ok(ctx),
-  validate: [(_ctx) => err({ code: "ALWAYS_FAILS", message: "This always fails" } as const)],
+  validate: [(_ctx) => [{ code: "ALWAYS_FAILS", message: "This always fails" } as const]],
   event: (_ctx) => {
     throw new Error("should not reach event");
   },
   output: (_event, _ctx) => ok({ rejected: false }),
-  outputErr: (e, _ctx) => err(e),
+  outputErr: (errors, _ctx) => err(errors[0]!),
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────

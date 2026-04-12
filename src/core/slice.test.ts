@@ -3,7 +3,7 @@ import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
 import { compose, type Step } from "./compose.js";
-import { castTagQuery, defineCommandSlice } from "./slice.js";
+import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice.js";
 import type { DomainEvent } from "./types.js";
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -88,10 +88,9 @@ describe("castTagQuery", () => {
   });
 });
 
-// ── Map-style outputErr ───────────────────────────────────────────────
+// ── outputErr receives error array ───────────────────────────────────
 
-describe("defineCommandSlice outputErr map", () => {
-  // Minimal types for testing
+describe("defineCommandSlice outputErr", () => {
   type TestInput = { readonly email: string };
   type TestOutput = { readonly message: string };
   type TestEvent = DomainEvent & {
@@ -107,11 +106,11 @@ describe("defineCommandSlice outputErr map", () => {
   const outputSchema = z.object({ message: z.string() });
 
   const baseDefinition = {
-    name: "test/map-output-err",
+    name: "test/output-err",
     inputSchema,
     outputSchema,
     input: async (ctx: TestInput): Promise<Result<TestInput, TestError>> => ok(ctx),
-    validate: [] as ReadonlyArray<never>,
+    validate: [] as ReadonlyArray<ValidatePredicate<TestInput, TestError>>,
     event: (_ctx: TestInput): TestEvent => ({
       type: "TestEvent" as const,
       tags: [],
@@ -121,76 +120,25 @@ describe("defineCommandSlice outputErr map", () => {
       ok({ message: "success" }),
   };
 
-  test("static Result value: matched error type returns the mapped result", () => {
+  test("outputErr receives full error array", () => {
     const slice = defineCommandSlice({
       ...baseDefinition,
-      outputErr: {
-        NoUser: ok({ message: "Check your email" }),
-      },
+      outputErr: (errors, _ctx) => ok({ message: errors.map((e) => e.type).join(",") }),
     });
 
-    const noUserError: TestError = { type: "NoUser" };
-    const result = slice.outputErr(noUserError, { email: "test@example.com" });
+    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "RateLimited" }];
+    const result = slice.outputErr(errors, { email: "test@example.com" });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toEqual({ message: "Check your email" });
+      expect(result.value).toEqual({ message: "NoUser,RateLimited" });
     }
   });
 
-  test("function value: matched error type calls the function", () => {
-    const slice = defineCommandSlice({
-      ...baseDefinition,
-      outputErr: {
-        NoUser: (error, _ctx) => ok({ message: `handled: ${error.type}` }),
-      },
-    });
-
-    const noUserError: TestError = { type: "NoUser" };
-    const result = slice.outputErr(noUserError, { email: "test@example.com" });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ message: "handled: NoUser" });
-    }
-  });
-
-  test("unmatched error type propagates as err", () => {
-    const slice = defineCommandSlice({
-      ...baseDefinition,
-      outputErr: {
-        NoUser: ok({ message: "Check your email" }),
-      },
-    });
-
-    const rateLimitedError: TestError = { type: "RateLimited" };
-    const result = slice.outputErr(rateLimitedError, { email: "test@example.com" });
-    expect(result.isErr()).toBe(true);
-    if (result.isErr()) {
-      expect(result.error).toEqual({ type: "RateLimited" });
-    }
-  });
-
-  test("function-style outputErr still works (backwards compatible)", () => {
-    const slice = defineCommandSlice({
-      ...baseDefinition,
-      outputErr: (error: TestError, _ctx: TestInput | TestInput): Result<TestOutput, TestError> => {
-        if (error.type === "NoUser") return ok({ message: "fn style" });
-        return err(error);
-      },
-    });
-
-    const noUserError: TestError = { type: "NoUser" };
-    const result = slice.outputErr(noUserError, { email: "test@example.com" });
-    expect(result.isOk()).toBe(true);
-    if (result.isOk()) {
-      expect(result.value).toEqual({ message: "fn style" });
-    }
-  });
-
-  test("default outputErr (undefined) propagates all errors", () => {
+  test("default outputErr propagates first error", () => {
     const slice = defineCommandSlice(baseDefinition);
 
-    const noUserError: TestError = { type: "NoUser" };
-    const result = slice.outputErr(noUserError, { email: "test@example.com" });
+    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "RateLimited" }];
+    const result = slice.outputErr(errors, { email: "test@example.com" });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error).toEqual({ type: "NoUser" });
