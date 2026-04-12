@@ -29,7 +29,7 @@ describe("generateCreateTableDDL", () => {
     expect(ddl).toContain('CREATE TABLE "member"');
     expect(ddl).toContain('"id" TEXT NOT NULL');
     expect(ddl).toContain('"name" TEXT NOT NULL');
-    expect(ddl).toContain('"age" NUMERIC NOT NULL');
+    expect(ddl).toContain('"age" INTEGER NOT NULL');
     expect(ddl).toContain('"active" BOOLEAN NOT NULL');
     expect(ddl).not.toContain("_position");
     expect(ddl).toContain('PRIMARY KEY ("id")');
@@ -381,6 +381,109 @@ describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
     expect(capturedParams).toBeDefined();
     expect(capturedParams?.[1]).toEqual(config);
     expect(typeof capturedParams?.[1]).not.toBe("string");
+  });
+});
+
+// ── ZodNumber → INTEGER round-trip ────────────────────────────────
+
+describe("createPostgresProjectionAdapter — numeric round-trip", () => {
+  // postgres.js returns NUMERIC columns as strings. When the DDL maps
+  // ZodNumber to INTEGER instead, the driver returns JS numbers, and
+  // schema.parse() succeeds without coercion.
+
+  test("z.number() field round-trips as a JS number, not a string", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "verse",
+      key: "verseKey",
+      schema: z.object({
+        verseKey: z.string(),
+        chapter: z.number(),
+        verseNumber: z.number(),
+      }),
+    });
+
+    // Simulate what postgres.js returns for INTEGER columns: JS numbers.
+    // (NUMERIC would return strings like "3" and "16", causing Zod to reject.)
+    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
+    const sql: any = {
+      async unsafe(query: string, params?: unknown[]): Promise<unknown[]> {
+        if (query.startsWith("INSERT")) return [];
+        if (query.startsWith("SELECT")) {
+          // Return row with JS numbers — what postgres.js does for INTEGER
+          return [{ verseKey: params?.[0], chapter: 3, verseNumber: 16 }];
+        }
+        return [];
+      },
+    };
+
+    const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
+
+    const projection = handle.project(
+      { verseKey: "JHN.3.16", chapter: 3, verseNumber: 16 },
+      "insert",
+    );
+    await adapter.execute(projection);
+
+    const result = await get("JHN.3.16");
+    expect(result.isOk()).toBe(true);
+
+    const stored = result._unsafeUnwrap().value;
+    expect(stored.chapter).toBe(3);
+    expect(typeof stored.chapter).toBe("number");
+    expect(stored.verseNumber).toBe(16);
+    expect(typeof stored.verseNumber).toBe("number");
+  });
+
+  test("z.number() field fails validation when postgres returns a string (NUMERIC regression)", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "verse_bad",
+      key: "verseKey",
+      schema: z.object({
+        verseKey: z.string(),
+        chapter: z.number(),
+      }),
+    });
+
+    // Simulate NUMERIC behavior: postgres.js returns strings
+    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
+    const sql: any = {
+      async unsafe(query: string, _params?: unknown[]): Promise<unknown[]> {
+        if (query.startsWith("INSERT")) return [];
+        if (query.startsWith("SELECT")) {
+          return [{ verseKey: "GEN.1.1", chapter: "1" }]; // string, not number
+        }
+        return [];
+      },
+    };
+
+    const { get } = createPostgresProjectionAdapter(sql, handle);
+
+    // schema.parse() should reject the string "1" for a z.number() field
+    await expect(get("GEN.1.1")).rejects.toThrow();
+  });
+});
+
+// ── generateCreateTableDDL — INTEGER mapping ─────────────────────
+
+describe("generateCreateTableDDL — ZodNumber maps to INTEGER", () => {
+  test("z.number() produces INTEGER NOT NULL, not NUMERIC", () => {
+    const handle = defineReadModel({
+      name: "counter",
+      key: "id",
+      schema: z.object({
+        id: z.string(),
+        count: z.number(),
+      }),
+    });
+
+    const ddl = generateCreateTableDDL(handle);
+
+    expect(ddl).toContain('"count" INTEGER NOT NULL');
+    expect(ddl).not.toContain("NUMERIC");
   });
 });
 

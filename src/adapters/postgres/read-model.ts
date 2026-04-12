@@ -36,7 +36,7 @@ function zodToColumnType(zodType: z.ZodTypeAny): string {
     return "TEXT";
   }
 
-  if (typeName === "ZodNumber") return "NUMERIC";
+  if (typeName === "ZodNumber") return "INTEGER";
   if (typeName === "ZodBoolean") return "BOOLEAN";
   if (typeName === "ZodArray" || typeName === "ZodObject") return "JSONB";
 
