@@ -32,12 +32,19 @@ function queryRows<T>(raw: unknown[]): T[] {
 
 // ── Constraint violation helpers ──────────────────────────────────────
 
+type PgError = {
+  readonly code: string;
+  readonly constraint_name: string;
+  readonly table_name: string;
+  readonly message: string;
+};
+
 const CONSTRAINT_CODES = new Set(["23505", "23503", "23514"]);
 
-export function isConstraintViolation(e: unknown): boolean {
+export function isConstraintViolation(e: unknown): e is PgError {
   if (typeof e !== "object" || e === null) return false;
   if (!("code" in e)) return false;
-  return CONSTRAINT_CODES.has((e as { code: string }).code);
+  return typeof e.code === "string" && CONSTRAINT_CODES.has(e.code);
 }
 
 export function mapConstraintError(
@@ -127,13 +134,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         return ok({ events: stored });
       } catch (e: unknown) {
         if (isConstraintViolation(e)) {
-          const pgErr = e as {
-            code: string;
-            constraint_name: string;
-            table_name: string;
-            message: string;
-          };
-          return err(mapConstraintError(pgErr, constraintMetadata));
+          return err(mapConstraintError(e, constraintMetadata));
         }
         throw e;
       }

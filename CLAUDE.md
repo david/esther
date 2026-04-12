@@ -17,8 +17,7 @@ Casts (`as`) are only permitted at these boundaries:
 1. **Branded type constructors** — `EventId()`. By definition.
 2. **`addField()`** in `src/core/slice.ts` — TypeScript cannot infer `{ ...obj, [computedKey]: value }`. One function, one cast.
 3. **Storage/serialization boundaries** — `queryRows<T>()` in postgres adapter, `extractValues()` record access in postgres projection adapter. Deserialization and dynamic field access are inherently untyped.
-4. **Postgres constraint catch block** — `e as { code: string; constraint_name: string; ... }` in the constraint violation path. Postgres error shape is untyped at the catch boundary.
-5. **Zod internals** — `zodType._def.checks as ZodStringCheck[]` in DDL generation. Zod does not expose check types publicly.
+4. **Zod internals** — `zodType._def.checks as ZodStringCheck[]` in DDL generation. Zod does not expose check types publicly.
 
 **Nowhere else.** If you need a cast, redesign instead. If truly unavoidable, add it to this list with justification.
 
