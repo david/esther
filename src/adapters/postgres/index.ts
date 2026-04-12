@@ -59,6 +59,35 @@ export function mapConstraintError(
   return ConstraintError(e.constraint_name, [], e.table_name, e.message);
 }
 
+// ── Event row fetching ────────────────────────────────────────────────
+
+type EventRow = {
+  readonly id: string;
+  readonly type: string;
+  readonly tags: readonly string[];
+  readonly payload: Record<string, unknown>;
+  readonly position: string;
+  readonly timestamp: Date;
+};
+
+async function fetchEventRows(
+  sql: PostgresClient,
+  tags: ReadonlyArray<string>,
+): Promise<EventRow[]> {
+  const tagConditions = tags.map((_, i) => `tags @> $${i + 1}::jsonb`);
+  const tagParams = tags.map((t) => JSON.stringify([t]));
+
+  return queryRows<EventRow>(
+    await sql.unsafe(
+      `SELECT id, type, tags, payload, position, timestamp
+       FROM events
+       WHERE ${tagConditions.join(" AND ")}
+       ORDER BY position ASC`,
+      tagParams,
+    ),
+  );
+}
+
 // ── Postgres event store ───────────────────────────────────────────────
 
 export type PostgresEventStoreConfig = {
@@ -147,32 +176,15 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       maybeFold?: (events: ReadonlyArray<unknown>) => unknown,
     ) {
       const schemas = Array.isArray(schemasOrFold) ? schemasOrFold : null;
-      const fold = schemas ? maybeFold! : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
+      const fold = schemas
+        ? maybeFold!
+        : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
 
       if (tags.length === 0) {
         return { state: fold([]) };
       }
 
-      // Build tag filter: each tag must be contained in the tags array
-      const tagConditions = tags.map((_, i) => `tags @> $${i + 1}::jsonb`);
-      const tagParams = tags.map((t) => JSON.stringify([t]));
-
-      const rows = queryRows<{
-        id: string;
-        type: string;
-        tags: readonly string[];
-        payload: unknown;
-        position: string;
-        timestamp: Date;
-      }>(
-        await sql.unsafe(
-          `SELECT id, type, tags, payload, position, timestamp
-         FROM events
-         WHERE ${tagConditions.join(" AND ")}
-         ORDER BY position ASC`,
-          tagParams,
-        ),
-      );
+      const rows = await fetchEventRows(sql, tags);
 
       if (schemas) {
         const parsed = rows.map((row) => {

@@ -61,7 +61,9 @@ export function createInMemoryEventStore(): EventStore {
       maybeFold?: (events: ReadonlyArray<unknown>) => unknown,
     ) {
       const schemas = Array.isArray(schemasOrFold) ? schemasOrFold : null;
-      const fold = schemas ? maybeFold! : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
+      const fold = schemas
+        ? maybeFold!
+        : (schemasOrFold as (events: ReadonlyArray<StoredEvent>) => unknown);
 
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
 
