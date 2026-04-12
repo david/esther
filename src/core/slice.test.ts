@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
+import { compose, type Step } from "./compose.js";
 import { castTagQuery, defineCommandSlice } from "./slice.js";
 import type { DomainEvent } from "./types.js";
 
@@ -194,5 +195,77 @@ describe("defineCommandSlice outputErr map", () => {
     if (result.isErr()) {
       expect(result.error).toEqual({ type: "NoUser" });
     }
+  });
+});
+
+// ── Compose builder ──────────────────────────────────────────────────
+
+describe("compose builder", () => {
+  const eventStore = createInMemoryEventStore();
+  const projectionStore = {
+    get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+  };
+  const deps = { eventStore, projectionStore };
+
+  test("accumulates context through plain steps", async () => {
+    const step1: Step<{ a: number }, { b: string }, never> = async (ctx) =>
+      ok({ b: `got-${ctx.a}` });
+    const step2: Step<{ a: number; b: string }, { c: boolean }, never> = async (_ctx) =>
+      ok({ c: true });
+
+    const pipeline = compose<{ a: number }>().add(step1).add(step2);
+    const result = await pipeline.execute({ a: 42 }, deps);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ a: 42, b: "got-42", c: true });
+    }
+  });
+
+  test("accepts castTagQuery descriptor, defers toStep(deps)", async () => {
+    const descriptor = castTagQuery({
+      key: "state" as const,
+      cast: { check: async () => ok({ id: "u1" }) },
+      tags: (s) => [`user:${s.id}`],
+      fold: (events, _s) => ({ count: events.length }),
+    });
+
+    const pipeline = compose<Record<string, never>>().add(descriptor);
+    const result = await pipeline.execute({}, deps);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.state).toEqual({ count: 0 });
+      expect(result.value.stateSubject).toEqual({ id: "u1" });
+    }
+  });
+
+  test("castTagQuery absent forwards cause error", async () => {
+    const descriptor = castTagQuery({
+      key: "state" as const,
+      cast: { check: async () => err({ type: "NotFound" as const }) },
+      tags: () => [],
+      fold: () => ({}),
+    });
+
+    const pipeline = compose<Record<string, never>>().add(descriptor);
+    const result = await pipeline.execute({}, deps);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual({ type: "NotFound" });
+    }
+  });
+
+  test("defineCommandSlice accepts InputPipeline as input", async () => {
+    const step: Step<{ a: number }, { b: string }, never> = async (ctx) => ok({ b: String(ctx.a) });
+
+    const slice = defineCommandSlice({
+      name: "probe-pipeline-input",
+      inputSchema: z.object({ a: z.number() }),
+      outputSchema: z.object({ b: z.string() }),
+      input: compose<{ a: number }>().add(step),
+      validate: [],
+      event: (ctx) => ({ type: "Probe" as const, tags: [], payload: { b: ctx.b } }),
+      output: (_event, ctx) => ok({ b: ctx.b }),
+    });
+    expect(slice._tag).toBe("command");
   });
 });

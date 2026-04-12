@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
-import type { Step } from "./compose.js";
+import type { InputPipeline, Step } from "./compose.js";
 import type { EventStore } from "./event-store.js";
 import type { ReadModelHandle, ReadModelNotFound, ReadModelViewHandle } from "./read-model.js";
 import type { DomainEvent, StoredEvent, ValidationError } from "./types.js";
@@ -387,7 +387,9 @@ export type CommandSliceDefinition<
   readonly name?: string | undefined;
   readonly inputSchema: TInputSchema;
   readonly outputSchema: TOutputSchema;
-  readonly input: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>>;
+  readonly input:
+    | InputPipeline<TInput, TCtx, TError>
+    | ((ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>>);
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
@@ -413,12 +415,16 @@ export function defineCommandSlice<
     TOutputSchema
   >,
 ): CommandSlice<TInput, TCtx, TOutput, TEvent, TError> {
+  const defInput = definition.input;
+  const inputFn: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>> =
+    typeof defInput === "function" ? defInput : (ctx, deps) => defInput.execute(ctx, deps);
+
   const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {
     _tag: "command",
     name: definition.name ?? "anonymous-command",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
-    input: definition.input,
+    input: inputFn,
     validate: definition.validate,
     event: definition.event,
     output: definition.output,

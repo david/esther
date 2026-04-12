@@ -141,11 +141,7 @@ describe("command pipeline v2 — wiring", () => {
       outputSchema: z.object({ status: z.string(), code: z.string() }),
       input: async (ctx: ProbeInput, deps) =>
         compose<ProbeInput, { type: string }>([
-          cast.toStep(deps) as Step<
-            ProbeInput,
-            unknown,
-            { type: string }
-          >,
+          cast.toStep(deps) as Step<ProbeInput, unknown, { type: string }>,
         ])(ctx),
       validate: [
         (_ctx) => {
@@ -433,11 +429,7 @@ describe("command pipeline v2 — wiring", () => {
       outputSchema: z.object({ userId: z.string() }),
       input: async (ctx: LoginInput, deps) =>
         compose<LoginInput, { type: "NoUser" }>([
-          cast.toStep(deps) as Step<
-            LoginInput,
-            unknown,
-            { type: "NoUser" }
-          >,
+          cast.toStep(deps) as Step<LoginInput, unknown, { type: "NoUser" }>,
         ])(ctx),
       validate: [],
       event: (ctx) => ({

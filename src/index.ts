@@ -19,7 +19,7 @@ export {
   type ProjectionAdapterViewEntry,
 } from "./core/app.js";
 // ── Compose / Step primitives ──────────────────────────────────────────
-export { compose, type Step, type StepError } from "./core/compose.js";
+export { compose, type InputPipeline, type Step, type StepError } from "./core/compose.js";
 // ── Effect adapters ────────────────────────────────────────────────────
 export {
   createEffectAdapterRegistry,
