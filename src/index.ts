@@ -36,17 +36,36 @@ export type {
 } from "./core/event-store.js";
 // ── Pipeline ───────────────────────────────────────────────────────────
 export { executeCommand, executeQuery } from "./core/pipeline.js";
+// ── Read interpreter ───────────────────────────────────────────────────
+export {
+  createReadInterpreter,
+  type ReadInterpreter,
+  type ReadInterpreterDeps,
+} from "./core/read-interpreter.js";
 // ── Read model ─────────────────────────────────────────────────────────
 export {
   type Constraints,
   defineReadModel,
   defineReadModelView,
+  type EventsByTagsDescriptor,
+  eventsByTagsDescriptor,
+  type GetDescriptor,
+  getDescriptor,
   type Operation,
   type ProjectionAdapter,
+  type ProjectionQueryAdapter,
   type ProjectionResult,
+  type QueryDescriptor,
+  queryDescriptor,
+  type ReadDescriptor,
   type ReadModelHandle,
   ReadModelNotFound,
   type ReadModelViewHandle,
+  type Where,
+  type WhereClause,
+  type WhereEntry,
+  type WhereIn,
+  type WhereRange,
 } from "./core/read-model.js";
 // ── Slice definitions ──────────────────────────────────────────────────
 export {

@@ -5,6 +5,7 @@ import type {
   ProjectionResult,
   ReadModelHandle,
   ReadModelViewHandle,
+  WhereEntry,
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
 
@@ -133,7 +134,59 @@ export function createPostgresViewGet<T, S extends z.ZodObject<z.ZodRawShape>>(
 type PostgresProjectionAdapterResult<T> = {
   readonly adapter: ProjectionAdapter<T>;
   readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
+  readonly query: (
+    entries: ReadonlyArray<WhereEntry>,
+    orderBy: string | undefined,
+    limit: number | undefined,
+  ) => Promise<ReadonlyArray<T>>;
 };
+
+// ── Where-clause SQL translation ───────────────────────────────────
+
+type TranslatedWhere = {
+  readonly sql: string;
+  readonly params: ReadonlyArray<unknown>;
+};
+
+// Translate a `ReadonlyArray<WhereEntry>` into a parameter-bound SQL
+// fragment. Values NEVER get interpolated — only `$N` placeholders
+// plus the typed-schema column names. Allowed columns are checked
+// against the read model's shape so that stray fields cannot widen
+// the fragment.
+function translateEntries(
+  entries: ReadonlyArray<WhereEntry>,
+  allowedColumns: ReadonlySet<string>,
+): TranslatedWhere {
+  const fragments: string[] = [];
+  const params: unknown[] = [];
+
+  for (const entry of entries) {
+    if (!allowedColumns.has(entry.field)) {
+      throw new Error(`query: unknown column "${entry.field}"`);
+    }
+
+    switch (entry.op) {
+      case "eq":
+        params.push(entry.value);
+        fragments.push(`"${entry.field}" = $${params.length}`);
+        break;
+      case "gte":
+        params.push(entry.value);
+        fragments.push(`"${entry.field}" >= $${params.length}`);
+        break;
+      case "lte":
+        params.push(entry.value);
+        fragments.push(`"${entry.field}" <= $${params.length}`);
+        break;
+      case "in":
+        params.push([...entry.values]);
+        fragments.push(`"${entry.field}" = ANY($${params.length})`);
+        break;
+    }
+  }
+
+  return { sql: fragments.join(" AND "), params };
+}
 
 // Column names come from defineReadModel, which validates them against
 // /^[a-zA-Z][a-zA-Z0-9_]*$/. They are safe to interpolate as double-quoted
@@ -258,5 +311,34 @@ export function createPostgresProjectionAdapter<T, S extends z.ZodObject<z.ZodRa
     });
   }
 
-  return { adapter, get };
+  const allowedColumns = new Set(columns);
+
+  async function query(
+    entries: ReadonlyArray<WhereEntry>,
+    orderBy: string | undefined,
+    limit: number | undefined,
+  ): Promise<ReadonlyArray<T>> {
+    if (orderBy !== undefined && !allowedColumns.has(orderBy)) {
+      throw new Error(`query: unknown orderBy column "${orderBy}"`);
+    }
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 0)) {
+      throw new Error(`query: limit must be a non-negative integer, got ${limit}`);
+    }
+
+    const { sql: whereSql, params } = translateEntries(entries, allowedColumns);
+    const selectColumns = columns.map((c) => `"${c}"`).join(", ");
+
+    const parts: string[] = [`SELECT ${selectColumns} FROM "${tableName}"`];
+    if (whereSql.length > 0) parts.push(`WHERE ${whereSql}`);
+    if (orderBy !== undefined) parts.push(`ORDER BY "${orderBy}" ASC`);
+    if (limit !== undefined) parts.push(`LIMIT ${limit}`);
+
+    // Storage boundary cast: schema.parse validates the row against
+    // the Zod schema, but TS cannot prove z.infer<S> = T (same pattern
+    // as the pre-existing `get` function above).
+    const raw = await sql.unsafe(parts.join(" "), [...params]);
+    return raw.map((row) => schema.parse(row) as T);
+  }
+
+  return { adapter, get, query };
 }

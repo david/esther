@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { StoredEvent } from "./types.js";
 
 // ── Read model not found ───────────────────────────────────────────────
 
@@ -72,6 +73,160 @@ export type ReadModelViewHandle<T> = {
   readonly _phantom?: T;
   readonly name: string;
   readonly key: string;
+};
+
+// ── Read descriptor (declarative read operations) ──────────────────
+
+/**
+ * Where clause grammar for `QueryDescriptor`.
+ *
+ * Each field entry may be:
+ *  - a bare value: equality match
+ *  - a range: `{ gte?, lte? }`
+ *  - a membership check: `{ in: [...] }`
+ *
+ * Entries combine with AND. No OR, no nesting, no joins.
+ */
+export type WhereRange<V> = {
+  readonly gte?: V;
+  readonly lte?: V;
+};
+
+export type WhereIn<V> = {
+  readonly in: ReadonlyArray<V>;
+};
+
+export type WhereClause<V> = V | WhereRange<V> | WhereIn<V>;
+
+export type Where<T> = {
+  readonly [K in keyof T]?: WhereClause<T[K]>;
+};
+
+export type GetDescriptor<T> = {
+  readonly _tag: "get";
+  readonly model: ReadModelHandle<T>;
+  readonly id: string;
+};
+
+// ── WhereEntry (runtime-concrete, no generics) ────────────────────
+
+export type WhereEntry =
+  | { readonly field: string; readonly op: "eq"; readonly value: string | number | boolean }
+  | { readonly field: string; readonly op: "gte"; readonly value: string | number }
+  | { readonly field: string; readonly op: "lte"; readonly value: string | number }
+  | {
+      readonly field: string;
+      readonly op: "in";
+      readonly values: ReadonlyArray<string | number | boolean>;
+    };
+
+export type QueryDescriptor<T> = {
+  readonly _tag: "query";
+  readonly model: ReadModelHandle<T>;
+  readonly where: Where<T>;
+  readonly entries: ReadonlyArray<WhereEntry>;
+  readonly orderBy?: keyof T & string;
+  readonly limit?: number;
+};
+
+export type EventsByTagsDescriptor<T> = {
+  readonly _tag: "eventsByTags";
+  readonly tags: ReadonlyArray<string>;
+  readonly fold: (events: ReadonlyArray<StoredEvent>) => T;
+};
+
+export type ReadDescriptor<T> = GetDescriptor<T> | QueryDescriptor<T> | EventsByTagsDescriptor<T>;
+
+// ── Descriptor constructors ────────────────────────────────────────
+
+export function getDescriptor<T>(model: ReadModelHandle<T>, id: string): GetDescriptor<T> {
+  return { _tag: "get", model, id };
+}
+
+function isWhereRange(clause: unknown): clause is WhereRange<string | number> {
+  if (typeof clause !== "object" || clause === null) return false;
+  if (Array.isArray(clause)) return false;
+  return "gte" in clause || "lte" in clause;
+}
+
+function isWhereIn(clause: unknown): clause is WhereIn<string | number | boolean> {
+  if (typeof clause !== "object" || clause === null) return false;
+  if (Array.isArray(clause)) return false;
+  return "in" in clause;
+}
+
+function isPrimitive(v: unknown): v is string | number | boolean {
+  const t = typeof v;
+  return t === "string" || t === "number" || t === "boolean";
+}
+
+function normalizeWhere<T>(where: Where<T>): ReadonlyArray<WhereEntry> {
+  const entries: WhereEntry[] = [];
+  for (const [field, clause] of Object.entries(where)) {
+    if (clause === undefined) continue;
+
+    if (isWhereIn(clause)) {
+      entries.push({ field, op: "in", values: clause.in });
+      continue;
+    }
+
+    if (isWhereRange(clause)) {
+      if (clause.gte !== undefined) {
+        entries.push({ field, op: "gte", value: clause.gte });
+      }
+      if (clause.lte !== undefined) {
+        entries.push({ field, op: "lte", value: clause.lte });
+      }
+      continue;
+    }
+
+    // equality — clause is a primitive (string | number | boolean)
+    if (isPrimitive(clause)) {
+      entries.push({ field, op: "eq", value: clause });
+    }
+  }
+  return entries;
+}
+
+export function queryDescriptor<T>(input: {
+  readonly model: ReadModelHandle<T>;
+  readonly where: Where<T>;
+  readonly orderBy?: keyof T & string;
+  readonly limit?: number;
+}): QueryDescriptor<T> {
+  const entries = normalizeWhere(input.where);
+  const tag: "query" = "query";
+  const base = {
+    _tag: tag,
+    model: input.model,
+    where: input.where,
+    entries,
+  };
+  const withOrder = input.orderBy === undefined ? base : { ...base, orderBy: input.orderBy };
+  return input.limit === undefined ? withOrder : { ...withOrder, limit: input.limit };
+}
+
+export function eventsByTagsDescriptor<T>(
+  tags: ReadonlyArray<string>,
+  fold: (events: ReadonlyArray<StoredEvent>) => T,
+): EventsByTagsDescriptor<T> {
+  return { _tag: "eventsByTags", tags, fold };
+}
+
+// ── ProjectionQueryAdapter ──────────────────────────────────────────
+//
+// The query adapter is a single registry-level object shared by all
+// read models: the interpreter dispatches by `name`. `WhereEntry[]`
+// is already concrete (no generics) so no type erasure is needed at
+// the adapter boundary.
+
+export type ProjectionQueryAdapter = {
+  readonly query: (
+    name: string,
+    entries: ReadonlyArray<WhereEntry>,
+    orderBy: string | undefined,
+    limit: number | undefined,
+  ) => Promise<ReadonlyArray<unknown>>;
 };
 
 // ── defineReadModel ─────────────────────────────────────────────────

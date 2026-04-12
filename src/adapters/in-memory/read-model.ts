@@ -3,6 +3,7 @@ import type {
   ProjectionAdapter,
   ProjectionResult,
   ReadModelHandle,
+  WhereEntry,
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
 
@@ -25,12 +26,66 @@ type ViewState<T> = {
 type InMemoryProjectionAdapterResult<T> = {
   readonly adapter: ProjectionAdapter<T>;
   readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
+  readonly query: (
+    entries: ReadonlyArray<WhereEntry>,
+    orderBy: string | undefined,
+    limit: number | undefined,
+  ) => Promise<ReadonlyArray<T>>;
   readonly views: ReadonlyArray<{
     readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
   }>;
 };
 
-export function createInMemoryProjectionAdapter<T>(
+// ── Type-safe dynamic field access ────────────────────────────────
+
+function isKeyOf<T extends object>(obj: T, key: string): key is keyof T & string {
+  return Object.hasOwn(obj, key);
+}
+
+function compareValues(a: unknown, b: unknown): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  if (typeof a === "string" && typeof b === "string") {
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  }
+  if (typeof a === "boolean" && typeof b === "boolean") {
+    return Number(a) - Number(b);
+  }
+  return 0;
+}
+
+function includesValue(arr: ReadonlyArray<string | number | boolean>, v: unknown): boolean {
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+    return arr.includes(v);
+  }
+  return false;
+}
+
+function matchesEntries<T extends object>(value: T, entries: ReadonlyArray<WhereEntry>): boolean {
+  for (const entry of entries) {
+    if (!isKeyOf(value, entry.field)) return false;
+    const fieldValue = value[entry.field];
+
+    switch (entry.op) {
+      case "eq":
+        if (fieldValue !== entry.value) return false;
+        break;
+      case "gte":
+        if (compareValues(fieldValue, entry.value) < 0) return false;
+        break;
+      case "lte":
+        if (compareValues(fieldValue, entry.value) > 0) return false;
+        break;
+      case "in":
+        if (!includesValue(entry.values, fieldValue)) return false;
+        break;
+    }
+  }
+  return true;
+}
+
+export function createInMemoryProjectionAdapter<T extends object>(
   handle: ReadModelHandle<T>,
   views?: ReadonlyArray<ViewMapConfig>,
 ): InMemoryProjectionAdapterResult<T> {
@@ -42,7 +97,10 @@ export function createInMemoryProjectionAdapter<T>(
   }));
 
   function extractViewKey(value: T, key: string): string {
-    return String((value as Record<string, unknown>)[key]);
+    if (!isKeyOf(value, key)) {
+      throw new Error(`View key "${key}" not found on value in read model "${modelName}"`);
+    }
+    return String(value[key]);
   }
 
   function insertIntoViews(value: T): void {
@@ -139,6 +197,33 @@ export function createInMemoryProjectionAdapter<T>(
     return ok(entry);
   }
 
+  async function query(
+    entries: ReadonlyArray<WhereEntry>,
+    orderBy: string | undefined,
+    limit: number | undefined,
+  ): Promise<ReadonlyArray<T>> {
+    const values: T[] = [];
+    for (const entry of store.values()) {
+      if (matchesEntries(entry.value, entries)) {
+        values.push(entry.value);
+      }
+    }
+
+    if (orderBy !== undefined) {
+      const orderField = orderBy;
+      values.sort((a, b) => {
+        const aVal = isKeyOf(a, orderField) ? a[orderField] : undefined;
+        const bVal = isKeyOf(b, orderField) ? b[orderField] : undefined;
+        return compareValues(aVal, bVal);
+      });
+    }
+
+    if (limit !== undefined) {
+      return values.slice(0, limit);
+    }
+    return values;
+  }
+
   const viewAccessors = viewStates.map(({ config, map: viewMap }) => ({
     async get(viewKey: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
       const entry = viewMap.get(viewKey);
@@ -149,5 +234,5 @@ export function createInMemoryProjectionAdapter<T>(
     },
   }));
 
-  return { adapter, get, views: viewAccessors };
+  return { adapter, get, query, views: viewAccessors };
 }
