@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { err, ok, type Result } from "neverthrow";
+import { err, ok } from "neverthrow";
 import { z } from "zod";
 import {
   castTagQuery,
@@ -131,10 +131,18 @@ describe("command pipeline v2 — wiring", () => {
     let validateCalled = false;
     let outputErrCalled = 0;
 
+    const thingModel = defineReadModel({
+      name: "things",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+    });
+
     const cast = castTagQuery({
       key: "thing" as const,
       cast: {
-        check: async (_ctx: ProbeInput) => err({ type: "NotFound" as const }),
+        model: thingModel,
+        id: (ctx: ProbeInput) => String(ctx.a),
+        absent: { type: "NotFound" as const },
       },
       tags: (_subject) => ["nope"],
       schemas: [],
@@ -405,11 +413,9 @@ describe("command pipeline v2 — wiring", () => {
     }
   });
 
-  test("cast.check can consume projectionStore via deps", async () => {
-    // This case is the reason the v2 pipeline threads SliceDeps into
-    // `input`: the cast needs to look a subject up in a projection, then
-    // use that subject to fold events. Old signature couldn't express it
-    // without module-level refs.
+  test("declarative cast resolves subject from projection", async () => {
+    // The declarative cast descriptor specifies model + id — the framework
+    // does the projectionStore.get internally. No manual deps threading.
     const userModel = defineReadModel({
       name: "users_by_email",
       schema: z.object({ id: z.string(), email: z.string() }),
@@ -428,12 +434,9 @@ describe("command pipeline v2 — wiring", () => {
     const cast = castTagQuery({
       key: "user" as const,
       cast: {
-        check: async (ctx: LoginInput, deps): Promise<Result<UserSubject, { type: "NoUser" }>> => {
-          const lookup = await deps.projectionStore.get("users_by_email", ctx.email);
-          if (lookup.isErr()) return err({ type: "NoUser" as const });
-          const v = lookup.value.value as UserSubject;
-          return ok(v);
-        },
+        model: userModel,
+        id: (ctx: LoginInput) => ctx.email,
+        absent: { type: "NoUser" as const },
       },
       tags: (subject) => [`user:${subject.id}`],
       schemas: [],

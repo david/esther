@@ -3,6 +3,7 @@ import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
 import { compose, type Step } from "./compose.js";
+import { defineReadModel } from "./read-model.js";
 import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice.js";
 import type { DomainEvent } from "./types.js";
 
@@ -12,6 +13,12 @@ describe("castTagQuery", () => {
   test("hit: subject unwrapped, fold receives (events, subject)", async () => {
     const eventStore = createInMemoryEventStore();
     const subject = { userId: "u1", name: "Ada" };
+
+    const userModel = defineReadModel({
+      name: "users",
+      schema: z.object({ userId: z.string(), name: z.string() }),
+      key: "userId",
+    });
 
     const foldSpy = mock(
       (events: ReadonlyArray<unknown>, u: { readonly userId: string; readonly name: string }) => ({
@@ -26,7 +33,9 @@ describe("castTagQuery", () => {
     const descriptor = castTagQuery({
       key: "state" as const,
       cast: {
-        check: async () => ok(subject),
+        model: userModel,
+        id: () => "u1",
+        absent: { type: "NotFound" as const },
       },
       tags: tagsSpy,
       schemas: [],
@@ -34,7 +43,10 @@ describe("castTagQuery", () => {
     });
 
     const projectionStore = {
-      get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      get: async (name: string, id: string) => {
+        if (name === "users" && id === "u1") return ok({ value: subject });
+        return err({ _tag: "ReadModelNotFound" as const, name, id });
+      },
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
@@ -62,13 +74,21 @@ describe("castTagQuery", () => {
     const eventStore = createInMemoryEventStore();
     const cause = { type: "NotFound" as const, reason: "x" };
 
+    const absentModel = defineReadModel({
+      name: "absent_things",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+    });
+
     const tagsSpy = mock(() => [] as ReadonlyArray<string>);
     const foldSpy = mock(() => ({}));
 
     const descriptor = castTagQuery({
       key: "state" as const,
       cast: {
-        check: async () => err(cause),
+        model: absentModel,
+        id: () => "missing-id",
+        absent: cause,
       },
       tags: tagsSpy,
       schemas: [],
@@ -216,16 +236,30 @@ describe("compose builder", () => {
   });
 
   test("accepts castTagQuery descriptor, defers toStep(deps)", async () => {
+    const composeUserModel = defineReadModel({
+      name: "compose_users",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+    });
+
+    const composeProjectionStore = {
+      get: async (name: string, id: string) => {
+        if (name === "compose_users") return ok({ value: { id: "u1" } });
+        return err({ _tag: "ReadModelNotFound" as const, name, id });
+      },
+    };
+    const composeDeps = { eventStore, projectionStore: composeProjectionStore };
+
     const descriptor = castTagQuery({
       key: "state" as const,
-      cast: { check: async () => ok({ id: "u1" }) },
+      cast: { model: composeUserModel, id: () => "u1", absent: { type: "NotFound" as const } },
       tags: (s) => [`user:${s.id}`],
       schemas: [],
       fold: (events, _s) => ({ count: events.length }),
     });
 
     const pipeline = compose<Record<string, never>>().add(descriptor);
-    const result = await pipeline.execute({}, deps);
+    const result = await pipeline.execute({}, composeDeps);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.state).toEqual({ count: 0 });
@@ -234,9 +268,15 @@ describe("compose builder", () => {
   });
 
   test("castTagQuery absent forwards cause error", async () => {
+    const absentModel = defineReadModel({
+      name: "absent_things",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+    });
+
     const descriptor = castTagQuery({
       key: "state" as const,
-      cast: { check: async () => err({ type: "NotFound" as const }) },
+      cast: { model: absentModel, id: () => "missing", absent: { type: "NotFound" as const } },
       tags: () => [],
       schemas: [],
       fold: () => ({}),
