@@ -69,11 +69,22 @@ type DeferredStep<TInput, TPatch, TError> = {
   readonly toStep: (deps: PipelineDeps) => Step<TInput, TPatch, TError>;
 };
 
+// Structural type for generate steps (GenerateStep from slice.ts).
+// Returns a single key/value pair to merge into the context. Synchronous or async.
+
+type GenerateEntry<TKey extends string = string, TContext = unknown, TValue = unknown> = {
+  readonly _tag: "generate";
+  readonly key: TKey;
+  readonly fn: (ctx: TContext) => TValue | Promise<TValue>;
+};
+
 type PipelineEntry =
   // biome-ignore lint/suspicious/noExplicitAny: internal entry; type safety maintained at the InputPipeline boundary
   | { readonly kind: "step"; readonly step: Step<any, any, any> }
   // biome-ignore lint/suspicious/noExplicitAny: internal entry; type safety maintained at the InputPipeline boundary
-  | { readonly kind: "deferred"; readonly descriptor: DeferredStep<any, any, any> };
+  | { readonly kind: "deferred"; readonly descriptor: DeferredStep<any, any, any> }
+  // biome-ignore lint/suspicious/noExplicitAny: internal entry; type safety maintained at the InputPipeline boundary
+  | { readonly kind: "generate"; readonly entry: GenerateEntry<any, any, any> };
 
 export type InputPipeline<TInput, TCtx, TError> = {
   readonly _tag: "inputPipeline";
@@ -84,6 +95,9 @@ export type InputPipeline<TInput, TCtx, TError> = {
     <TPatch, TErr>(
       descriptor: DeferredStep<TCtx, TPatch, TErr>,
     ): InputPipeline<TInput, TCtx & TPatch, TError | TErr>;
+    <TKey extends string, TValue>(
+      gen: GenerateEntry<TKey, TCtx, TValue>,
+    ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TValue }, TError>;
   };
   readonly execute: (ctx: TInput, deps: PipelineDeps) => Promise<Result<TCtx, TError>>;
 };
@@ -95,20 +109,25 @@ export type InputPipeline<TInput, TCtx, TError> = {
 // to callers. Internal entries use `any` because the heterogeneous
 // PipelineEntry array cannot express per-index type progression.
 
+// biome-ignore lint/suspicious/noExplicitAny: internal union for add(); type safety maintained at the InputPipeline boundary
+type AddParam = Step<any, any, any> | DeferredStep<any, any, any> | GenerateEntry<any, any, any>;
+
 function buildPipeline<TInput, TCtx, TError>(
   entries: ReadonlyArray<PipelineEntry>,
 ): InputPipeline<TInput, TCtx, TError> {
   return {
     _tag: "inputPipeline",
 
-    add(
-      // biome-ignore lint/suspicious/noExplicitAny: overloaded add accepts Step or DeferredStep; body cannot express the union without any
-      stepOrDescriptor: Step<any, any, any> | DeferredStep<any, any, any>,
-    ) {
-      const entry: PipelineEntry =
-        typeof stepOrDescriptor === "function"
-          ? { kind: "step", step: stepOrDescriptor }
-          : { kind: "deferred", descriptor: stepOrDescriptor };
+    add(stepOrDescriptor: AddParam) {
+      let entry: PipelineEntry;
+      if (typeof stepOrDescriptor === "function") {
+        entry = { kind: "step", step: stepOrDescriptor };
+      } else if (stepOrDescriptor._tag === "generate") {
+        entry = { kind: "generate", entry: stepOrDescriptor as GenerateEntry };
+      } else {
+        // biome-ignore lint/suspicious/noExplicitAny: narrowing from union after generate check; DeferredStep is the only remaining case
+        entry = { kind: "deferred", descriptor: stepOrDescriptor as DeferredStep<any, any, any> };
+      }
       // biome-ignore lint/suspicious/noExplicitAny: accumulated type grows with each add(); internal representation is untyped
       return buildPipeline<TInput, any, any>([...entries, entry]);
     },
@@ -117,10 +136,15 @@ function buildPipeline<TInput, TCtx, TError>(
       // biome-ignore lint/suspicious/noExplicitAny: see cast justification for buildPipeline
       let acc: any = ctx;
       for (const entry of entries) {
-        const stepFn = entry.kind === "step" ? entry.step : entry.descriptor.toStep(deps);
-        const result = await stepFn(acc);
-        if (result.isErr()) return result;
-        acc = { ...acc, ...result.value };
+        if (entry.kind === "generate") {
+          const value = await entry.entry.fn(acc);
+          acc = { ...acc, [entry.entry.key]: value };
+        } else {
+          const stepFn = entry.kind === "step" ? entry.step : entry.descriptor.toStep(deps);
+          const result = await stepFn(acc);
+          if (result.isErr()) return result;
+          acc = { ...acc, ...result.value };
+        }
       }
       return ok(acc as TCtx);
     },
