@@ -36,9 +36,10 @@ export type Constraints = {
 export type ReadModelHandle<
   T,
   S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>,
+  K extends string & keyof T = string & keyof T,
 > = {
   readonly name: string;
-  readonly key: string;
+  readonly key: K;
   readonly schema: S;
   readonly constraints: Constraints;
   readonly project: (value: T, operation?: Operation) => ProjectionResult<T>;
@@ -259,9 +260,10 @@ type DefineReadModelInput<S extends z.ZodObject<z.ZodRawShape>> = {
   readonly events?: ReadonlyArray<ReadModelEventBinding<z.infer<S>, any, any>>;
 };
 
-export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
-  input: DefineReadModelInput<S>,
-): ReadModelHandle<z.infer<S>, S> {
+export function defineReadModel<
+  S extends z.ZodObject<z.ZodRawShape>,
+  K extends string & keyof z.infer<S> = string & keyof z.infer<S>,
+>(input: DefineReadModelInput<S> & { readonly key: K }): ReadModelHandle<z.infer<S>, S, K> {
   type T = z.infer<S>;
 
   const { name, key, schema, constraints = {}, events } = input;
@@ -311,14 +313,14 @@ export function defineReadModel<S extends z.ZodObject<z.ZodRawShape>>(
     }
   }
 
-  const handle: ReadModelHandle<T, S> = {
+  const handle: ReadModelHandle<T, S, K> = {
     name,
     key,
     schema,
     constraints,
     events,
     project(value: T, operation: Operation = "upsert"): ProjectionResult<T> {
-      const keyValue = String(value[key as keyof T]);
+      const keyValue = String(value[key]);
       return {
         type: "projection",
         name,

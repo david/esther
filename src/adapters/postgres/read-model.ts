@@ -18,9 +18,6 @@ type PostgresClient = {
   (template: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
 };
 
-/** T accessed by column-name string at the DB boundary. */
-type DbRow = { readonly [col: string]: unknown };
-
 // ── Zod-to-DDL column mapping ──────────────────────────────────────────
 
 function zodToColumnType(zodType: z.ZodTypeAny): string {
@@ -104,11 +101,12 @@ DROP VIEW "${view.name}";
 
 // ── createPostgresViewGet ─────────────────────────────────────────────
 
-export function createPostgresViewGet<T, S extends z.ZodObject<z.ZodRawShape>>(
+export function createPostgresViewGet<S extends z.ZodObject<z.ZodRawShape>>(
   sql: PostgresClient,
-  view: ReadModelViewHandle<T>,
-  base: ReadModelHandle<T, S>,
-): (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
+  view: ReadModelViewHandle<z.infer<S>>,
+  base: ReadModelHandle<z.infer<S>, S>,
+): (id: string) => Promise<Result<StoredEntry<z.infer<S>>, ReadModelNotFound>> {
+  type T = z.infer<S>;
   const columns = Object.keys(base.schema.shape);
   const selectColumns = columns.map((c) => `"${c}"`).join(", ");
 
@@ -123,7 +121,7 @@ export function createPostgresViewGet<T, S extends z.ZodObject<z.ZodRawShape>>(
     }
 
     return ok({
-      value: base.schema.parse(raw[0]) as T,
+      value: base.schema.parse(raw[0]),
     });
   };
 }
@@ -192,10 +190,11 @@ function translateEntries(
 // SQL identifiers. We use sql.unsafe() only for structural SQL (table and
 // column names) while values are parameterized via $1, $2, etc.
 
-export function createPostgresProjectionAdapter<T, S extends z.ZodObject<z.ZodRawShape>>(
+export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawShape>>(
   sql: PostgresClient,
-  handle: ReadModelHandle<T, S>,
-): PostgresProjectionAdapterResult<T> {
+  handle: ReadModelHandle<z.infer<S>, S>,
+): PostgresProjectionAdapterResult<z.infer<S>> {
+  type T = z.infer<S>;
   const { name: tableName, key, schema } = handle;
   const columns = Object.keys(schema.shape);
 
@@ -204,13 +203,11 @@ export function createPostgresProjectionAdapter<T, S extends z.ZodObject<z.ZodRa
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
 
   function extractValues(value: T): unknown[] {
-    const row = value as DbRow;
-    return columns.map((col) => row[col]);
+    return columns.map((col) => value[col]);
   }
 
   function extractUpdateValues(value: T): unknown[] {
-    const row = value as DbRow;
-    return columns.filter((col) => col !== key).map((col) => row[col]);
+    return columns.filter((col) => col !== key).map((col) => value[col]);
   }
 
   const adapter: ProjectionAdapter<T> = {
@@ -293,7 +290,7 @@ export function createPostgresProjectionAdapter<T, S extends z.ZodObject<z.ZodRa
     }
 
     return ok({
-      value: schema.parse(raw[0]) as T,
+      value: schema.parse(raw[0]),
     });
   }
 
@@ -319,11 +316,8 @@ export function createPostgresProjectionAdapter<T, S extends z.ZodObject<z.ZodRa
     if (orderBy !== undefined) parts.push(`ORDER BY "${orderBy}" ASC`);
     if (limit !== undefined) parts.push(`LIMIT ${limit}`);
 
-    // Storage boundary cast: schema.parse validates the row against
-    // the Zod schema, but TS cannot prove z.infer<S> = T (same pattern
-    // as the pre-existing `get` function above).
     const raw = await sql.unsafe(parts.join(" "), [...params]);
-    return raw.map((row) => schema.parse(row) as T);
+    return raw.map((row) => schema.parse(row));
   }
 
   return { adapter, get, query };

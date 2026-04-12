@@ -195,7 +195,7 @@ async function seed(
   // biome-ignore lint/suspicious/noExplicitAny: harness sql mock
   sql: any,
   rows: ReadonlyArray<Member>,
-): Promise<ReturnType<typeof createPostgresProjectionAdapter<Member, typeof memberSchema>>> {
+): Promise<ReturnType<typeof createPostgresProjectionAdapter<typeof memberSchema>>> {
   const result = createPostgresProjectionAdapter(sql, memberModel);
   for (const row of rows) {
     await result.adapter.execute(memberModel.project(row, "insert"));
