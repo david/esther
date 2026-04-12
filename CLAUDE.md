@@ -16,8 +16,8 @@ Casts (`as`) are only permitted at these boundaries:
 
 1. **Branded type constructors** — `EventId()`. By definition.
 2. **`addField()`** in `src/core/slice.ts` — TypeScript cannot infer `{ ...obj, [computedKey]: value }`. One function, one cast.
-3. **Storage/serialization boundaries** — `queryRows<T>()` in postgres adapter, `extractValues()` record access in postgres projection adapter. Deserialization and dynamic field access are inherently untyped.
-4. **Zod internals** — `zodType._def.checks as ZodStringCheck[]` in DDL generation. Zod does not expose check types publicly.
+3. **Storage/serialization boundaries** — `queryRows<T>()` in postgres adapter, `data.get(k) as T` in notifying adapter. Deserialization and heterogeneous store retrieval are inherently untyped.
+4. **Zod internals** — `_def.typeName` and `_def.checks` access in `src/core/zod-internals.ts`. Zod does not expose these in public types.
 5. **`compose()` accumulator** in `src/core/compose.ts` — `acc as TCtx`. TypeScript cannot track progressive type accumulation (`{ ...acc, ...patch }`) across a dynamic for-loop over heterogeneous steps. Same limitation as `addField` (computed property keys). Callers get correct types via the function signature.
 
 **Nowhere else.** If you need a cast, redesign instead. If truly unavoidable, add it to this list with justification.
