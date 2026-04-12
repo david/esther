@@ -8,6 +8,7 @@ import type {
   WhereEntry,
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
+import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.js";
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
 
@@ -22,13 +23,11 @@ type DbRow = { readonly [col: string]: unknown };
 
 // ── Zod-to-DDL column mapping ──────────────────────────────────────────
 
-type ZodStringCheck = { readonly kind: string };
-
 function zodToColumnType(zodType: z.ZodTypeAny): string {
-  const typeName = zodType._def.typeName as string;
+  const typeName = getZodTypeName(zodType);
 
   if (typeName === "ZodString") {
-    const checks: ZodStringCheck[] = (zodType._def.checks ?? []) as ZodStringCheck[];
+    const checks = getZodStringChecks(zodType);
     for (const check of checks) {
       if (check.kind === "uuid") return "UUID";
       if (check.kind === "datetime") return "TIMESTAMPTZ";
@@ -54,7 +53,7 @@ export function generateCreateTableDDL<T>(handle: ReadModelHandle<T>): string {
     const fieldType = shape[fieldName];
     if (fieldType === undefined) continue;
     const colType = zodToColumnType(fieldType);
-    const typeName = fieldType._def.typeName as string;
+    const typeName = getZodTypeName(fieldType);
     if (colType === "JSONB") {
       const defaultVal = typeName === "ZodArray" ? "'[]'::jsonb" : "'{}'::jsonb";
       clauses.push(`  "${fieldName}" ${colType} NOT NULL DEFAULT ${defaultVal}`);

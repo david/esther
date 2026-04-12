@@ -1,6 +1,7 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
 import type { StoredEvent } from "./types.js";
+import { getZodTypeName } from "./zod-internals.js";
 
 // ── Read model not found ───────────────────────────────────────────────
 
@@ -81,8 +82,7 @@ const SUPPORTED_ZOD_TYPES = new Set([
 ]);
 
 function isSupportedZodType(zodType: z.ZodTypeAny): boolean {
-  const typeName = zodType._def.typeName as string;
-  return SUPPORTED_ZOD_TYPES.has(typeName);
+  return SUPPORTED_ZOD_TYPES.has(getZodTypeName(zodType));
 }
 
 // ── ReadModelViewHandle ─────────────────────────────────────────────
