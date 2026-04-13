@@ -47,6 +47,7 @@ describe("castTagQuery", () => {
         if (name === "users" && id === "u1") return ok({ value: subject });
         return err({ _tag: "ReadModelNotFound" as const, name, id });
       },
+      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
@@ -97,6 +98,7 @@ describe("castTagQuery", () => {
 
     const projectionStore = {
       get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});

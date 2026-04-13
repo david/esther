@@ -92,6 +92,7 @@ export {
   type ProjectionStep,
   type ProjectionStore,
   projection,
+  type QueryProjectionStep,
   type QuerySlice,
   type RegisterableSlice,
   type SliceDeps,

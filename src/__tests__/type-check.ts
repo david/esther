@@ -10,6 +10,7 @@ import {
   defineCommandSlice,
   defineQuerySlice,
   defineReadModel,
+  defineReadModelQuery,
   defineReadModelView,
   generate,
   projection,
@@ -362,3 +363,62 @@ const _generateFlowSlice = defineQuerySlice({
 // View handle has no project property — type-level write enforcement
 // @ts-expect-error ReadModelViewHandle does not have a project property
 const _noProject = pricingView.project;
+
+// ── ReadModelQueryHandle: projection() accepts query handles with args ──
+
+const pricingByRange = defineReadModelQuery({
+  name: "pricingByRange",
+  source: pricingModel,
+  args: z.object({ minPrice: z.number() }),
+  resolve: (args) => ({
+    where: { pricePerNight: { gte: args.minPrice } },
+    orderBy: "pricePerNight",
+    limit: 1,
+  }),
+});
+
+// Query handle with args + required — value is T directly
+const _queryProjectionSlice = defineQuerySlice({
+  name: "get-cheapest-pricing",
+  inputSchema: z.object({ minPrice: z.number() }),
+  outputSchema: getPricingOutputSchema,
+
+  state: state<{ minPrice: number }>().pipe(
+    projection({
+      key: "pricing" as const,
+      model: pricingByRange,
+      args: (ctx: { minPrice: number }) => ({ minPrice: ctx.minPrice }),
+      required: true,
+    }),
+  ),
+
+  handle: (ctx) => {
+    // required query projection — pricing is T directly, not Result
+    const _pricingCheck: PricingRow = ctx.pricing;
+    return ok({ pricePerNight: ctx.pricing.pricePerNight });
+  },
+});
+
+// Query handle with args + optional — value is Result<T, ReadModelNotFound>
+const _queryProjectionOptionalSlice = defineQuerySlice({
+  name: "get-cheapest-pricing-optional",
+  inputSchema: z.object({ minPrice: z.number() }),
+  outputSchema: getPricingOutputSchema,
+
+  state: state<{ minPrice: number }>().pipe(
+    projection({
+      key: "pricing" as const,
+      model: pricingByRange,
+      args: (ctx: { minPrice: number }) => ({ minPrice: ctx.minPrice }),
+    }),
+  ),
+
+  handle: (ctx) => {
+    // optional query projection — pricing is Result<T, ReadModelNotFound>
+    const _pricingCheck: Result<PricingRow, ReadModelNotFound> = ctx.pricing;
+    if (ctx.pricing.isOk()) {
+      return ok({ pricePerNight: ctx.pricing.value.pricePerNight });
+    }
+    return ok({ pricePerNight: 0 });
+  },
+});

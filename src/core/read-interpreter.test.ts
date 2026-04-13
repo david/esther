@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { err, ok } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.js";
@@ -67,6 +68,16 @@ function buildDeps() {
         throw new Error(`Unknown model ${name}`);
       }
       return get(id);
+    },
+    async query(name, entries, orderBy, limit) {
+      if (name !== memberModel.name) {
+        throw new Error(`Unknown model ${name}`);
+      }
+      const rows = await query(entries, orderBy, limit);
+      if (rows.length === 0) {
+        return err({ _tag: "ReadModelNotFound" as const, name, id: "query" });
+      }
+      return ok({ value: rows[0] });
     },
   };
 

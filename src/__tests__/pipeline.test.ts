@@ -10,6 +10,7 @@ import {
   defineCommandSlice,
   defineQuerySlice,
   defineReadModel,
+  defineReadModelQuery,
   defineReadModelView,
   projection,
   ReadModelNotFound,
@@ -1314,6 +1315,138 @@ describe("read model views", () => {
     expect(lookupResult.isErr()).toBe(true);
     if (lookupResult.isErr()) {
       expect(lookupResult.error).toEqual(ReadModelNotFound("users_by_email", "nobody@example.com"));
+    }
+  });
+});
+
+// ── Query projection step tests ──────────────────────────────────────
+
+describe("projection step with ReadModelQueryHandle", () => {
+  const accountModel = defineReadModel({
+    name: "queryAccounts",
+    schema: z.object({
+      accountId: z.string(),
+      balance: z.number(),
+    }),
+    key: "accountId",
+    events: [
+      {
+        schema: DepositedEventSchema,
+        handler: (event, { project }) =>
+          project({
+            accountId: event.payload.accountId,
+            balance: event.payload.amount,
+          }),
+      },
+    ],
+  });
+
+  const highBalanceQuery = defineReadModelQuery({
+    name: "highBalance",
+    source: accountModel,
+    args: z.object({ minBalance: z.number() }),
+    resolve: (args) => ({
+      where: { balance: { gte: args.minBalance } },
+      orderBy: "balance",
+      limit: 1,
+    }),
+  });
+
+  function buildQueryProjectionApp() {
+    const eventStore = createInMemoryEventStore();
+    const { adapter: projAdapter, get, query } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter, bind } = createInMemoryAdapter();
+
+    // Query slice using ReadModelQueryHandle with args — required
+    const queryRequired = defineQuerySlice({
+      name: "query-by-balance-required",
+      inputSchema: z.object({ minBalance: z.number() }),
+      outputSchema: z.any(),
+
+      state: state<{ minBalance: number }>().pipe(
+        projection({
+          key: "topAccount" as const,
+          model: highBalanceQuery,
+          args: (ctx: { minBalance: number }) => ({ minBalance: ctx.minBalance }),
+          required: true,
+        }),
+      ),
+
+      handle: (ctx) => ok(ctx.topAccount),
+    });
+
+    // Query slice using ReadModelQueryHandle with args — optional
+    const queryOptional = defineQuerySlice({
+      name: "query-by-balance-optional",
+      inputSchema: z.object({ minBalance: z.number() }),
+      outputSchema: z.any(),
+
+      state: state<{ minBalance: number }>().pipe(
+        projection({
+          key: "topAccount" as const,
+          model: highBalanceQuery,
+          args: (ctx: { minBalance: number }) => ({ minBalance: ctx.minBalance }),
+        }),
+      ),
+
+      handle: (ctx) => ok(ctx.topAccount),
+    });
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projAdapter,
+          get,
+          constraints: {},
+          tableName: "queryAccounts",
+          handle: accountModel,
+        },
+      ],
+      projectionQuery: {
+        query: async (_name, entries, orderBy, limit) => query(entries, orderBy, limit),
+      },
+      inputAdapter: { adapter, bind },
+      slices: [depositSlice, queryRequired, queryOptional],
+    });
+
+    return { app, eventStore };
+  }
+
+  test("required query projection, matching rows — context has first result", async () => {
+    const { app } = buildQueryProjectionApp();
+
+    await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
+    await app.dispatch("deposit", { accountId: "acc-2", amount: 500 });
+
+    const result = await app.dispatch("query-by-balance-required", { minBalance: 50 });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ accountId: "acc-1", balance: 100 });
+    }
+  });
+
+  test("required query projection, no matching rows — ReadModelNotFound", async () => {
+    const { app } = buildQueryProjectionApp();
+
+    const result = await app.dispatch("query-by-balance-required", { minBalance: 9999 });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as { _tag: string };
+      expect(error._tag).toBe("ReadModelNotFound");
+    }
+  });
+
+  test("optional query projection, no matching rows — Err(ReadModelNotFound) in context", async () => {
+    const { app } = buildQueryProjectionApp();
+
+    const result = await app.dispatch("query-by-balance-optional", { minBalance: 9999 });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const inner = result.value as { isErr: () => boolean; error: { _tag: string } };
+      expect(inner.isErr()).toBe(true);
+      expect(inner.error._tag).toBe("ReadModelNotFound");
     }
   });
 });

@@ -1,4 +1,4 @@
-import { err, type Result } from "neverthrow";
+import { err, ok, type Result } from "neverthrow";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
@@ -101,6 +101,17 @@ export function createApp(config: AppConfig): App {
         return err(mkReadModelNotFound(name, id));
       }
       return await getter(id);
+    },
+    query: async (sourceName, entries, orderBy, limit) => {
+      const queryAdapter = config.projectionQuery;
+      if (!queryAdapter) {
+        return err(mkReadModelNotFound(sourceName, "query"));
+      }
+      const rows = await queryAdapter.query(sourceName, entries, orderBy, limit);
+      if (rows.length === 0) {
+        return err(mkReadModelNotFound(sourceName, "query"));
+      }
+      return ok({ value: rows[0] });
     },
   };
 
