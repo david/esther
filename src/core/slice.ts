@@ -317,12 +317,7 @@ export type RegisterableSlice = {
 
 export type ValidatePredicate<TCtx, TError> = (ctx: TCtx) => ReadonlyArray<TError>;
 
-export type OutputErrHandlers<
-  TError extends { readonly type: string },
-  TOutput,
-  TCtx,
-  TInput,
-> = {
+export type OutputErrHandlers<TError extends { readonly type: string }, TOutput, TCtx, TInput> = {
   readonly [K in TError["type"]]: (
     errors: ReadonlyArray<Extract<TError, { readonly type: K }>>,
     ctx: TCtx | TInput,
@@ -370,7 +365,10 @@ export type CommandSlice<
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
-  readonly outputErr: (errors: ReadonlyArray<TError>, ctx: TCtx | TInput) => Result<TOutput, TError>;
+  readonly outputErr: (
+    errors: ReadonlyArray<TError>,
+    ctx: TCtx | TInput,
+  ) => Result<TOutput, TError>;
 };
 
 // ── Query slice (fully generic) ────────────────────────────────────────
@@ -431,7 +429,9 @@ export function defineCommandSlice<
     typeof defInput === "function" ? defInput : (ctx, deps) => defInput.execute(ctx, deps);
 
   const outputErrFn = definition.outputErr
-    ? normalizeOutputErrHandlers(definition.outputErr as OutputErrHandlers<TError, TOutput, TCtx, TInput>)
+    ? normalizeOutputErrHandlers(
+        definition.outputErr as OutputErrHandlers<TError, TOutput, TCtx, TInput>,
+      )
     : (_errors: ReadonlyArray<TError>, _ctx: TCtx | TInput) => err(_errors[0]!);
 
   const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {

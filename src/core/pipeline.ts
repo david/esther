@@ -14,7 +14,13 @@ import { type DomainEvent, SchemaError, type SliceError } from "./types.js";
 //   6. success → output(event, ctx). error → outputErr(error, ctx).
 //   7. parse final result via outputSchema.
 
-export async function executeCommand<TInput, TCtx, TOutput, TEvent extends DomainEvent, TError extends { readonly type: string }>(
+export async function executeCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEvent extends DomainEvent,
+  TError extends { readonly type: string },
+>(
   slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError>,
   rawInput: unknown,
   eventStore: EventStore,
@@ -56,7 +62,13 @@ export async function executeCommand<TInput, TCtx, TOutput, TEvent extends Domai
   return finishCommand(slice, slice.output(event, ctx));
 }
 
-function finishCommand<TInput, TCtx, TOutput, TEvent extends DomainEvent, TError extends { readonly type: string }>(
+function finishCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEvent extends DomainEvent,
+  TError extends { readonly type: string },
+>(
   slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError>,
   outputResult: Result<TOutput, TError>,
 ): Result<TOutput, SliceError | TError> {

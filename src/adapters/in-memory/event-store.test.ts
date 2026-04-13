@@ -3,11 +3,13 @@ import { z } from "zod";
 import type { DomainEvent } from "../../core/types.js";
 import { createInMemoryEventStore } from "./event-store.js";
 
-const AnyEventSchema = z.object({
-  type: z.string(),
-  tags: z.array(z.string()),
-  payload: z.record(z.unknown()),
-}).passthrough();
+const AnyEventSchema = z
+  .object({
+    type: z.string(),
+    tags: z.array(z.string()),
+    payload: z.record(z.unknown()),
+  })
+  .passthrough();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

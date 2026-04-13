@@ -115,7 +115,11 @@ type CreateBookingCtx = CreateBookingInput & {
   readonly pricing: Result<PricingRow, ReadModelNotFound>;
 };
 
-type CreateBookingError = { readonly type: "PropertyUnavailable"; code: "PROPERTY_UNAVAILABLE"; message: string };
+type CreateBookingError = {
+  readonly type: "PropertyUnavailable";
+  code: "PROPERTY_UNAVAILABLE";
+  message: string;
+};
 
 const _createBookingSlice = defineCommandSlice<
   CreateBookingInput,
@@ -136,21 +140,18 @@ const _createBookingSlice = defineCommandSlice<
       ["property", `property:${ctx.propertyId}`],
       propertySchemas,
       (events): PropertyState =>
-        events.reduce(
-          (acc: PropertyState, event) => {
-            if (event.type === "BookingCreated") {
-              return {
-                available: false,
-                bookedRanges: [
-                  ...acc.bookedRanges,
-                  { checkIn: event.payload.checkIn, checkOut: event.payload.checkOut },
-                ],
-              };
-            }
-            return acc;
-          },
-          initialPropertyState,
-        ),
+        events.reduce((acc: PropertyState, event) => {
+          if (event.type === "BookingCreated") {
+            return {
+              available: false,
+              bookedRanges: [
+                ...acc.bookedRanges,
+                { checkIn: event.payload.checkIn, checkOut: event.payload.checkOut },
+              ],
+            };
+          }
+          return acc;
+        }, initialPropertyState),
     );
     const pricingResult = await deps.projectionStore.get(pricingModel.name, ctx.propertyId);
     const pricing: Result<PricingRow, ReadModelNotFound> = pricingResult.isOk()
@@ -171,11 +172,13 @@ const _createBookingSlice = defineCommandSlice<
       const _pricingCheck: Result<PricingRow, ReadModelNotFound> = ctx.pricing;
 
       if (!ctx.property.available) {
-        return [{
-          type: "PropertyUnavailable" as const,
-          code: "PROPERTY_UNAVAILABLE" as const,
-          message: "Property is not available",
-        }];
+        return [
+          {
+            type: "PropertyUnavailable" as const,
+            code: "PROPERTY_UNAVAILABLE" as const,
+            message: "Property is not available",
+          },
+        ];
       }
       return [];
     },

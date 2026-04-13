@@ -21,10 +21,7 @@ export type ProcessorEventBinding<TEventSchema extends z.ZodType, TReads> = {
  */
 export type CompiledProcessorBinding = {
   readonly eventType: string;
-  readonly run: (
-    event: StoredEvent,
-    interpreter: ReadInterpreter,
-  ) => Promise<EffectResult | void>;
+  readonly run: (event: StoredEvent, interpreter: ReadInterpreter) => Promise<EffectResult | void>;
 };
 
 export type Processor = {

@@ -237,17 +237,20 @@ describe("command pipeline v2 — wiring", () => {
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema,
       input: compose<ProbeInput, ValErr>([bindA]),
-      validate: [
-        (_ctx) => [{ type: "first" as const }],
-        (_ctx) => [{ type: "second" as const }],
-      ],
+      validate: [(_ctx) => [{ type: "first" as const }], (_ctx) => [{ type: "second" as const }]],
       event: (_ctx) => {
         throw new Error("event must not run");
       },
       output: (_event, _ctx) => ok({}),
       outputErr: {
-        first: (errors, _ctx) => { firstSeen = errors.length; return ok({ kind: "first" }); },
-        second: (errors, _ctx) => { secondSeen = errors.length; return ok({ kind: "second" }); },
+        first: (errors, _ctx) => {
+          firstSeen = errors.length;
+          return ok({ kind: "first" });
+        },
+        second: (errors, _ctx) => {
+          secondSeen = errors.length;
+          return ok({ kind: "second" });
+        },
       },
     });
 
@@ -307,7 +310,11 @@ describe("command pipeline v2 — wiring", () => {
 
     const { app, eventStore } = buildAppWith(slice);
     await app.dispatch("probe-append-event", { a: 1 });
-    const queried = await eventStore.queryByTags(["probe:marker"], probeSchemas, (events) => events);
+    const queried = await eventStore.queryByTags(
+      ["probe:marker"],
+      probeSchemas,
+      (events) => events,
+    );
     expect(queried.state.length).toBe(1);
     expect(queried.state[0]?.payload.marker).toBe("unique-xyz");
   });
@@ -367,9 +374,7 @@ describe("command pipeline v2 — wiring", () => {
         inputSchema: probeInputSchema,
         outputSchema: z.object({ kind: z.string() }),
         input: compose<ProbeInput, AB>([bindA]),
-        validate: [
-          (_ctx) => (which === "A" ? [{ type: "A" as const }] : [{ type: "B" as const }]),
-        ],
+        validate: [(_ctx) => (which === "A" ? [{ type: "A" as const }] : [{ type: "B" as const }])],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ kind: "ok" }),
         outputErr: {
@@ -524,7 +529,9 @@ describe("command pipeline v2 — wiring", () => {
         validate: [(_ctx) => [{ type: "bad" as const }]],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ must: "ok" }),
-        outputErr: { bad: (_errors, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }) },
+        outputErr: {
+          bad: (_errors, _ctx) => ok({ wrong: "shape" } as unknown as { must: string }),
+        },
       });
       const { app } = buildAppWith(slice);
       const r = await app.dispatch("probe-bad-output-err", { a: 1 });

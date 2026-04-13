@@ -54,7 +54,10 @@ const CreditAppliedSchema = z.object({
 
 const accountSchemas = [DepositedSchema, WithdrawnSchema, CreditAppliedSchema];
 
-type AccountEvent = z.infer<typeof DepositedSchema> | z.infer<typeof WithdrawnSchema> | z.infer<typeof CreditAppliedSchema>;
+type AccountEvent =
+  | z.infer<typeof DepositedSchema>
+  | z.infer<typeof WithdrawnSchema>
+  | z.infer<typeof CreditAppliedSchema>;
 
 type Balance = { balance: number };
 
@@ -73,13 +76,21 @@ async function loadAccountCtx<TCtx extends { readonly accountId: string }>(
   ctx: TCtx,
   deps: SliceDeps,
 ): Promise<TCtx & { readonly account: Balance }> {
-  const result = await deps.eventStore.queryByTags([`account:${ctx.accountId}`], accountSchemas, balanceFold);
+  const result = await deps.eventStore.queryByTags(
+    [`account:${ctx.accountId}`],
+    accountSchemas,
+    balanceFold,
+  );
   return { ...ctx, account: result.state };
 }
 
 type DepositCtx = DepositInput & { readonly account: Balance };
 
-type DepositError = { readonly type: "InsufficientFunds"; code: "INSUFFICIENT_FUNDS"; message: string };
+type DepositError = {
+  readonly type: "InsufficientFunds";
+  code: "INSUFFICIENT_FUNDS";
+  message: string;
+};
 
 const depositSlice = defineCommandSlice<
   DepositInput,
@@ -133,7 +144,13 @@ const withdrawSlice = defineCommandSlice<
   validate: [
     (ctx) => {
       if (ctx.account.balance < ctx.amount) {
-        return [{ type: "InsufficientFunds" as const, code: "INSUFFICIENT_FUNDS", message: "Not enough balance" }];
+        return [
+          {
+            type: "InsufficientFunds" as const,
+            code: "INSUFFICIENT_FUNDS",
+            message: "Not enough balance",
+          },
+        ];
       }
       return [];
     },
@@ -157,7 +174,11 @@ async function readBalance(
   eventStore: ReturnType<typeof createInMemoryEventStore>,
   accountId: string,
 ): Promise<number> {
-  const result = await eventStore.queryByTags([`account:${accountId}`], accountSchemas, balanceFold);
+  const result = await eventStore.queryByTags(
+    [`account:${accountId}`],
+    accountSchemas,
+    balanceFold,
+  );
   return result.state.balance;
 }
 
@@ -220,7 +241,11 @@ const rejectSlice = defineCommandSlice<
   inputSchema: rejectInputSchema,
   outputSchema: rejectOutputSchema,
   input: async (ctx) => ok(ctx),
-  validate: [(_ctx) => [{ type: "AlwaysFails" as const, code: "ALWAYS_FAILS", message: "This always fails" } as const]],
+  validate: [
+    (_ctx) => [
+      { type: "AlwaysFails" as const, code: "ALWAYS_FAILS", message: "This always fails" } as const,
+    ],
+  ],
   event: (_ctx) => {
     throw new Error("should not reach event");
   },
@@ -283,7 +308,11 @@ describe("command pipeline", () => {
     const result = await app.dispatch("reject", { accountId: "acc-1" });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error).toEqual({ type: "AlwaysFails", code: "ALWAYS_FAILS", message: "This always fails" });
+      expect(result.error).toEqual({
+        type: "AlwaysFails",
+        code: "ALWAYS_FAILS",
+        message: "This always fails",
+      });
     }
   });
 
