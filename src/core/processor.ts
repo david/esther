@@ -10,7 +10,7 @@ export type ProcessorEventBinding<TEventSchema extends z.ZodType, TReads> = {
   readonly reads?: {
     readonly [K in keyof TReads]: (event: z.infer<TEventSchema>) => ReadDescriptor<TReads[K]>;
   };
-  readonly handler: (event: z.infer<TEventSchema>, reads: TReads) => EffectResult | undefined;
+  readonly handler: (event: z.infer<TEventSchema>, reads: TReads) => EffectResult | void;
 };
 
 /**
@@ -24,7 +24,7 @@ export type CompiledProcessorBinding = {
   readonly run: (
     event: StoredEvent,
     interpreter: ReadInterpreter,
-  ) => Promise<EffectResult | undefined>;
+  ) => Promise<EffectResult | void>;
 };
 
 export type Processor = {
