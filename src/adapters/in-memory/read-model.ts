@@ -13,16 +13,6 @@ type StoredEntry<T> = {
   readonly value: T;
 };
 
-type ViewMapConfig = {
-  readonly name: string;
-  readonly key: string;
-};
-
-type ViewState<T> = {
-  readonly config: ViewMapConfig;
-  readonly map: Map<string, StoredEntry<T>>;
-};
-
 type OrderDirection = "asc" | "desc";
 
 type InMemoryProjectionAdapterResult<T> = {
@@ -34,9 +24,6 @@ type InMemoryProjectionAdapterResult<T> = {
     limit: number | undefined,
     orderDirection?: OrderDirection | undefined,
   ) => Promise<ReadonlyArray<T>>;
-  readonly views: ReadonlyArray<{
-    readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
-  }>;
 };
 
 // ── Type-safe dynamic field access ────────────────────────────────
@@ -90,59 +77,9 @@ function matchesEntries<T extends object>(value: T, entries: ReadonlyArray<Where
 
 export function createInMemoryProjectionAdapter<T extends object>(
   handle: ReadModelHandle<T>,
-  views?: ReadonlyArray<ViewMapConfig>,
 ): InMemoryProjectionAdapterResult<T> {
   const store = new Map<string, StoredEntry<T>>();
   const modelName = handle.name;
-  const viewStates: ReadonlyArray<ViewState<T>> = (views ?? []).map((config) => ({
-    config,
-    map: new Map<string, StoredEntry<T>>(),
-  }));
-
-  function extractViewKey(value: T, key: string): string {
-    if (!isKeyOf(value, key)) {
-      throw new Error(`View key "${key}" not found on value in read model "${modelName}"`);
-    }
-    return String(value[key]);
-  }
-
-  function insertIntoViews(value: T): void {
-    for (const { config, map } of viewStates) {
-      const viewKey = extractViewKey(value, config.key);
-      if (map.has(viewKey)) {
-        throw new Error(
-          `Insert failed: view key "${viewKey}" already exists in view "${config.name}"`,
-        );
-      }
-      map.set(viewKey, { value });
-    }
-  }
-
-  function updateInViews(oldValue: T, newValue: T): void {
-    for (const { config, map } of viewStates) {
-      const oldViewKey = extractViewKey(oldValue, config.key);
-      const newViewKey = extractViewKey(newValue, config.key);
-
-      if (oldViewKey === newViewKey) {
-        map.set(newViewKey, { value: newValue });
-      } else {
-        if (map.has(newViewKey)) {
-          throw new Error(
-            `Update failed: view key "${newViewKey}" already exists in view "${config.name}"`,
-          );
-        }
-        map.delete(oldViewKey);
-        map.set(newViewKey, { value: newValue });
-      }
-    }
-  }
-
-  function deleteFromViews(value: T): void {
-    for (const { config, map } of viewStates) {
-      const viewKey = extractViewKey(value, config.key);
-      map.delete(viewKey);
-    }
-  }
 
   const adapter: ProjectionAdapter<T> = {
     name: modelName,
@@ -156,7 +93,6 @@ export function createInMemoryProjectionAdapter<T extends object>(
               `Insert failed: key "${key}" already exists in read model "${modelName}"`,
             );
           }
-          insertIntoViews(value);
           store.set(key, { value });
           break;
         }
@@ -165,17 +101,10 @@ export function createInMemoryProjectionAdapter<T extends object>(
           if (oldEntry === undefined) {
             throw new Error(`Update failed: key "${key}" not found in read model "${modelName}"`);
           }
-          updateInViews(oldEntry.value, value);
           store.set(key, { value });
           break;
         }
         case "upsert": {
-          const existingEntry = store.get(key);
-          if (existingEntry !== undefined) {
-            updateInViews(existingEntry.value, value);
-          } else {
-            insertIntoViews(value);
-          }
           store.set(key, { value });
           break;
         }
@@ -184,7 +113,6 @@ export function createInMemoryProjectionAdapter<T extends object>(
           if (entryToDelete === undefined) {
             throw new Error(`Delete failed: key "${key}" not found in read model "${modelName}"`);
           }
-          deleteFromViews(entryToDelete.value);
           store.delete(key);
           break;
         }
@@ -229,15 +157,5 @@ export function createInMemoryProjectionAdapter<T extends object>(
     return values;
   }
 
-  const viewAccessors = viewStates.map(({ config, map: viewMap }) => ({
-    async get(viewKey: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
-      const entry = viewMap.get(viewKey);
-      if (entry === undefined) {
-        return err(ReadModelNotFound(config.name, viewKey));
-      }
-      return ok(entry);
-    },
-  }));
-
-  return { adapter, get, query, views: viewAccessors };
+  return { adapter, get, query };
 }

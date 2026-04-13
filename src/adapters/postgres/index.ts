@@ -216,7 +216,5 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
 
 export {
   createPostgresProjectionAdapter,
-  createPostgresViewGet,
   generateCreateTableDDL,
-  generateCreateViewDDL,
 } from "./read-model.js";

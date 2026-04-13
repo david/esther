@@ -64,7 +64,7 @@ Schema fields must be `z.string()`, `z.number()`, `z.boolean()`, `z.string().uui
 Use `defineReadModelQuery` for parameterized lookups against a read model. Query logic (where/orderBy/limit) is encapsulated in the definition — consumers pass typed arguments, never inline query logic.
 
 ```typescript
-// Alternate-key lookup (replaces defineReadModelView)
+// Alternate-key lookup
 const usersByEmail = defineReadModelQuery({
   name: "users_by_email",
   source: usersModel,

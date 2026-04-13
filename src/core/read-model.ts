@@ -86,15 +86,6 @@ function isSupportedZodType(zodType: z.ZodTypeAny): boolean {
   return SUPPORTED_ZOD_TYPES.has(getZodTypeName(zodType));
 }
 
-// ── ReadModelViewHandle ─────────────────────────────────────────────
-
-export type ReadModelViewHandle<T> = {
-  readonly _tag: "ReadModelViewHandle";
-  readonly _phantom?: T;
-  readonly name: string;
-  readonly key: string;
-};
-
 // ── Read descriptor (declarative read operations) ──────────────────
 
 /**
@@ -377,10 +368,10 @@ export function defineReadModelQuery<T, TArgsSchema extends z.ZodObject<z.ZodRaw
     throw new Error(`Invalid read model query name "${name}": must match [a-zA-Z][a-zA-Z0-9_]*`);
   }
 
-  // Reject query-on-query and view-as-source: source must have a `project` property (ReadModelHandle has it)
+  // Reject query-on-query: source must have a `project` property (ReadModelHandle has it)
   if (!("project" in source)) {
     throw new Error(
-      `Source for read model query "${name}" must be a ReadModelHandle, not a ReadModelViewHandle or ReadModelQueryHandle`,
+      `Source for read model query "${name}" must be a ReadModelHandle, not a ReadModelQueryHandle`,
     );
   }
 
@@ -409,40 +400,5 @@ export function defineReadModelQuery<T, TArgsSchema extends z.ZodObject<z.ZodRaw
         limit: resolved.limit ?? undefined,
       };
     },
-  };
-}
-
-// ── defineReadModelView ─────────────────────────────────────────────
-
-type DefineReadModelViewInput<T> = {
-  readonly name: string;
-  readonly source: ReadModelHandle<T>;
-  readonly key: string & keyof T;
-};
-
-export function defineReadModelView<T>(input: DefineReadModelViewInput<T>): ReadModelViewHandle<T> {
-  const { name, source, key } = input;
-
-  // Validate name
-  if (!NAME_PATTERN.test(name)) {
-    throw new Error(`Invalid read model view name "${name}": must match [a-zA-Z][a-zA-Z0-9_]*`);
-  }
-
-  // Reject view-on-view: source must have a project property (ReadModelHandle has it, ReadModelViewHandle does not)
-  if (!("project" in source)) {
-    throw new Error(
-      `Source for read model view "${name}" must be a ReadModelHandle, not a ReadModelViewHandle`,
-    );
-  }
-
-  // Validate key exists in source schema
-  if (!(key in source.schema.shape)) {
-    throw new Error(`Key field "${key}" not found in source schema for read model view "${name}"`);
-  }
-
-  return {
-    _tag: "ReadModelViewHandle",
-    name,
-    key,
   };
 }

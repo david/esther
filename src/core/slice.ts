@@ -7,7 +7,6 @@ import type {
   ReadModelHandle,
   ReadModelNotFound,
   ReadModelQueryHandle,
-  ReadModelViewHandle,
   WhereEntry,
 } from "./read-model.js";
 import type { DomainEvent, StoredEvent, ValidationError } from "./types.js";
@@ -216,7 +215,7 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
 // descriptor's `absent` error value.
 
 export type CastDescriptorById<TInput, TSubject, TCause> = {
-  readonly model: ReadModelHandle<TSubject> | ReadModelViewHandle<TSubject>;
+  readonly model: ReadModelHandle<TSubject>;
   readonly id: (ctx: TInput) => string;
   readonly absent: TCause;
 };
@@ -247,7 +246,7 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
   >;
 };
 
-// Overload: id-based lookup (ReadModelHandle / ReadModelViewHandle)
+// Overload: id-based lookup (ReadModelHandle)
 export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptorById<TInput, TSubject, TCause>;
@@ -340,7 +339,7 @@ export type ProjectionStep<
 > = {
   readonly _tag: "projection";
   readonly key: TKey;
-  readonly model: ReadModelHandle<TValue> | ReadModelViewHandle<TValue>;
+  readonly model: ReadModelHandle<TValue>;
   readonly id: (ctx: TInput) => string;
   readonly required: TRequired;
 };
@@ -380,7 +379,7 @@ export function projection<TKey extends string, TInput, TValue, TArgs>(descripto
 // Existing: id-based + required
 export function projection<TKey extends string, TInput, TValue>(descriptor: {
   readonly key: TKey;
-  readonly model: ReadModelHandle<TValue> | ReadModelViewHandle<TValue>;
+  readonly model: ReadModelHandle<TValue>;
   readonly id: (ctx: TInput) => string;
   readonly required: true;
 }): ProjectionStep<TKey, TInput, TValue, true>;
@@ -388,7 +387,7 @@ export function projection<TKey extends string, TInput, TValue>(descriptor: {
 // Existing: id-based + optional
 export function projection<TKey extends string, TInput, TValue>(descriptor: {
   readonly key: TKey;
-  readonly model: ReadModelHandle<TValue> | ReadModelViewHandle<TValue>;
+  readonly model: ReadModelHandle<TValue>;
   readonly id: (ctx: TInput) => string;
   readonly required?: false | undefined;
 }): ProjectionStep<TKey, TInput, TValue, false>;
@@ -396,10 +395,7 @@ export function projection<TKey extends string, TInput, TValue>(descriptor: {
 // Implementation
 export function projection<TKey extends string, TInput, TValue, TArgs>(descriptor: {
   readonly key: TKey;
-  readonly model:
-    | ReadModelHandle<TValue>
-    | ReadModelViewHandle<TValue>
-    | ReadModelQueryHandle<TValue, TArgs>;
+  readonly model: ReadModelHandle<TValue> | ReadModelQueryHandle<TValue, TArgs>;
   readonly id?: ((ctx: TInput) => string) | undefined;
   readonly args?: ((ctx: TInput) => TArgs) | undefined;
   readonly required?: boolean | undefined;
@@ -418,7 +414,7 @@ export function projection<TKey extends string, TInput, TValue, TArgs>(descripto
   return {
     _tag: "projection",
     key: descriptor.key,
-    model: descriptor.model as ReadModelHandle<TValue> | ReadModelViewHandle<TValue>,
+    model: descriptor.model as ReadModelHandle<TValue>,
     id: descriptor.id as (ctx: TInput) => string,
     required: descriptor.required ?? false,
   };

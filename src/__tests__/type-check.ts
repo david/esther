@@ -11,7 +11,6 @@ import {
   defineQuerySlice,
   defineReadModel,
   defineReadModelQuery,
-  defineReadModelView,
   generate,
   projection,
   type ReadModelNotFound,
@@ -272,35 +271,6 @@ const _getPropertySlice = defineQuerySlice({
   },
 });
 
-// ── ReadModelViewHandle: projection() accepts view handles ────────────
-
-const pricingView = defineReadModelView({
-  name: "pricingByNight",
-  source: pricingModel,
-  key: "propertyId",
-});
-
-// View handle works with projection() (read path)
-const _viewProjectionSlice = defineQuerySlice({
-  name: "get-pricing-view",
-  inputSchema: getPricingInputSchema,
-  outputSchema: getPricingOutputSchema,
-
-  state: state<GetPricingInput>().pipe(
-    projection({
-      key: "pricing" as const,
-      model: pricingView,
-      id: (ctx: GetPricingInput) => ctx.propertyId,
-      required: true,
-    }),
-  ),
-
-  handle: (ctx) => {
-    const _pricingCheck: PricingRow = ctx.pricing;
-    return ok({ pricePerNight: ctx.pricing.pricePerNight });
-  },
-});
-
 // ── Generate step type flow ─────────────────────────────────────────────
 
 // tagQuery -> generate -> projection: full type flow
@@ -359,10 +329,6 @@ const _generateFlowSlice = defineQuerySlice({
     return ok({ label: ctx.label });
   },
 });
-
-// View handle has no project property — type-level write enforcement
-// @ts-expect-error ReadModelViewHandle does not have a project property
-const _noProject = pricingView.project;
 
 // ── ReadModelQueryHandle: projection() accepts query handles with args ──
 

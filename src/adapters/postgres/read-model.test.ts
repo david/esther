@@ -1,12 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { defineReadModel, defineReadModelView } from "../../core/read-model.js";
+import { defineReadModel } from "../../core/read-model.js";
 import { createMockSql } from "./mock-sql.js";
-import {
-  createPostgresViewGet,
-  generateCreateTableDDL,
-  generateCreateViewDDL,
-} from "./read-model.js";
+import { generateCreateTableDDL } from "./read-model.js";
 
 // ── generateCreateTableDDL ─────────────────────────────────────────
 
@@ -475,111 +471,5 @@ describe("generateCreateTableDDL — ZodNumber maps to INTEGER", () => {
 
     expect(ddl).toContain('"count" INTEGER NOT NULL');
     expect(ddl).not.toContain("NUMERIC");
-  });
-});
-
-// ── generateCreateViewDDL ─────────────────────────────────────────
-
-describe("generateCreateViewDDL", () => {
-  const usersHandle = defineReadModel({
-    name: "users",
-    key: "userId",
-    schema: z.object({
-      userId: z.string().uuid(),
-      email: z.string(),
-      name: z.string(),
-    }),
-  });
-
-  const viewHandle = defineReadModelView({
-    name: "users_by_email",
-    source: usersHandle,
-    key: "email",
-  });
-
-  test("generates CREATE VIEW with SELECT * FROM base table", () => {
-    const ddl = generateCreateViewDDL(viewHandle, usersHandle);
-
-    expect(ddl).toContain('CREATE VIEW "users_by_email" AS SELECT * FROM "users"');
-  });
-
-  test("includes migrate:up and migrate:down markers", () => {
-    const ddl = generateCreateViewDDL(viewHandle, usersHandle);
-
-    const upIndex = ddl.indexOf("-- migrate:up");
-    const downIndex = ddl.indexOf("-- migrate:down");
-    expect(upIndex).toBeGreaterThanOrEqual(0);
-    expect(downIndex).toBeGreaterThan(upIndex);
-    expect(ddl.indexOf("CREATE VIEW")).toBeGreaterThan(upIndex);
-    expect(ddl.indexOf("DROP VIEW")).toBeGreaterThan(downIndex);
-  });
-
-  test("includes DROP VIEW statement", () => {
-    const ddl = generateCreateViewDDL(viewHandle, usersHandle);
-
-    expect(ddl).toContain('DROP VIEW "users_by_email"');
-  });
-});
-
-// ── createPostgresViewGet ─────────────────────────────────────────
-
-describe("createPostgresViewGet", () => {
-  const usersHandle = defineReadModel({
-    name: "users",
-    key: "userId",
-    schema: z.object({
-      userId: z.string().uuid(),
-      email: z.string(),
-      name: z.string(),
-    }),
-  });
-
-  const viewHandle = defineReadModelView({
-    name: "users_by_email",
-    source: usersHandle,
-    key: "email",
-  });
-
-  function createViewMockSql(rows: Record<string, unknown>[]) {
-    return createMockSql(async () => rows);
-  }
-
-  test("returns record when row exists", async () => {
-    const row = {
-      userId: "550e8400-e29b-41d4-a716-446655440000",
-      email: "alice@example.com",
-      name: "Alice",
-    };
-    const sql = createViewMockSql([row]);
-    const get = createPostgresViewGet(sql, viewHandle, usersHandle);
-
-    const result = await get("alice@example.com");
-
-    expect(result.isOk()).toBe(true);
-    expect(result._unsafeUnwrap().value).toEqual(row);
-  });
-
-  test("get rejects a row that does not match the schema", async () => {
-    // Row violates the schema: userId should be a uuid string, not a number.
-    // schema.parse() must throw, ensuring DB schema drift is caught and
-    // bad rows are not silently cast to T.
-    const badRow = { userId: 123, email: "alice@example.com", name: "Alice" };
-    const sql = createViewMockSql([badRow]);
-    const get = createPostgresViewGet(sql, viewHandle, usersHandle);
-
-    await expect(get("alice@example.com")).rejects.toThrow();
-  });
-
-  test("returns ReadModelNotFound when no rows match", async () => {
-    const sql = createViewMockSql([]);
-    const get = createPostgresViewGet(sql, viewHandle, usersHandle);
-
-    const result = await get("nobody@example.com");
-
-    expect(result.isErr()).toBe(true);
-    const error = result._unsafeUnwrapErr();
-    expect(error._tag).toBe("ReadModelNotFound");
-    expect(error.name).toBe("users_by_email");
-    expect(error.id).toBe("nobody@example.com");
   });
 });

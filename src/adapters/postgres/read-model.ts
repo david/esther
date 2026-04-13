@@ -4,7 +4,6 @@ import type {
   ProjectionAdapter,
   ProjectionResult,
   ReadModelHandle,
-  ReadModelViewHandle,
   WhereEntry,
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
@@ -89,44 +88,6 @@ DROP TABLE "${name}";
 type StoredEntry<T> = {
   readonly value: T;
 };
-
-// ── generateCreateViewDDL ─────────────────────────────────────────────
-
-export function generateCreateViewDDL<T>(
-  view: ReadModelViewHandle<T>,
-  base: ReadModelHandle<T>,
-): string {
-  return `-- migrate:up
-CREATE VIEW "${view.name}" AS SELECT * FROM "${base.name}";
-
--- migrate:down
-DROP VIEW "${view.name}";
-`;
-}
-
-// ── createPostgresViewGet ─────────────────────────────────────────────
-
-export function createPostgresViewGet<S extends z.ZodObject<z.ZodRawShape>>(
-  sql: PostgresClient,
-  view: ReadModelViewHandle<z.infer<S>>,
-  base: ReadModelHandle<z.infer<S>, S>,
-): (id: string) => Promise<Result<StoredEntry<z.infer<S>>, ReadModelNotFound>> {
-  type T = z.infer<S>;
-  const columns = Object.keys(base.schema.shape);
-
-  return async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
-    const raw = await sql`
-      SELECT ${sql(columns)} FROM ${sql(view.name)} WHERE ${sql(view.key)} = ${id}`;
-
-    if (raw.length === 0) {
-      return err(ReadModelNotFound(view.name, id));
-    }
-
-    return ok({
-      value: base.schema.parse(raw[0]),
-    });
-  };
-}
 
 // ── Postgres projection adapter ────────────────────────────────────────
 
