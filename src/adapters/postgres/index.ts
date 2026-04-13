@@ -11,10 +11,15 @@ import { ConstraintError, EventId, type StoredEvent } from "../../core/types.js"
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
 
-type PostgresClient = {
-  readonly begin: <T>(fn: (sql: PostgresClient) => Promise<T>) => Promise<T>;
-  readonly unsafe: (query: string, params?: unknown[]) => Promise<unknown[]>;
-  (template: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
+type PostgresTransactionClient = {
+  // biome-ignore lint/suspicious/noExplicitAny: postgres PendingQuery has private `then` — not structurally Promise or PromiseLike
+  readonly unsafe: (query: string, params?: any[]) => any;
+  // biome-ignore lint/suspicious/noExplicitAny: same — postgres PendingQuery
+  (template: TemplateStringsArray, ...values: unknown[]): any;
+};
+
+type PostgresClient = PostgresTransactionClient & {
+  readonly begin: <T>(fn: (sql: PostgresTransactionClient) => Promise<T>) => Promise<T>;
 };
 
 type HandlerRegistration<T> = {

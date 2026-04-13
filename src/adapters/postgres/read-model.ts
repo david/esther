@@ -12,10 +12,15 @@ import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.js"
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
 
-type PostgresClient = {
-  readonly begin: <T>(fn: (sql: PostgresClient) => Promise<T>) => Promise<T>;
-  readonly unsafe: (query: string, params?: unknown[]) => Promise<unknown[]>;
-  (template: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
+type PostgresTransactionClient = {
+  // biome-ignore lint/suspicious/noExplicitAny: postgres PendingQuery has private `then` — not structurally Promise or PromiseLike
+  readonly unsafe: (query: string, params?: any[]) => any;
+  // biome-ignore lint/suspicious/noExplicitAny: same — postgres PendingQuery
+  (template: TemplateStringsArray, ...values: unknown[]): any;
+};
+
+type PostgresClient = PostgresTransactionClient & {
+  readonly begin: <T>(fn: (sql: PostgresTransactionClient) => Promise<T>) => Promise<T>;
 };
 
 // ── Zod-to-DDL column mapping ──────────────────────────────────────────
@@ -316,7 +321,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     if (orderBy !== undefined) parts.push(`ORDER BY "${orderBy}" ASC`);
     if (limit !== undefined) parts.push(`LIMIT ${limit}`);
 
-    const raw = await sql.unsafe(parts.join(" "), [...params]);
+    const raw: unknown[] = await sql.unsafe(parts.join(" "), [...params]);
     return raw.map((row) => schema.parse(row));
   }
 
