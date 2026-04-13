@@ -75,7 +75,7 @@ async function fetchEventRows(
   tags: ReadonlyArray<string>,
 ): Promise<EventRow[]> {
   const tagConditions = tags.map((_, i) => `tags @> $${i + 1}::jsonb`);
-  const tagParams = tags.map((t) => JSON.stringify([t]));
+  const tagParams = tags.map((t) => [t]);
 
   return queryRows<EventRow>(
     await sql.unsafe(
