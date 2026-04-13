@@ -52,6 +52,7 @@ export {
 export {
   type Constraints,
   defineReadModel,
+  defineReadModelQuery,
   defineReadModelView,
   type EventsByTagsDescriptor,
   eventsByTagsDescriptor,
@@ -67,6 +68,7 @@ export {
   type ReadModelEventBinding,
   type ReadModelHandle,
   ReadModelNotFound,
+  type ReadModelQueryHandle,
   type ReadModelViewHandle,
   type Where,
   type WhereClause,

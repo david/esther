@@ -5,6 +5,7 @@ import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-mode
 import { createApp } from "./app.js";
 import {
   defineReadModel,
+  defineReadModelQuery,
   defineReadModelView,
   getDescriptor,
   type ReadModelEventBinding,
@@ -575,5 +576,156 @@ describe("read model events", () => {
 
     expect(model.events).toBeDefined();
     expect(model.events).toHaveLength(1);
+  });
+});
+
+// ── defineReadModelQuery ──────────────────────────────────────────────
+
+describe("defineReadModelQuery", () => {
+  const source = defineReadModel({
+    name: "member",
+    key: "id",
+    schema: memberSchema,
+  });
+
+  const argsSchema = z.object({ minAge: z.number() });
+
+  test("returns handle with correct tag, name, and source", () => {
+    const handle = defineReadModelQuery({
+      name: "members_by_age",
+      source,
+      args: argsSchema,
+      resolve: (args) => ({
+        where: { age: { gte: args.minAge } },
+      }),
+    });
+
+    expect(handle._tag).toBe("ReadModelQueryHandle");
+    expect(handle.name).toBe("members_by_age");
+    expect(handle.source).toBe(source);
+    expect(handle.argsSchema).toBe(argsSchema);
+  });
+
+  test("throws on invalid name", () => {
+    expect(() =>
+      defineReadModelQuery({
+        name: "bad-name",
+        source,
+        args: argsSchema,
+        resolve: () => ({ where: {} }),
+      }),
+    ).toThrow();
+  });
+
+  test("throws on name starting with digit", () => {
+    expect(() =>
+      defineReadModelQuery({
+        name: "2query",
+        source,
+        args: argsSchema,
+        resolve: () => ({ where: {} }),
+      }),
+    ).toThrow();
+  });
+
+  test("throws on empty name", () => {
+    expect(() =>
+      defineReadModelQuery({
+        name: "",
+        source,
+        args: argsSchema,
+        resolve: () => ({ where: {} }),
+      }),
+    ).toThrow();
+  });
+
+  test("buildQuery maps args to normalized query data with equality", () => {
+    const handle = defineReadModelQuery({
+      name: "active_members",
+      source,
+      args: z.object({ isActive: z.boolean() }),
+      resolve: (args) => ({
+        where: { active: args.isActive },
+      }),
+    });
+
+    const result = handle.buildQuery({ isActive: true });
+
+    expect(result.sourceName).toBe("member");
+    expect(result.entries).toEqual([{ field: "active", op: "eq", value: true }]);
+    expect(result.orderBy).toBeUndefined();
+    expect(result.limit).toBeUndefined();
+  });
+
+  test("buildQuery maps args to normalized query data with range, orderBy, and limit", () => {
+    const handle = defineReadModelQuery({
+      name: "members_by_age",
+      source,
+      args: argsSchema,
+      resolve: (args) => ({
+        where: { age: { gte: args.minAge } },
+        orderBy: "age",
+        limit: 10,
+      }),
+    });
+
+    const result = handle.buildQuery({ minAge: 21 });
+
+    expect(result.sourceName).toBe("member");
+    expect(result.entries).toEqual([{ field: "age", op: "gte", value: 21 }]);
+    expect(result.orderBy).toBe("age");
+    expect(result.limit).toBe(10);
+  });
+
+  test("buildQuery maps args with in-clause", () => {
+    const handle = defineReadModelQuery({
+      name: "members_by_name",
+      source,
+      args: z.object({ names: z.array(z.string()) }),
+      resolve: (args) => ({
+        where: { name: { in: args.names } },
+      }),
+    });
+
+    const result = handle.buildQuery({ names: ["Alice", "Bob"] });
+
+    expect(result.entries).toEqual([{ field: "name", op: "in", values: ["Alice", "Bob"] }]);
+  });
+
+  test("rejects query-on-query (source is a ReadModelQueryHandle)", () => {
+    const queryHandle = defineReadModelQuery({
+      name: "first_query",
+      source,
+      args: argsSchema,
+      resolve: () => ({ where: {} }),
+    });
+
+    expect(() =>
+      defineReadModelQuery({
+        name: "nested_query",
+        // biome-ignore lint/suspicious/noExplicitAny: intentionally passing wrong type to test runtime validation
+        source: queryHandle as any,
+        args: argsSchema,
+        resolve: () => ({ where: {} }),
+      }),
+    ).toThrow();
+  });
+
+  test("rejects view as source", () => {
+    const viewHandle: ReadModelViewHandle<z.infer<typeof memberSchema>> = {
+      _tag: "ReadModelViewHandle",
+      name: "some_view",
+      key: "name",
+    };
+
+    expect(() =>
+      defineReadModelQuery({
+        name: "query_on_view",
+        // biome-ignore lint/suspicious/noExplicitAny: intentionally passing wrong type to test runtime validation
+        source: viewHandle as any,
+        args: argsSchema,
+        resolve: () => ({ where: {} }),
+      }),
+    ).toThrow();
   });
 });

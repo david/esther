@@ -336,6 +336,76 @@ export function defineReadModel<
   return handle;
 }
 
+// ── ReadModelQueryHandle ────────────────────────────────────────────
+
+export type ReadModelQueryHandle<T, TArgs = unknown> = {
+  readonly _tag: "ReadModelQueryHandle";
+  readonly name: string;
+  readonly source: ReadModelHandle<T>;
+  readonly argsSchema: z.ZodObject<z.ZodRawShape>;
+  readonly buildQuery: (args: TArgs) => {
+    readonly sourceName: string;
+    readonly entries: ReadonlyArray<WhereEntry>;
+    readonly orderBy: string | undefined;
+    readonly limit: number | undefined;
+  };
+};
+
+type DefineReadModelQueryInput<T, TArgsSchema extends z.ZodObject<z.ZodRawShape>> = {
+  readonly name: string;
+  readonly source: ReadModelHandle<T>;
+  readonly args: TArgsSchema;
+  readonly resolve: (args: z.infer<TArgsSchema>) => {
+    readonly where: Where<T>;
+    readonly orderBy?: (keyof T & string) | undefined;
+    readonly limit?: number | undefined;
+  };
+};
+
+export function defineReadModelQuery<T, TArgsSchema extends z.ZodObject<z.ZodRawShape>>(
+  input: DefineReadModelQueryInput<T, TArgsSchema>,
+): ReadModelQueryHandle<T, z.infer<TArgsSchema>> {
+  const { name, source, args, resolve } = input;
+
+  // Validate name
+  if (!NAME_PATTERN.test(name)) {
+    throw new Error(`Invalid read model query name "${name}": must match [a-zA-Z][a-zA-Z0-9_]*`);
+  }
+
+  // Reject query-on-query and view-as-source: source must have a `project` property (ReadModelHandle has it)
+  if (!("project" in source)) {
+    throw new Error(
+      `Source for read model query "${name}" must be a ReadModelHandle, not a ReadModelViewHandle or ReadModelQueryHandle`,
+    );
+  }
+
+  // Also reject ReadModelQueryHandle which has _tag but also wouldn't have `project`
+  // However, ReadModelQueryHandle does not have `project`, so the above check already covers it.
+  // But if someone passes a handle with _tag: "ReadModelQueryHandle", double check:
+  if ("_tag" in source && (source as { _tag: string })._tag === "ReadModelQueryHandle") {
+    throw new Error(
+      `Source for read model query "${name}" must be a ReadModelHandle, not a ReadModelQueryHandle`,
+    );
+  }
+
+  return {
+    _tag: "ReadModelQueryHandle",
+    name,
+    source,
+    argsSchema: args,
+    buildQuery(queryArgs: z.infer<TArgsSchema>) {
+      const resolved = resolve(queryArgs);
+      const entries = normalizeWhere(resolved.where);
+      return {
+        sourceName: source.name,
+        entries,
+        orderBy: resolved.orderBy ?? undefined,
+        limit: resolved.limit ?? undefined,
+      };
+    },
+  };
+}
+
 // ── defineReadModelView ─────────────────────────────────────────────
 
 type DefineReadModelViewInput<T> = {
