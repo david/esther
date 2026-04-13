@@ -3,6 +3,7 @@ import type { z } from "zod";
 import type { InputPipeline, Step } from "./compose.js";
 import type { EventStore } from "./event-store.js";
 import type {
+  OrderDirection,
   ReadModelHandle,
   ReadModelNotFound,
   ReadModelQueryHandle,
@@ -23,6 +24,7 @@ export type ProjectionStore = {
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
+    orderDirection?: OrderDirection | undefined,
   ) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
 };
 
@@ -147,8 +149,9 @@ function buildResolver<TInput, TContext>(
               >;
               const queryModel = queryStep.model;
               const args = queryStep.args(prev.context);
-              const { sourceName, entries, orderBy, limit } = queryModel.buildQuery(args);
-              return projectionStore.query(sourceName, entries, orderBy, limit);
+              const { sourceName, entries, orderBy, orderDirection, limit } =
+                queryModel.buildQuery(args);
+              return projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
             })()
           : await projectionStore.get(
               step.model.name,
@@ -212,14 +215,21 @@ export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
 // can read fields without unwrapping a Result. On absent, returns the
 // descriptor's `absent` error value.
 
-export type CastDescriptor<TInput, TSubject, TCause> = {
-  readonly model:
-    | ReadModelHandle<TSubject>
-    | ReadModelViewHandle<TSubject>
-    | ReadModelQueryHandle<TSubject>;
+export type CastDescriptorById<TInput, TSubject, TCause> = {
+  readonly model: ReadModelHandle<TSubject> | ReadModelViewHandle<TSubject>;
   readonly id: (ctx: TInput) => string;
   readonly absent: TCause;
 };
+
+export type CastDescriptorByArgs<TInput, TSubject, TArgs, TCause> = {
+  readonly model: ReadModelQueryHandle<TSubject, TArgs>;
+  readonly args: (ctx: TInput) => TArgs;
+  readonly absent: TCause;
+};
+
+export type CastDescriptor<TInput, TSubject, TCause> =
+  | CastDescriptorById<TInput, TSubject, TCause>
+  | CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
 
 export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> = {
   readonly _tag: "castTagQuery";
@@ -237,6 +247,32 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
   >;
 };
 
+// Overload: id-based lookup (ReadModelHandle / ReadModelViewHandle)
+export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
+  readonly key: TKey;
+  readonly cast: CastDescriptorById<TInput, TSubject, TCause>;
+  readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+  readonly schemas: ReadonlyArray<z.ZodType>;
+  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause>;
+
+// Overload: args-based lookup (ReadModelQueryHandle)
+export function castTagQuery<
+  TKey extends string,
+  TInput,
+  TSubject,
+  TArgs,
+  TState,
+  TCause,
+>(descriptor: {
+  readonly key: TKey;
+  readonly cast: CastDescriptorByArgs<TInput, TSubject, TArgs, TCause>;
+  readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+  readonly schemas: ReadonlyArray<z.ZodType>;
+  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause>;
+
+// Implementation
 export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptor<TInput, TSubject, TCause>;
@@ -252,8 +288,24 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
     TCause
   > => {
     return async (ctx) => {
-      const id = descriptor.cast.id(ctx);
-      const lookup = await deps.projectionStore.get(descriptor.cast.model.name, id);
+      const cast = descriptor.cast;
+      const isQueryCast =
+        "args" in cast && "model" in cast && cast.model._tag === "ReadModelQueryHandle";
+
+      const lookup = isQueryCast
+        ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
+            const queryCast = cast as CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
+            const queryModel = queryCast.model;
+            const args = queryCast.args(ctx);
+            const { sourceName, entries, orderBy, orderDirection, limit } =
+              queryModel.buildQuery(args);
+            return deps.projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
+          })()
+        : await deps.projectionStore.get(
+            cast.model.name,
+            (cast as CastDescriptorById<TInput, TSubject, TCause>).id(ctx),
+          );
+
       if (lookup.isErr()) return err(descriptor.cast.absent);
       const subject = lookup.value.value as TSubject;
       const tags = descriptor.tags(subject);

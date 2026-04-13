@@ -59,6 +59,7 @@ export {
   type GetDescriptor,
   getDescriptor,
   type Operation,
+  type OrderDirection,
   type ProjectionAdapter,
   type ProjectionQueryAdapter,
   type ProjectionResult,

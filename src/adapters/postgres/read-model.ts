@@ -273,6 +273,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
+    orderDirection: "asc" | "desc" = "asc",
   ): Promise<ReadonlyArray<T>> {
     if (orderBy !== undefined && !allowedColumns.has(orderBy)) {
       throw new Error(`query: unknown orderBy column "${orderBy}"`);
@@ -286,7 +287,12 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
       const where = translateEntries(sql, entries, allowedColumns);
       q = sql`${q} WHERE ${where}`;
     }
-    if (orderBy !== undefined) q = sql`${q} ORDER BY ${sql(orderBy)} ASC`;
+    if (orderBy !== undefined) {
+      q =
+        orderDirection === "desc"
+          ? sql`${q} ORDER BY ${sql(orderBy)} DESC`
+          : sql`${q} ORDER BY ${sql(orderBy)} ASC`;
+    }
     if (limit !== undefined) q = sql`${q} LIMIT ${limit}`;
 
     const raw: unknown[] = await q;

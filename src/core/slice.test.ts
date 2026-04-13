@@ -3,7 +3,7 @@ import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
 import { compose, type Step } from "./compose.js";
-import { defineReadModel } from "./read-model.js";
+import { defineReadModel, defineReadModelQuery } from "./read-model.js";
 import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice.js";
 import type { DomainEvent } from "./types.js";
 
@@ -102,6 +102,128 @@ describe("castTagQuery", () => {
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual(cause);
+    }
+    expect(tagsSpy).not.toHaveBeenCalled();
+    expect(foldSpy).not.toHaveBeenCalled();
+  });
+
+  test("query handle: resolves subject via projectionStore.query, fold receives (events, subject)", async () => {
+    const eventStore = createInMemoryEventStore();
+    const subject = { userId: "u1", name: "Ada" };
+
+    const userModel = defineReadModel({
+      name: "users",
+      schema: z.object({ userId: z.string(), name: z.string() }),
+      key: "userId",
+    });
+
+    const usersByEmail = defineReadModelQuery({
+      name: "users_by_email",
+      source: userModel,
+      args: z.object({ email: z.string() }),
+      resolve: (args) => ({ where: { name: args.email }, limit: 1 }),
+    });
+
+    const foldSpy = mock(
+      (events: ReadonlyArray<unknown>, u: { readonly userId: string; readonly name: string }) => ({
+        count: events.length,
+        subjectName: u.name,
+      }),
+    );
+    const tagsSpy = mock((u: { readonly userId: string; readonly name: string }) => [
+      `user:${u.userId}`,
+    ]);
+
+    const descriptor = castTagQuery({
+      key: "state" as const,
+      cast: {
+        model: usersByEmail,
+        args: (ctx: { email: string }) => ({ email: ctx.email }),
+        absent: { type: "NotFound" as const },
+      },
+      tags: tagsSpy,
+      schemas: [],
+      fold: foldSpy,
+    });
+
+    const querySpy = mock(
+      async (
+        _sourceName: string,
+        _entries: ReadonlyArray<unknown>,
+        _orderBy: string | undefined,
+        _limit: number | undefined,
+      ) => ok({ value: subject }),
+    );
+
+    const projectionStore = {
+      get: async (_name: string, _id: string) =>
+        err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      query: querySpy,
+    };
+    const step = descriptor.toStep({ eventStore, projectionStore });
+    const result = await step({ email: "ada@test.com" });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({
+        state: { count: 0, subjectName: "Ada" },
+        stateSubject: { userId: "u1", name: "Ada" },
+      });
+    }
+
+    // projectionStore.query was called with the source name "users" (not "users_by_email")
+    expect(querySpy).toHaveBeenCalledTimes(1);
+    const [sourceName] = querySpy.mock.calls[0] ?? [];
+    expect(sourceName).toBe("users");
+
+    expect(tagsSpy).toHaveBeenCalledTimes(1);
+    expect(tagsSpy).toHaveBeenCalledWith(subject);
+    expect(foldSpy).toHaveBeenCalledTimes(1);
+    expect(foldSpy.mock.calls[0]?.[1]).toEqual(subject);
+  });
+
+  test("query handle absent: returns cause err", async () => {
+    const eventStore = createInMemoryEventStore();
+    const cause = { type: "NotFound" as const };
+
+    const userModel = defineReadModel({
+      name: "users",
+      schema: z.object({ userId: z.string(), name: z.string() }),
+      key: "userId",
+    });
+
+    const usersByEmail = defineReadModelQuery({
+      name: "users_by_email",
+      source: userModel,
+      args: z.object({ email: z.string() }),
+      resolve: (args) => ({ where: { name: args.email }, limit: 1 }),
+    });
+
+    const tagsSpy = mock(() => [] as ReadonlyArray<string>);
+    const foldSpy = mock(() => ({}));
+
+    const descriptor = castTagQuery({
+      key: "state" as const,
+      cast: {
+        model: usersByEmail,
+        args: (ctx: { email: string }) => ({ email: ctx.email }),
+        absent: cause,
+      },
+      tags: tagsSpy,
+      schemas: [],
+      fold: foldSpy,
+    });
+
+    const projectionStore = {
+      get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    };
+    const step = descriptor.toStep({ eventStore, projectionStore });
+    const result = await step({ email: "missing@test.com" });
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {

@@ -23,6 +23,8 @@ type ViewState<T> = {
   readonly map: Map<string, StoredEntry<T>>;
 };
 
+type OrderDirection = "asc" | "desc";
+
 type InMemoryProjectionAdapterResult<T> = {
   readonly adapter: ProjectionAdapter<T>;
   readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
@@ -30,6 +32,7 @@ type InMemoryProjectionAdapterResult<T> = {
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
+    orderDirection?: OrderDirection | undefined,
   ) => Promise<ReadonlyArray<T>>;
   readonly views: ReadonlyArray<{
     readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
@@ -201,6 +204,7 @@ export function createInMemoryProjectionAdapter<T extends object>(
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
+    orderDirection: OrderDirection = "asc",
   ): Promise<ReadonlyArray<T>> {
     const values: T[] = [];
     for (const entry of store.values()) {
@@ -211,10 +215,11 @@ export function createInMemoryProjectionAdapter<T extends object>(
 
     if (orderBy !== undefined) {
       const orderField = orderBy;
+      const dir = orderDirection === "desc" ? -1 : 1;
       values.sort((a, b) => {
         const aVal = isKeyOf(a, orderField) ? a[orderField] : undefined;
         const bVal = isKeyOf(b, orderField) ? b[orderField] : undefined;
-        return compareValues(aVal, bVal);
+        return dir * compareValues(aVal, bVal);
       });
     }
 

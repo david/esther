@@ -248,6 +248,7 @@ export type ProjectionQueryAdapter = {
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
+    orderDirection?: OrderDirection | undefined,
   ) => Promise<ReadonlyArray<unknown>>;
 };
 
@@ -338,6 +339,8 @@ export function defineReadModel<
 
 // ── ReadModelQueryHandle ────────────────────────────────────────────
 
+export type OrderDirection = "asc" | "desc";
+
 export type ReadModelQueryHandle<T, TArgs = unknown> = {
   readonly _tag: "ReadModelQueryHandle";
   readonly name: string;
@@ -347,6 +350,7 @@ export type ReadModelQueryHandle<T, TArgs = unknown> = {
     readonly sourceName: string;
     readonly entries: ReadonlyArray<WhereEntry>;
     readonly orderBy: string | undefined;
+    readonly orderDirection: OrderDirection;
     readonly limit: number | undefined;
   };
 };
@@ -358,6 +362,7 @@ type DefineReadModelQueryInput<T, TArgsSchema extends z.ZodObject<z.ZodRawShape>
   readonly resolve: (args: z.infer<TArgsSchema>) => {
     readonly where: Where<T>;
     readonly orderBy?: (keyof T & string) | undefined;
+    readonly orderDirection?: OrderDirection | undefined;
     readonly limit?: number | undefined;
   };
 };
@@ -400,6 +405,7 @@ export function defineReadModelQuery<T, TArgsSchema extends z.ZodObject<z.ZodRaw
         sourceName: source.name,
         entries,
         orderBy: resolved.orderBy ?? undefined,
+        orderDirection: resolved.orderDirection ?? "asc",
         limit: resolved.limit ?? undefined,
       };
     },

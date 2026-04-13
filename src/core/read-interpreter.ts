@@ -56,6 +56,7 @@ export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterprete
       descriptor.entries,
       descriptor.orderBy,
       descriptor.limit,
+      undefined,
     );
   }
 

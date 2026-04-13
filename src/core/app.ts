@@ -102,12 +102,12 @@ export function createApp(config: AppConfig): App {
       }
       return await getter(id);
     },
-    query: async (sourceName, entries, orderBy, limit) => {
+    query: async (sourceName, entries, orderBy, limit, orderDirection) => {
       const queryAdapter = config.projectionQuery;
       if (!queryAdapter) {
         return err(mkReadModelNotFound(sourceName, "query"));
       }
-      const rows = await queryAdapter.query(sourceName, entries, orderBy, limit);
+      const rows = await queryAdapter.query(sourceName, entries, orderBy, limit, orderDirection);
       if (rows.length === 0) {
         return err(mkReadModelNotFound(sourceName, "query"));
       }
