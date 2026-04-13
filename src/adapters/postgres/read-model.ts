@@ -14,9 +14,9 @@ import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.js"
 
 type PostgresTransactionClient = {
   // biome-ignore lint/suspicious/noExplicitAny: postgres PendingQuery has private `then` — not structurally Promise or PromiseLike
-  readonly unsafe: (query: string, params?: any[]) => any;
-  // biome-ignore lint/suspicious/noExplicitAny: same — postgres PendingQuery
   (template: TemplateStringsArray, ...values: unknown[]): any;
+  // biome-ignore lint/suspicious/noExplicitAny: postgres helper — identifiers sql('table'), column lists sql(['a','b']), object helpers sql(obj, ...keys)
+  (first: string | readonly string[] | Record<string, unknown>, ...rest: string[]): any;
 };
 
 type PostgresClient = PostgresTransactionClient & {
@@ -113,13 +113,10 @@ export function createPostgresViewGet<S extends z.ZodObject<z.ZodRawShape>>(
 ): (id: string) => Promise<Result<StoredEntry<z.infer<S>>, ReadModelNotFound>> {
   type T = z.infer<S>;
   const columns = Object.keys(base.schema.shape);
-  const selectColumns = columns.map((c) => `"${c}"`).join(", ");
 
   return async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
-    const raw = await sql.unsafe(
-      `SELECT ${selectColumns} FROM "${view.name}" WHERE "${view.key}" = $1`,
-      [id],
-    );
+    const raw = await sql`
+      SELECT ${sql(columns)} FROM ${sql(view.name)} WHERE ${sql(view.key)} = ${id}`;
 
     if (raw.length === 0) {
       return err(ReadModelNotFound(view.name, id));
@@ -145,22 +142,19 @@ type PostgresProjectionAdapterResult<T> = {
 
 // ── Where-clause SQL translation ───────────────────────────────────
 
-type TranslatedWhere = {
-  readonly sql: string;
-  readonly params: ReadonlyArray<unknown>;
-};
-
-// Translate a `ReadonlyArray<WhereEntry>` into a parameter-bound SQL
-// fragment. Values NEVER get interpolated — only `$N` placeholders
-// plus the typed-schema column names. Allowed columns are checked
-// against the read model's shape so that stray fields cannot widen
-// the fragment.
+// Translate a `ReadonlyArray<WhereEntry>` into a composable tagged-template
+// fragment. Column names become `sql(identifier)` helpers, values become
+// parameterized via tagged template interpolation. Allowed columns are
+// checked against the read model's shape so that stray fields cannot
+// widen the fragment.
 function translateEntries(
+  sql: PostgresTransactionClient,
   entries: ReadonlyArray<WhereEntry>,
   allowedColumns: ReadonlySet<string>,
-): TranslatedWhere {
-  const fragments: string[] = [];
-  const params: unknown[] = [];
+  // biome-ignore lint/suspicious/noExplicitAny: returns a postgres tagged-template fragment
+): any {
+  // biome-ignore lint/suspicious/noExplicitAny: postgres fragment accumulator
+  const fragments: any[] = [];
 
   for (const entry of entries) {
     if (!allowedColumns.has(entry.field)) {
@@ -169,31 +163,27 @@ function translateEntries(
 
     switch (entry.op) {
       case "eq":
-        params.push(entry.value);
-        fragments.push(`"${entry.field}" = $${params.length}`);
+        fragments.push(sql`${sql(entry.field)} = ${entry.value}`);
         break;
       case "gte":
-        params.push(entry.value);
-        fragments.push(`"${entry.field}" >= $${params.length}`);
+        fragments.push(sql`${sql(entry.field)} >= ${entry.value}`);
         break;
       case "lte":
-        params.push(entry.value);
-        fragments.push(`"${entry.field}" <= $${params.length}`);
+        fragments.push(sql`${sql(entry.field)} <= ${entry.value}`);
         break;
       case "in":
-        params.push([...entry.values]);
-        fragments.push(`"${entry.field}" = ANY($${params.length})`);
+        fragments.push(sql`${sql(entry.field)} = ANY(${[...entry.values]})`);
         break;
     }
   }
 
-  return { sql: fragments.join(" AND "), params };
+  return fragments.reduce((acc, f) => sql`${acc} AND ${f}`);
 }
 
 // Column names come from defineReadModel, which validates them against
-// /^[a-zA-Z][a-zA-Z0-9_]*$/. They are safe to interpolate as double-quoted
-// SQL identifiers. We use sql.unsafe() only for structural SQL (table and
-// column names) while values are parameterized via $1, $2, etc.
+// /^[a-zA-Z][a-zA-Z0-9_]*$/. Dynamic identifiers use sql() helpers which
+// double-quote them automatically. Values are parameterized via tagged
+// template interpolation.
 
 export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawShape>>(
   sql: PostgresClient,
@@ -202,17 +192,10 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
   type T = z.infer<S>;
   const { name: tableName, key, schema } = handle;
   const columns = Object.keys(schema.shape);
+  const nonKeyColumns = columns.filter((c) => c !== key);
 
-  // Pre-build quoted column lists
-  const quotedColumns = columns.map((c) => `"${c}"`).join(", ");
-  const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-
-  function extractValues(value: T): unknown[] {
-    return columns.map((col) => value[col]);
-  }
-
-  function extractUpdateValues(value: T): unknown[] {
-    return columns.filter((col) => col !== key).map((col) => value[col]);
+  function asRecord(value: T): Record<string, unknown> {
+    return value as Record<string, unknown>;
   }
 
   const adapter: ProjectionAdapter<T> = {
@@ -223,25 +206,17 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
 
       switch (operation) {
         case "insert": {
-          const vals = extractValues(value);
-          await sql.unsafe(
-            `INSERT INTO "${tableName}" (${quotedColumns}) VALUES (${placeholders})`,
-            vals,
-          );
+          await sql`INSERT INTO ${sql(tableName)} ${sql(asRecord(value), ...columns)}`;
           break;
         }
 
         case "update": {
-          // Build SET for non-key columns
-          const nonKeyColumns = columns.filter((c) => c !== key);
-          const updatePlaceholders = nonKeyColumns.map((c, i) => `"${c}" = $${i + 1}`).join(", ");
-          const updateVals = extractUpdateValues(value);
-          const keyParamIndex = updateVals.length + 1;
-
-          const updated = await sql.unsafe(
-            `UPDATE "${tableName}" SET ${updatePlaceholders} WHERE "${key}" = $${keyParamIndex} RETURNING "${key}"`,
-            [...updateVals, keyValue],
-          );
+          const updateObj = Object.fromEntries(nonKeyColumns.map((c) => [c, asRecord(value)[c]]));
+          const updated = await sql`
+            UPDATE ${sql(tableName)}
+            SET ${sql(updateObj, ...nonKeyColumns)}
+            WHERE ${sql(key)} = ${keyValue}
+            RETURNING ${sql(key)}`;
 
           if (updated.length === 0) {
             throw new Error(
@@ -252,26 +227,22 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
         }
 
         case "upsert": {
-          const vals = extractValues(value);
-          const nonKeyColumns = columns.filter((c) => c !== key);
-          const conflictSet = nonKeyColumns
-            .map((c, i) => `"${c}" = $${i + 1 + columns.length}`)
-            .join(", ");
-          const upsertVals = [...vals, ...extractUpdateValues(value)];
+          const first = nonKeyColumns[0];
+          if (!first) throw new Error(`Upsert requires non-key columns in "${tableName}"`);
+          let excludedSet = sql`${sql(first)} = EXCLUDED.${sql(first)}`;
+          for (const col of nonKeyColumns.slice(1)) {
+            excludedSet = sql`${excludedSet}, ${sql(col)} = EXCLUDED.${sql(col)}`;
+          }
 
-          await sql.unsafe(
-            `INSERT INTO "${tableName}" (${quotedColumns}) VALUES (${placeholders})
-             ON CONFLICT ("${key}") DO UPDATE SET ${conflictSet}`,
-            upsertVals,
-          );
+          await sql`
+            INSERT INTO ${sql(tableName)} ${sql(asRecord(value), ...columns)}
+            ON CONFLICT (${sql(key)}) DO UPDATE SET ${excludedSet}`;
           break;
         }
 
         case "delete": {
-          const deleted = await sql.unsafe(
-            `DELETE FROM "${tableName}" WHERE "${key}" = $1 RETURNING 1`,
-            [keyValue],
-          );
+          const deleted = await sql`
+            DELETE FROM ${sql(tableName)} WHERE ${sql(key)} = ${keyValue} RETURNING 1`;
           if (deleted.length === 0) {
             throw new Error(
               `Delete failed: key "${keyValue}" not found in read model "${tableName}"`,
@@ -284,11 +255,8 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
   };
 
   async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
-    const selectColumns = columns.map((c) => `"${c}"`).join(", ");
-    const raw = await sql.unsafe(
-      `SELECT ${selectColumns} FROM "${tableName}" WHERE "${key}" = $1`,
-      [id],
-    );
+    const raw = await sql`
+      SELECT ${sql(columns)} FROM ${sql(tableName)} WHERE ${sql(key)} = ${id}`;
 
     if (raw.length === 0) {
       return err(ReadModelNotFound(tableName, id));
@@ -313,15 +281,15 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
       throw new Error(`query: limit must be a non-negative integer, got ${limit}`);
     }
 
-    const { sql: whereSql, params } = translateEntries(entries, allowedColumns);
-    const selectColumns = columns.map((c) => `"${c}"`).join(", ");
+    let q = sql`SELECT ${sql(columns)} FROM ${sql(tableName)}`;
+    if (entries.length > 0) {
+      const where = translateEntries(sql, entries, allowedColumns);
+      q = sql`${q} WHERE ${where}`;
+    }
+    if (orderBy !== undefined) q = sql`${q} ORDER BY ${sql(orderBy)} ASC`;
+    if (limit !== undefined) q = sql`${q} LIMIT ${limit}`;
 
-    const parts: string[] = [`SELECT ${selectColumns} FROM "${tableName}"`];
-    if (whereSql.length > 0) parts.push(`WHERE ${whereSql}`);
-    if (orderBy !== undefined) parts.push(`ORDER BY "${orderBy}" ASC`);
-    if (limit !== undefined) parts.push(`LIMIT ${limit}`);
-
-    const raw: unknown[] = await sql.unsafe(parts.join(" "), [...params]);
+    const raw: unknown[] = await q;
     return raw.map((row) => schema.parse(row));
   }
 

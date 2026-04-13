@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { defineReadModel, defineReadModelView } from "../../core/read-model.js";
+import { createMockSql } from "./mock-sql.js";
 import {
   createPostgresViewGet,
   generateCreateTableDDL,
@@ -166,13 +167,12 @@ describe("generateCreateTableDDL — JSONB columns", () => {
 // ── round-trip JSONB via adapter ─────────────────────────────────
 
 describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
-  // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-  function createInMemorySql(): any {
+  function createInMemorySql() {
     const tables: Record<string, Record<string, unknown>[]> = {};
 
-    const sql = {
-      async unsafe(query: string, params?: unknown[]): Promise<unknown[]> {
-        if (query.startsWith("INSERT")) {
+    return createMockSql(
+      async (query: string, params: ReadonlyArray<unknown>): Promise<unknown[]> => {
+        if (query.trimStart().startsWith("INSERT")) {
           const tableMatch = query.match(/INTO "(\w+)"/);
           const tableName = tableMatch?.[1] ?? "";
           if (!tables[tableName]) tables[tableName] = [];
@@ -182,18 +182,19 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
           const cols = colMatch[1].split(",").map((c) => c.trim().replace(/"/g, ""));
           const row: Record<string, unknown> = {};
           for (let i = 0; i < cols.length; i++) {
-            row[cols[i] as string] = params?.[i];
+            row[cols[i] as string] = params[i];
           }
 
           if (query.includes("ON CONFLICT")) {
             const keyCol = cols[0] as string;
             const existing = tables[tableName].findIndex((r) => r[keyCol] === row[keyCol]);
             if (existing >= 0) {
+              // EXCLUDED-style: reuse the same INSERT values for non-key columns
               const nonKeyCols = cols.filter((c) => c !== keyCol);
-              for (let i = 0; i < nonKeyCols.length; i++) {
-                row[nonKeyCols[i] as string] = params?.[cols.length + i];
+              for (const c of nonKeyCols) {
+                const idx = cols.indexOf(c);
+                (tables[tableName][existing] as Record<string, unknown>)[c] = params[idx];
               }
-              tables[tableName][existing] = row;
             } else {
               tables[tableName].push(row);
             }
@@ -203,11 +204,11 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
           return [];
         }
 
-        if (query.startsWith("SELECT")) {
+        if (query.trimStart().startsWith("SELECT")) {
           const tableMatch = query.match(/FROM "(\w+)"/);
           const tableName = tableMatch?.[1] ?? "";
           const rows = tables[tableName] ?? [];
-          const keyParam = params?.[0];
+          const keyParam = params[0];
           return rows
             .filter((r) => {
               const whereMatch = query.match(/WHERE "(\w+)" = \$1/);
@@ -219,9 +220,7 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
 
         return [];
       },
-    };
-
-    return sql;
+    );
   }
 
   test("insert and read back JSONB array values", async () => {
@@ -319,16 +318,14 @@ describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
       }),
     });
 
-    // Capture the raw params sent to sql.unsafe
-    let capturedParams: unknown[] | undefined;
+    let capturedParams: ReadonlyArray<unknown> | undefined;
 
-    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-    const sql: any = {
-      async unsafe(_query: string, params?: unknown[]): Promise<unknown[]> {
+    const sql = createMockSql(
+      async (_query: string, params: ReadonlyArray<unknown>): Promise<unknown[]> => {
         capturedParams = params;
         return [];
       },
-    };
+    );
 
     const { adapter } = createPostgresProjectionAdapter(sql, handle);
 
@@ -358,15 +355,14 @@ describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
       }),
     });
 
-    let capturedParams: unknown[] | undefined;
+    let capturedParams: ReadonlyArray<unknown> | undefined;
 
-    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-    const sql: any = {
-      async unsafe(_query: string, params?: unknown[]): Promise<unknown[]> {
+    const sql = createMockSql(
+      async (_query: string, params: ReadonlyArray<unknown>): Promise<unknown[]> => {
         capturedParams = params;
         return [];
       },
-    };
+    );
 
     const { adapter } = createPostgresProjectionAdapter(sql, handle);
 
@@ -406,17 +402,15 @@ describe("createPostgresProjectionAdapter — numeric round-trip", () => {
 
     // Simulate what postgres.js returns for INTEGER columns: JS numbers.
     // (NUMERIC would return strings like "3" and "16", causing Zod to reject.)
-    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-    const sql: any = {
-      async unsafe(query: string, params?: unknown[]): Promise<unknown[]> {
-        if (query.startsWith("INSERT")) return [];
-        if (query.startsWith("SELECT")) {
-          // Return row with JS numbers — what postgres.js does for INTEGER
-          return [{ verseKey: params?.[0], chapter: 3, verseNumber: 16 }];
+    const sql = createMockSql(
+      async (query: string, params: ReadonlyArray<unknown>): Promise<unknown[]> => {
+        if (query.trimStart().startsWith("INSERT")) return [];
+        if (query.trimStart().startsWith("SELECT")) {
+          return [{ verseKey: params[0], chapter: 3, verseNumber: 16 }];
         }
         return [];
       },
-    };
+    );
 
     const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
 
@@ -449,16 +443,13 @@ describe("createPostgresProjectionAdapter — numeric round-trip", () => {
     });
 
     // Simulate NUMERIC behavior: postgres.js returns strings
-    // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-    const sql: any = {
-      async unsafe(query: string, _params?: unknown[]): Promise<unknown[]> {
-        if (query.startsWith("INSERT")) return [];
-        if (query.startsWith("SELECT")) {
-          return [{ verseKey: "GEN.1.1", chapter: "1" }]; // string, not number
-        }
-        return [];
-      },
-    };
+    const sql = createMockSql(async (query: string): Promise<unknown[]> => {
+      if (query.trimStart().startsWith("INSERT")) return [];
+      if (query.trimStart().startsWith("SELECT")) {
+        return [{ verseKey: "GEN.1.1", chapter: "1" }]; // string, not number
+      }
+      return [];
+    });
 
     const { get } = createPostgresProjectionAdapter(sql, handle);
 
@@ -549,12 +540,8 @@ describe("createPostgresViewGet", () => {
     key: "email",
   });
 
-  // PostgresClient is a private type in the adapter module. createPostgresViewGet
-  // only uses sql.unsafe, so a minimal stub suffices. The cast is at the test
-  // boundary — same category as queryRows in the adapter itself.
-  // biome-ignore lint/suspicious/noExplicitAny: test mock for private type
-  function createMockSql(rows: Record<string, unknown>[]): any {
-    return { unsafe: async () => rows };
+  function createViewMockSql(rows: Record<string, unknown>[]) {
+    return createMockSql(async () => rows);
   }
 
   test("returns record when row exists", async () => {
@@ -563,7 +550,7 @@ describe("createPostgresViewGet", () => {
       email: "alice@example.com",
       name: "Alice",
     };
-    const sql = createMockSql([row]);
+    const sql = createViewMockSql([row]);
     const get = createPostgresViewGet(sql, viewHandle, usersHandle);
 
     const result = await get("alice@example.com");
@@ -577,14 +564,14 @@ describe("createPostgresViewGet", () => {
     // schema.parse() must throw, ensuring DB schema drift is caught and
     // bad rows are not silently cast to T.
     const badRow = { userId: 123, email: "alice@example.com", name: "Alice" };
-    const sql = createMockSql([badRow]);
+    const sql = createViewMockSql([badRow]);
     const get = createPostgresViewGet(sql, viewHandle, usersHandle);
 
     await expect(get("alice@example.com")).rejects.toThrow();
   });
 
   test("returns ReadModelNotFound when no rows match", async () => {
-    const sql = createMockSql([]);
+    const sql = createViewMockSql([]);
     const get = createPostgresViewGet(sql, viewHandle, usersHandle);
 
     const result = await get("nobody@example.com");

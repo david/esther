@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { defineReadModel, type WhereEntry } from "../../core/read-model.js";
+import { createMockSql } from "./mock-sql.js";
 import { createPostgresProjectionAdapter } from "./read-model.js";
 
 // ── In-memory SQL harness ────────────────────────────────────────────
@@ -98,7 +99,7 @@ function createHarness(jsonbCols: Set<string> = new Set()): {
   async function unsafe(query: string, params: ReadonlyArray<unknown> = []): Promise<unknown[]> {
     log.push({ query, params });
 
-    if (query.startsWith("INSERT")) {
+    if (query.trimStart().startsWith("INSERT")) {
       const tableMatch = query.match(/INTO "(\w+)"/);
       const tableName = tableMatch?.[1] ?? "";
       if (!tables[tableName]) tables[tableName] = [];
@@ -116,7 +117,7 @@ function createHarness(jsonbCols: Set<string> = new Set()): {
       return [];
     }
 
-    if (query.startsWith("SELECT")) {
+    if (query.trimStart().startsWith("SELECT")) {
       const tableMatch = query.match(/FROM "(\w+)"/);
       const tableName = tableMatch?.[1] ?? "";
       const rows = tables[tableName] ?? [];
@@ -132,8 +133,11 @@ function createHarness(jsonbCols: Set<string> = new Set()): {
       const orderMatch = query.match(/ORDER BY\s+"(\w+)"/);
       if (orderMatch?.[1]) orderByCol = orderMatch[1];
 
-      const limitMatch = query.match(/LIMIT\s+(\d+)/);
-      if (limitMatch?.[1]) limit = Number(limitMatch[1]);
+      const limitMatch = query.match(/LIMIT\s+(\$\d+|\d+)/);
+      if (limitMatch?.[1]) {
+        const raw = limitMatch[1];
+        limit = raw.startsWith("$") ? (resolveParam(raw, params) as number) : Number(raw);
+      }
 
       let result = rows.filter((r) => matchWhere(r, whereSql, params));
 
@@ -151,7 +155,7 @@ function createHarness(jsonbCols: Set<string> = new Set()): {
     return [];
   }
 
-  const sql = { unsafe };
+  const sql = createMockSql(unsafe);
   return { sql, log };
 }
 
@@ -287,7 +291,7 @@ describe("createPostgresProjectionAdapter — query", () => {
     const selectLog = log.find((l) => l.query.startsWith("SELECT") && l.query.includes("ORDER BY"));
     expect(selectLog).toBeDefined();
     expect(selectLog?.query).toContain('ORDER BY "age"');
-    expect(selectLog?.query).toContain("LIMIT 2");
+    expect(selectLog?.query).toMatch(/LIMIT \$\d+/);
   });
 
   test("combined entries with equality + range binds each value separately", async () => {

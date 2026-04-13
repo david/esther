@@ -13,9 +13,9 @@ import { ConstraintError, EventId, type StoredEvent } from "../../core/types.js"
 
 type PostgresTransactionClient = {
   // biome-ignore lint/suspicious/noExplicitAny: postgres PendingQuery has private `then` — not structurally Promise or PromiseLike
-  readonly unsafe: (query: string, params?: any[]) => any;
-  // biome-ignore lint/suspicious/noExplicitAny: same — postgres PendingQuery
   (template: TemplateStringsArray, ...values: unknown[]): any;
+  // biome-ignore lint/suspicious/noExplicitAny: postgres helper — identifiers sql('table'), column lists sql(['a','b']), object helpers sql(obj, ...keys)
+  (first: string | readonly string[] | Record<string, unknown>, ...rest: string[]): any;
 };
 
 type PostgresClient = PostgresTransactionClient & {
@@ -28,8 +28,8 @@ type HandlerRegistration<T> = {
 };
 
 // ── SQL boundary ───────────────────────────────────────────────────────
-// sql.unsafe returns unknown[]. This is the single place where we assert
-// the row shape. Every query in this module goes through this helper.
+// Tagged template queries return unknown[]. This is the single place
+// where we assert the row shape.
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function queryRows<T>(raw: unknown[]): T[] {
@@ -79,17 +79,17 @@ async function fetchEventRows(
   sql: PostgresClient,
   tags: ReadonlyArray<string>,
 ): Promise<EventRow[]> {
-  const tagConditions = tags.map((_, i) => `tags @> $${i + 1}::jsonb`);
-  const tagParams = tags.map((t) => [t]);
+  let where = sql`tags @> ${[tags[0]]}::jsonb`;
+  for (let i = 1; i < tags.length; i++) {
+    where = sql`${where} AND tags @> ${[tags[i]]}::jsonb`;
+  }
 
   return queryRows<EventRow>(
-    await sql.unsafe(
-      `SELECT id, type, tags, payload, position, timestamp
-       FROM events
-       WHERE ${tagConditions.join(" AND ")}
-       ORDER BY position ASC`,
-      tagParams,
-    ),
+    await sql`
+      SELECT id, type, tags, payload, position, timestamp
+      FROM events
+      WHERE ${where}
+      ORDER BY position ASC`,
   );
 }
 
@@ -111,7 +111,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         const stored = await sql.begin(async (tx) => {
           // 1. Get next position (no FOR UPDATE)
           const posResult = queryRows<{ pos: string }>(
-            await tx.unsafe(`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
+            await tx`SELECT COALESCE(MAX(position), -1) as pos FROM events`,
           );
           let nextPos = BigInt(posResult[0]?.pos ?? "-1") + 1n;
 
@@ -123,17 +123,9 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
             const position = nextPos;
             nextPos += 1n;
 
-            await tx.unsafe(
-              `INSERT INTO events (id, type, tags, payload, position, timestamp)
-               VALUES ($1, $2, $3, $4, $5, NOW())`,
-              [
-                id,
-                event.type,
-                event.tags,
-                event.payload,
-                position.toString(),
-              ],
-            );
+            await tx`
+              INSERT INTO events (id, type, tags, payload, position, timestamp)
+              VALUES (${id}, ${event.type}, ${event.tags}, ${event.payload}, ${position.toString()}, NOW())`;
 
             results.push({
               id: EventId(id),
