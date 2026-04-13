@@ -46,7 +46,7 @@ export async function executeCommand<
     validationErrors.push(...predicate(ctx));
   }
   if (validationErrors.length > 0) {
-    return finishCommand(slice, slice.outputErr(validationErrors, ctx));
+    return finishCommand(slice, slice.outputErr(validationErrors as [TError, ...TError[]], ctx));
   }
 
   // 4. Construct event

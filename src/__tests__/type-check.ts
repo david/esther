@@ -59,8 +59,6 @@ const BookingCreatedSchema = z.object({
   }),
 });
 
-type BookingCreatedEvent = z.infer<typeof BookingCreatedSchema>;
-
 const propertySchemas = [BookingCreatedSchema];
 
 const propertyReducer = (state: PropertyState, event: StoredEvent): PropertyState => {
@@ -204,7 +202,7 @@ const _createBookingSlice = defineCommandSlice<
     }),
 
   outputErr: {
-    PropertyUnavailable: (errors, _ctx) => err(errors[0]!),
+    PropertyUnavailable: (errors) => err(errors[0]),
   },
 });
 

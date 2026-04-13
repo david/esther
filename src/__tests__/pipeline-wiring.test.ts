@@ -110,7 +110,7 @@ describe("command pipeline v2 — wiring", () => {
         throw new Error("event() must not run");
       },
       output: (_event, _ctx) => ok({}),
-      outputErr: { rate: (errors, _ctx) => ok({ failed: errors[0]!.type }) },
+      outputErr: { rate: (errors, _ctx) => ok({ failed: errors[0].type }) },
     });
 
     const { app, eventStore } = buildAppWith(slice);
@@ -174,7 +174,7 @@ describe("command pipeline v2 — wiring", () => {
       outputErr: {
         NotFound: (errors, _ctx) => {
           outputErrCalled += 1;
-          const code: string = errors[0]!.type;
+          const code: string = errors[0].type;
           return ok({ status: "absent", code });
         },
       },
@@ -215,7 +215,7 @@ describe("command pipeline v2 — wiring", () => {
         outputCalled = true;
         throw new Error("output() must not run");
       },
-      outputErr: { rate: (errors, _ctx) => ok({ failed: errors[0]!.type }) },
+      outputErr: { rate: (errors, _ctx) => ok({ failed: errors[0].type }) },
     });
 
     const { app } = buildAppWith(slice);
@@ -407,7 +407,7 @@ describe("command pipeline v2 — wiring", () => {
       validate: [(_ctx) => [{ type: "rate" as const, code: "X" as const }]],
       event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
       output: (_event, _ctx) => ok({}),
-      outputErr: { rate: (errors, _ctx) => err<never, RateErr>(errors[0]!) },
+      outputErr: { rate: (errors) => err<never, RateErr>(errors[0]) },
     });
 
     const { app } = buildAppWith(slice);

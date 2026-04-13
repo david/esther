@@ -86,12 +86,6 @@ async function loadAccountCtx<TCtx extends { readonly accountId: string }>(
 
 type DepositCtx = DepositInput & { readonly account: Balance };
 
-type DepositError = {
-  readonly type: "InsufficientFunds";
-  code: "INSUFFICIENT_FUNDS";
-  message: string;
-};
-
 const depositSlice = defineCommandSlice<
   DepositInput,
   DepositCtx,
@@ -164,7 +158,7 @@ const withdrawSlice = defineCommandSlice<
     ok({
       account: { balance: ctx.account.balance - event.payload.amount },
     }),
-  outputErr: { InsufficientFunds: (errors, _ctx) => err(errors[0]!) },
+  outputErr: { InsufficientFunds: (errors) => err(errors[0]) },
 });
 
 // ── readBalance helper ────────────────────────────────────────────────
@@ -250,7 +244,7 @@ const rejectSlice = defineCommandSlice<
     throw new Error("should not reach event");
   },
   output: (_event, _ctx) => ok({ rejected: false }),
-  outputErr: { AlwaysFails: (errors, _ctx) => err(errors[0]!) },
+  outputErr: { AlwaysFails: (errors) => err(errors[0]) },
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────

@@ -319,7 +319,10 @@ export type ValidatePredicate<TCtx, TError> = (ctx: TCtx) => ReadonlyArray<TErro
 
 export type OutputErrHandlers<TError extends { readonly type: string }, TOutput, TCtx, TInput> = {
   readonly [K in TError["type"]]: (
-    errors: ReadonlyArray<Extract<TError, { readonly type: K }>>,
+    errors: readonly [
+      Extract<TError, { readonly type: K }>,
+      ...Extract<TError, { readonly type: K }>[],
+    ],
     ctx: TCtx | TInput,
   ) => Result<TOutput, TError>;
 };
@@ -331,9 +334,9 @@ function normalizeOutputErrHandlers<
   TInput,
 >(
   handlers: OutputErrHandlers<TError, TOutput, TCtx, TInput>,
-): (errors: ReadonlyArray<TError>, ctx: TCtx | TInput) => Result<TOutput, TError> {
+): (errors: readonly [TError, ...TError[]], ctx: TCtx | TInput) => Result<TOutput, TError> {
   return (errors, ctx) => {
-    const groups = new Map<string, TError[]>();
+    const groups = new Map<string, [TError, ...TError[]]>();
     for (const e of errors) {
       const existing = groups.get(e.type);
       if (existing) existing.push(e);
@@ -347,7 +350,7 @@ function normalizeOutputErrHandlers<
       if (result.isErr()) return result;
       if (!firstOk) firstOk = result;
     }
-    return firstOk ?? err(errors[0] as TError);
+    return firstOk ?? err(errors[0]);
   };
 }
 
@@ -366,7 +369,7 @@ export type CommandSlice<
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
   readonly outputErr: (
-    errors: ReadonlyArray<TError>,
+    errors: readonly [TError, ...TError[]],
     ctx: TCtx | TInput,
   ) => Result<TOutput, TError>;
 };
@@ -432,7 +435,7 @@ export function defineCommandSlice<
     ? normalizeOutputErrHandlers(
         definition.outputErr as OutputErrHandlers<TError, TOutput, TCtx, TInput>,
       )
-    : (_errors: ReadonlyArray<TError>, _ctx: TCtx | TInput) => err(_errors[0]!);
+    : ([first]: readonly [TError, ...TError[]]) => err(first);
 
   const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {
     _tag: "command",

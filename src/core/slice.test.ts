@@ -151,7 +151,7 @@ describe("defineCommandSlice outputErr", () => {
       },
     });
 
-    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "NoUser" }];
+    const errors: [TestError, ...TestError[]] = [{ type: "NoUser" }, { type: "NoUser" }];
     const result = slice.outputErr(errors, { email: "test@example.com" });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
@@ -168,7 +168,7 @@ describe("defineCommandSlice outputErr", () => {
       },
     });
 
-    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "RateLimited" }];
+    const errors: [TestError, ...TestError[]] = [{ type: "NoUser" }, { type: "RateLimited" }];
     const result = slice.outputErr(errors, { email: "test@example.com" });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
@@ -185,7 +185,7 @@ describe("defineCommandSlice outputErr", () => {
       },
     });
 
-    const errors: ReadonlyArray<TestError> = [{ type: "NoUser" }, { type: "RateLimited" }];
+    const errors: [TestError, ...TestError[]] = [{ type: "NoUser" }, { type: "RateLimited" }];
     const result = slice.outputErr(errors, { email: "test@example.com" });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
