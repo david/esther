@@ -10,12 +10,12 @@ import { ok, err } from "neverthrow";
 import {
   compose, castTagQuery, generate,
   state, tagQuery, projection,
-  defineReadModel,
+  defineReadModel, defineReadModelQuery,
   defineCommandSlice, defineQuerySlice,
   createApp,
   createInMemoryEventStore, createInMemoryProjectionAdapter, createInMemoryAdapter,
 } from "esther";
-import type { DomainEvent, StoredEvent, ReadModelHandle } from "esther";
+import type { DomainEvent, StoredEvent, ReadModelHandle, ReadModelQueryHandle } from "esther";
 ```
 
 ## Events
@@ -58,6 +58,45 @@ const orderSummaryModel = defineReadModel({
 ```
 
 Schema fields must be `z.string()`, `z.number()`, `z.boolean()`, `z.string().uuid()`, or `z.string().datetime()`. The `key` must reference a field in the schema. The `name` must match `[a-zA-Z][a-zA-Z0-9_]*`.
+
+### Read model queries
+
+Use `defineReadModelQuery` for parameterized lookups against a read model. Query logic (where/orderBy/limit) is encapsulated in the definition — consumers pass typed arguments, never inline query logic.
+
+```typescript
+// Alternate-key lookup (replaces defineReadModelView)
+const usersByEmail = defineReadModelQuery({
+  name: "users_by_email",
+  source: usersModel,
+  args: z.object({ email: z.string() }),
+  resolve: (args) => ({ where: { email: args.email }, limit: 1 }),
+});
+
+// Parameterized query
+const latestOrderOfWorship = defineReadModelQuery({
+  name: "latest_order_of_worship",
+  source: orderOfWorshipModel,
+  args: z.object({ asOf: z.string().datetime() }),
+  resolve: (args) => ({
+    where: { service_at: { lte: args.asOf } },
+    orderBy: "service_at",
+    limit: 1,
+  }),
+});
+```
+
+Use query models in `projection()` steps by passing `args` instead of `id`:
+
+```typescript
+projection({
+  key: "user" as const,
+  model: usersByEmail,
+  args: (ctx) => ({ email: ctx.email }),
+  required: true,
+})
+```
+
+**Never write query logic (WHERE, ORDER BY, filtering) inline in a slice.** If you need a filtered or sorted lookup, define a `defineReadModelQuery` and reference it by name.
 
 Use `handle.project(value, operation?)` in projectors to build a `ProjectionResult`:
 
@@ -175,7 +214,7 @@ defineQuerySlice({
 ```
 
 - `tagQuery`: queries events by tag intersection, folds to state.
-- `projection`: fetches a read model by id. `required: true` → fails on missing. `required: false` (default) → wraps as `Result<T, ReadModelNotFound>`.
+- `projection`: fetches a read model row. Pass `id` for direct key lookup, or `args` for a `defineReadModelQuery` model. `required: true` → fails on missing. `required: false` (default) → wraps as `Result<T, ReadModelNotFound>`.
 - `generate`: adds a derived value (sync or async) to the context.
 
 ## Projectors and processors
@@ -294,6 +333,7 @@ The Fastify adapter maps `ConstraintError` to HTTP 409, `SchemaError` to 400, an
 9. The `output(event, ctx)` function shapes the command result from the appended event and the final context. `outputErr(error, ctx)` maps `input`/`validate` errors.
 10. Define read models with `defineReadModel` and use the returned handle in both projectors and `projection()` steps.
 11. App modules (slices, projectors, processors) must not do I/O directly. Declare dependencies; return effects.
+12. Query logic belongs in read model definitions. Never write WHERE/ORDER BY/filtering inline in a slice — encapsulate it in a `defineReadModelQuery`.
 
 ## Full example
 

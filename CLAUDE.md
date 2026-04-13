@@ -19,6 +19,15 @@ Slices, read models, projectors, and processors must never talk to the outside w
 
 No `async` functions or direct adapter calls inside app module definitions. If a module needs external data, extend the framework's declarative DSL.
 
+## Query logic belongs in read model definitions
+
+When a slice needs a filtered, sorted, or parameterized lookup against a read model, that query logic must be encapsulated in a named read model definition — not written inline in the consumer. Consumers pass arguments; the definition owns the query.
+
+- **Right**: define `latestOrderOfWorship` as a read model query that accepts `asOf` and encapsulates the where/orderBy/limit logic. Consumer calls `projection()` with args.
+- **Wrong**: use `generate()` with raw SQL or inline query logic in a slice to fetch "the latest order of worship."
+
+This is the same principle as no-direct-I/O, applied to read model access patterns. If you find yourself writing query logic (WHERE, ORDER BY, filtering) inside a slice, extract it into a `defineReadModelQuery`.
+
 ## Cast policy
 
 Casts (`as`) are only permitted at these boundaries:
@@ -48,7 +57,7 @@ src/
 ├── core/
 │   ├── types.ts          # Branded types, DomainEvent, StoredEvent, errors
 │   ├── event-store.ts    # EventStore interface, EventFilter, hooks
-│   ├── read-model.ts     # defineReadModel, ReadModelHandle, ProjectionAdapter, ProjectionResult
+│   ├── read-model.ts     # defineReadModel, defineReadModelQuery, ReadModelHandle, ReadModelQueryHandle, ProjectionAdapter, ProjectionResult
 │   ├── effect-adapter.ts # EffectAdapter + registry
 │   ├── slice.ts          # defineCommandSlice/QuerySlice, castTagQuery, state()/tagQuery()/projection()/generate() (query-slice DSL), ProjectionStore
 │   ├── compose.ts        # compose(), Step, StepError (command-slice input pipeline)
