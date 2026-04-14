@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent } from "../index.ts";
+import type { DomainEvent } from "../index";
 import {
   createApp,
   createInMemoryAdapter,
@@ -15,7 +15,7 @@ import {
   ReadModelNotFound,
   type SliceDeps,
   state,
-} from "../index.ts";
+} from "../index";
 
 // ── Test domain ──────────────────────────────────────────────────────
 

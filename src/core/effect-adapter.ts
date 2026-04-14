@@ -1,4 +1,4 @@
-import type { EffectResult } from "./types.ts";
+import type { EffectResult } from "./types";
 
 // ── Effect adapter ─────────────────────────────────────────────────────
 // The execute return is unknown because each adapter produces its own

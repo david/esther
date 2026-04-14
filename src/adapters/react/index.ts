@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { NotifyingReadModelStore } from "./notifying-adapter.ts";
+import type { NotifyingReadModelStore } from "./notifying-adapter";
 
 // ── Projection state ──────────────────────────────────────────────────
 
@@ -108,4 +108,4 @@ export {
   createNotifyingReadModelStore,
   type NotifyingReadModelStore,
   type ReadModelStore,
-} from "./notifying-adapter.ts";
+} from "./notifying-adapter";

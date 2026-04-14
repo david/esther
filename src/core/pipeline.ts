@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow";
-import type { EventStore } from "./event-store.ts";
-import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice.ts";
-import { type DomainEvent, SchemaError, type SliceError } from "./types.ts";
+import type { EventStore } from "./event-store";
+import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice";
+import { type DomainEvent, SchemaError, type SliceError } from "./types";
 
 // ── Command pipeline ───────────────────────────────────────────────────
 // Executes a CommandSlice in the order:

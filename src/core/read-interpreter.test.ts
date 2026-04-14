@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok } from "neverthrow";
 import { z } from "zod";
-import { createInMemoryEventStore } from "../adapters/in-memory/event-store.ts";
-import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.ts";
-import { createReadInterpreter } from "./read-interpreter.ts";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
+import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
+import { createReadInterpreter } from "./read-interpreter";
 import {
   defineReadModel,
   eventsByTagsDescriptor,
   getDescriptor,
   type ProjectionQueryAdapter,
   queryDescriptor,
-} from "./read-model.ts";
-import type { ProjectionStore } from "./slice.ts";
+} from "./read-model";
+import type { ProjectionStore } from "./slice";
 
 // ── Test utilities ───────────────────────────────────────────────────
 

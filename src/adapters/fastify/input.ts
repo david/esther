@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { DispatchFn, InputAdapter } from "../in-memory/input-adapter.ts";
+import type { DispatchFn, InputAdapter } from "../in-memory/input-adapter";
 
 export type FastifyAdapterConfig = {
   readonly port: number;

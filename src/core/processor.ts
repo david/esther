@@ -1,7 +1,7 @@
 import type { z } from "zod";
-import type { ReadInterpreter } from "./read-interpreter.ts";
-import type { ReadDescriptor } from "./read-model.ts";
-import type { EffectResult, StoredEvent } from "./types.ts";
+import type { ReadInterpreter } from "./read-interpreter";
+import type { ReadDescriptor } from "./read-model";
+import type { EffectResult, StoredEvent } from "./types";
 
 // ── Types ────────────────────────────────────────────────────────────────
 

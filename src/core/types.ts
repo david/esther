@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { ReadModelNotFound } from "./read-model.ts";
+import type { ReadModelNotFound } from "./read-model";
 
 // ── Branded types ──────────────────────────────────────────────────────
 

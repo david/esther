@@ -1,2 +1,2 @@
-export type { FastifyAdapterConfig, FastifyInputAdapter } from "./input.ts";
-export { createFastifyInputAdapter } from "./input.ts";
+export type { FastifyAdapterConfig, FastifyInputAdapter } from "./input";
+export { createFastifyInputAdapter } from "./input";

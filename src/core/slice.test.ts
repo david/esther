@@ -1,11 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import { createInMemoryEventStore } from "../adapters/in-memory/event-store.ts";
-import { compose, type Step } from "./compose.ts";
-import { defineReadModel, defineReadModelQuery } from "./read-model.ts";
-import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice.ts";
-import type { DomainEvent } from "./types.ts";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
+import { compose, type Step } from "./compose";
+import { defineReadModel, defineReadModelQuery } from "./read-model";
+import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice";
+import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 

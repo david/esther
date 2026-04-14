@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { createInMemoryEventStore } from "../adapters/in-memory/event-store.ts";
-import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.ts";
-import { createApp } from "./app.ts";
-import type { EffectAdapter } from "./effect-adapter.ts";
-import { defineProcessor } from "./processor.ts";
-import { defineReadModel, getDescriptor } from "./read-model.ts";
-import type { EffectResult } from "./types.ts";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
+import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
+import { createApp } from "./app";
+import type { EffectAdapter } from "./effect-adapter";
+import { defineProcessor } from "./processor";
+import { defineReadModel, getDescriptor } from "./read-model";
+import type { EffectResult } from "./types";
 
 // ── Test helpers ────────────────────────────────────────────────────────
 
@@ -184,7 +184,8 @@ describe("defineProcessor", () => {
         {
           schema: TestEventSchema,
           handler: () => {
-            // intentionally returns void
+            // intentionally produces no effect
+            return undefined;
           },
         },
       ],
@@ -222,7 +223,7 @@ describe("defineProcessor", () => {
         events: [
           {
             schema: BadSchema,
-            handler: () => {},
+            handler: () => undefined,
           },
         ],
       }),

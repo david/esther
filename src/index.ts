@@ -6,9 +6,9 @@ export {
   createInMemoryEventStore,
   type DispatchFn,
   type InMemoryInputAdapter,
-} from "./adapters/in-memory/index.ts";
+} from "./adapters/in-memory/index";
 // ── In-memory projection adapter ──────────────────────────────────────
-export { createInMemoryProjectionAdapter } from "./adapters/in-memory/read-model.ts";
+export { createInMemoryProjectionAdapter } from "./adapters/in-memory/read-model";
 // ── App ────────────────────────────────────────────────────────────────
 export {
   type App,
@@ -17,15 +17,15 @@ export {
   type ProjectionAdapterEntry,
   type ProjectionAdapterTableEntry,
   type ProjectionAdapterViewEntry,
-} from "./core/app.ts";
+} from "./core/app";
 // ── Compose / Step primitives ──────────────────────────────────────────
-export { compose, type InputPipeline, type Step, type StepError } from "./core/compose.ts";
+export { compose, type InputPipeline, type Step, type StepError } from "./core/compose";
 // ── Effect adapters ────────────────────────────────────────────────────
 export {
   createEffectAdapterRegistry,
   type EffectAdapter,
   type EffectAdapterRegistry,
-} from "./core/effect-adapter.ts";
+} from "./core/effect-adapter";
 // ── Event store ────────────────────────────────────────────────────────
 export type {
   ConstraintMetadata,
@@ -33,21 +33,21 @@ export type {
   EventStore,
   OnAfterCommitHandler,
   OnAfterInsertHandler,
-} from "./core/event-store.ts";
+} from "./core/event-store";
 // ── Pipeline ───────────────────────────────────────────────────────────
-export { executeCommand, executeQuery } from "./core/pipeline.ts";
+export { executeCommand, executeQuery } from "./core/pipeline";
 // ── Processor ──────────────────────────────────────────────────────────
 export {
   defineProcessor,
   type Processor,
   type ProcessorEventBinding,
-} from "./core/processor.ts";
+} from "./core/processor";
 // ── Read interpreter ───────────────────────────────────────────────────
 export {
   createReadInterpreter,
   type ReadInterpreter,
   type ReadInterpreterDeps,
-} from "./core/read-interpreter.ts";
+} from "./core/read-interpreter";
 // ── Read model ─────────────────────────────────────────────────────────
 export {
   type Constraints,
@@ -74,7 +74,7 @@ export {
   type WhereEntry,
   type WhereIn,
   type WhereRange,
-} from "./core/read-model.ts";
+} from "./core/read-model";
 // ── Slice definitions ──────────────────────────────────────────────────
 export {
   type CastTagQueryDescriptor,
@@ -100,7 +100,7 @@ export {
   type TagQueryStep,
   tagQuery,
   type ValidatePredicate,
-} from "./core/slice.ts";
+} from "./core/slice";
 export {
   type AppendResult,
   ConstraintError,
@@ -113,4 +113,4 @@ export {
   type StoredEvent,
   type TagQueryResult,
   type ValidationError,
-} from "./core/types.ts";
+} from "./core/types";

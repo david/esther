@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { defineReadModel } from "../../core/read-model.ts";
-import { createMockSql } from "./mock-sql.ts";
-import { generateCreateTableDDL } from "./read-model.ts";
+import { defineReadModel } from "../../core/read-model";
+import { createMockSql } from "./mock-sql";
+import { generateCreateTableDDL } from "./read-model";
 
 // ── generateCreateTableDDL ─────────────────────────────────────────
 

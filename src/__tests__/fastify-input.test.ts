@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
-import { createFastifyInputAdapter } from "../adapters/fastify/input.ts";
-import { ReadModelNotFound } from "../core/read-model.ts";
-import type { ConstraintError, SchemaError } from "../core/types.ts";
+import { createFastifyInputAdapter } from "../adapters/fastify/input";
+import { ReadModelNotFound } from "../core/read-model";
+import type { ConstraintError, SchemaError } from "../core/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

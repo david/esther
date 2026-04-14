@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { defineReadModel, type WhereEntry } from "../../core/read-model.ts";
-import { createMockSql } from "./mock-sql.ts";
-import { createPostgresProjectionAdapter } from "./read-model.ts";
+import { defineReadModel, type WhereEntry } from "../../core/read-model";
+import { createMockSql } from "./mock-sql";
+import { createPostgresProjectionAdapter } from "./read-model";
 
 // ── In-memory SQL harness ────────────────────────────────────────────
 //
