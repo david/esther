@@ -1,9 +1,9 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 import React from "react";
-import { createInMemoryReadModelStore } from "./notifying-adapter.ts";
-import { EstherProvider, useDispatch, useProjection } from "./index.ts";
-import { createNotifyingReadModelStore } from "./notifying-adapter.ts";
+import { createInMemoryReadModelStore } from "./notifying-adapter";
+import { EstherProvider, useDispatch, useProjection } from "./index";
+import { createNotifyingReadModelStore } from "./notifying-adapter";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
