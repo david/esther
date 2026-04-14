@@ -298,11 +298,17 @@ describe("createPostgresProjectionAdapter — JSONB round-trip", () => {
 
 // ── JSONB double-encoding regression ──────────────────────────────
 
-describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
-  // This test verifies the adapter passes raw JS values for JSONB columns
-  // to postgres.js (which serializes JSONB natively), rather than calling
-  // JSON.stringify which would double-encode arrays/objects into strings.
-  test("JSONB array column is passed as raw array, not a JSON string", async () => {
+describe("createPostgresProjectionAdapter — JSONB sql.json wrapping", () => {
+  // The postgres.js object helper `sql(obj, ...keys)` serializes values by
+  // their JS type. A JS array becomes a PG array (not JSON), which lands in
+  // a JSONB column as a JSONB string like "[]". To get real JSON encoding
+  // the adapter must wrap each JSONB-column value with `sql.json(value)`.
+  //
+  // The mock's `sql.json` unwraps back to the raw value in captured params
+  // (so round-trip tests still see raw JS values) but records the call so
+  // tests can assert the wrapping was applied for the right columns.
+
+  test("insert: JSONB array column is wrapped with sql.json()", async () => {
     const { createPostgresProjectionAdapter } = await import("./read-model.js");
 
     const handle = defineReadModel({
@@ -310,6 +316,7 @@ describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
       key: "id",
       schema: z.object({
         id: z.string().uuid(),
+        title: z.string(),
         items: z.array(z.object({ name: z.string() })),
       }),
     });
@@ -327,19 +334,25 @@ describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
 
     const items = [{ name: "Hymn" }, { name: "Prayer" }];
     const projection = handle.project(
-      { id: "550e8400-e29b-41d4-a716-446655440000", items },
+      { id: "550e8400-e29b-41d4-a716-446655440000", title: "Sunday", items },
       "insert",
     );
 
     await adapter.execute(projection);
 
-    // The items param (index 1) must be the raw array, not a JSON string
+    // sql.json was called with the items array
+    expect(sql.json.calls).toContainEqual(items);
+    // Non-JSONB columns (id, title) were NOT wrapped
+    expect(sql.json.calls).not.toContainEqual("550e8400-e29b-41d4-a716-446655440000");
+    expect(sql.json.calls).not.toContainEqual("Sunday");
+
+    // Captured params still surface the raw JS values (mock unwraps)
     expect(capturedParams).toBeDefined();
-    expect(capturedParams?.[1]).toEqual(items);
-    expect(typeof capturedParams?.[1]).not.toBe("string");
+    expect(capturedParams).toContainEqual(items);
+    expect(typeof capturedParams?.find((p) => Array.isArray(p))).not.toBe("string");
   });
 
-  test("JSONB object column is passed as raw object, not a JSON string", async () => {
+  test("insert: JSONB object column is wrapped with sql.json()", async () => {
     const { createPostgresProjectionAdapter } = await import("./read-model.js");
 
     const handle = defineReadModel({
@@ -370,9 +383,122 @@ describe("createPostgresProjectionAdapter — JSONB no double-encoding", () => {
 
     await adapter.execute(projection);
 
+    expect(sql.json.calls).toContainEqual(config);
     expect(capturedParams).toBeDefined();
-    expect(capturedParams?.[1]).toEqual(config);
-    expect(typeof capturedParams?.[1]).not.toBe("string");
+    expect(capturedParams).toContainEqual(config);
+  });
+
+  test("upsert: JSONB array column is wrapped with sql.json() on the INSERT side", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "oow",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        blocks: z.array(z.object({ type: z.string() })),
+      }),
+    });
+
+    const sql = createMockSql(async (): Promise<unknown[]> => []);
+
+    const { adapter } = createPostgresProjectionAdapter(sql, handle);
+
+    const blocks = [{ type: "song" }];
+    const projection = handle.project(
+      { id: "550e8400-e29b-41d4-a716-446655440000", blocks },
+      "upsert",
+    );
+
+    await adapter.execute(projection);
+
+    expect(sql.json.calls).toContainEqual(blocks);
+  });
+
+  test("upsert: empty JSONB array is still wrapped with sql.json()", async () => {
+    // This is the exact scenario that produced "[]" as a JSONB string in
+    // order_of_worship.blocks rows in production.
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "oow",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        blocks: z.array(z.object({ type: z.string() })),
+      }),
+    });
+
+    const sql = createMockSql(async (): Promise<unknown[]> => []);
+
+    const { adapter } = createPostgresProjectionAdapter(sql, handle);
+
+    const projection = handle.project(
+      { id: "550e8400-e29b-41d4-a716-446655440000", blocks: [] },
+      "upsert",
+    );
+
+    await adapter.execute(projection);
+
+    expect(sql.json.calls).toContainEqual([]);
+  });
+
+  test("update: JSONB object column is wrapped with sql.json()", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "prefs",
+      key: "id",
+      schema: z.object({
+        id: z.string().uuid(),
+        config: z.object({ locale: z.string() }),
+      }),
+    });
+
+    // Update path requires RETURNING to yield at least one row.
+    const sql = createMockSql(
+      async (query: string): Promise<unknown[]> =>
+        query.trimStart().startsWith("UPDATE") || query.includes("RETURNING")
+          ? [{ id: "550e8400-e29b-41d4-a716-446655440000" }]
+          : [],
+    );
+
+    const { adapter } = createPostgresProjectionAdapter(sql, handle);
+
+    const config = { locale: "fr-FR" };
+    const projection = handle.project(
+      { id: "550e8400-e29b-41d4-a716-446655440000", config },
+      "update",
+    );
+
+    await adapter.execute(projection);
+
+    expect(sql.json.calls).toContainEqual(config);
+  });
+
+  test("non-JSONB columns are not wrapped with sql.json()", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "counter",
+      key: "id",
+      schema: z.object({
+        id: z.string(),
+        label: z.string(),
+        count: z.number(),
+        active: z.boolean(),
+      }),
+    });
+
+    const sql = createMockSql(async (): Promise<unknown[]> => []);
+
+    const { adapter } = createPostgresProjectionAdapter(sql, handle);
+
+    const projection = handle.project({ id: "a", label: "hits", count: 5, active: true }, "insert");
+
+    await adapter.execute(projection);
+
+    expect(sql.json.calls).toEqual([]);
   });
 });
 

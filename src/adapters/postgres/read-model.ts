@@ -16,6 +16,9 @@ type PostgresTransactionClient = {
   (template: TemplateStringsArray, ...values: unknown[]): any;
   // biome-ignore lint/suspicious/noExplicitAny: postgres helper — identifiers sql('table'), column lists sql(['a','b']), object helpers sql(obj, ...keys)
   (first: string | readonly string[] | Record<string, unknown>, ...rest: string[]): any;
+  // postgres.js `sql.json(value)` — marks a value so postgres.js serializes it
+  // as JSON (for JSONB columns) rather than by JS type (arrays → PG arrays).
+  readonly json: (value: unknown) => unknown;
 };
 
 type PostgresClient = PostgresTransactionClient & {
@@ -155,8 +158,26 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
   const columns = Object.keys(schema.shape);
   const nonKeyColumns = columns.filter((c) => c !== key);
 
+  // JSONB columns must be wrapped with `sql.json(...)` so postgres.js
+  // serializes them as JSON rather than by JS type (a JS array would be
+  // sent as a PG array and land in a JSONB column as a JSONB string).
+  const jsonbColumns = new Set(
+    columns.filter((c) => {
+      const fieldType = schema.shape[c];
+      if (fieldType === undefined) return false;
+      const typeName = getZodTypeName(fieldType);
+      return typeName === "ZodArray" || typeName === "ZodObject";
+    }),
+  );
+
   function asRecord(value: T): Record<string, unknown> {
-    return value as Record<string, unknown>;
+    const raw = value as Record<string, unknown>;
+    if (jsonbColumns.size === 0) return raw;
+    const out: Record<string, unknown> = { ...raw };
+    for (const col of jsonbColumns) {
+      out[col] = sql.json(out[col]);
+    }
+    return out;
   }
 
   const adapter: ProjectionAdapter<T> = {
