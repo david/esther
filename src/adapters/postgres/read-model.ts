@@ -18,7 +18,8 @@ type PostgresTransactionClient = {
   (first: string | readonly string[] | Record<string, unknown>, ...rest: string[]): any;
   // postgres.js `sql.json(value)` — marks a value so postgres.js serializes it
   // as JSON (for JSONB columns) rather than by JS type (arrays → PG arrays).
-  readonly json: (value: unknown) => unknown;
+  // biome-ignore lint/suspicious/noExplicitAny: postgres.js's json() takes a narrower JSONValue; `any` keeps the structural type assignable from Sql<{}> without importing postgres's internal types.
+  readonly json: (value: any) => unknown;
 };
 
 type PostgresClient = PostgresTransactionClient & {
