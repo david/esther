@@ -5,9 +5,9 @@ import type {
   ProjectionResult,
   ReadModelHandle,
   WhereEntry,
-} from "../../core/read-model.js";
-import { ReadModelNotFound } from "../../core/read-model.js";
-import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.js";
+} from "../../core/read-model.ts";
+import { ReadModelNotFound } from "../../core/read-model.ts";
+import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.ts";
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
 

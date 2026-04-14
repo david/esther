@@ -13,7 +13,7 @@ import {
   defineReadModel,
   type RegisterableSlice,
   type Step,
-} from "../index.js";
+} from "../index.ts";
 
 // ── Probe domain ───────────────────────────────────────────────────────
 // All tests build a fake new-shape slice inline. The probe domain is the

@@ -1,15 +1,15 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
-import type { InputPipeline, Step } from "./compose.js";
-import type { EventStore } from "./event-store.js";
+import type { InputPipeline, Step } from "./compose.ts";
+import type { EventStore } from "./event-store.ts";
 import type {
   OrderDirection,
   ReadModelHandle,
   ReadModelNotFound,
   ReadModelQueryHandle,
   WhereEntry,
-} from "./read-model.js";
-import type { DomainEvent, StoredEvent, ValidationError } from "./types.js";
+} from "./read-model.ts";
+import type { DomainEvent, StoredEvent, ValidationError } from "./types.ts";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
 

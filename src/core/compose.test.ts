@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
-import { compose, type Step } from "./compose.js";
+import { compose, type Step } from "./compose.ts";
 
 // ── Test helpers ──────────────────────────────────────────────────────
 

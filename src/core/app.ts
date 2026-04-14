@@ -1,9 +1,9 @@
 import { err, ok, type Result } from "neverthrow";
-import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
-import { createEffectAdapterRegistry } from "./effect-adapter.js";
-import type { EventStore } from "./event-store.js";
-import { extractEventType, type Processor } from "./processor.js";
-import { createReadInterpreter, type ReadInterpreter } from "./read-interpreter.js";
+import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.ts";
+import { createEffectAdapterRegistry } from "./effect-adapter.ts";
+import type { EventStore } from "./event-store.ts";
+import { extractEventType, type Processor } from "./processor.ts";
+import { createReadInterpreter, type ReadInterpreter } from "./read-interpreter.ts";
 import type {
   Constraints,
   ProjectionAdapter,
@@ -11,9 +11,9 @@ import type {
   ReadDescriptor,
   ReadModelHandle,
   ReadModelNotFound,
-} from "./read-model.js";
-import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
-import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.js";
+} from "./read-model.ts";
+import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.ts";
+import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.ts";
 
 // ── App config ─────────────────────────────────────────────────────────
 

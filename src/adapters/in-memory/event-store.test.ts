@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import type { DomainEvent } from "../../core/types.js";
-import { createInMemoryEventStore } from "./event-store.js";
+import type { DomainEvent } from "../../core/types.ts";
+import { createInMemoryEventStore } from "./event-store.ts";
 
 const AnyEventSchema = z
   .object({

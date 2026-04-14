@@ -5,9 +5,9 @@ import type {
   EventStore,
   OnAfterCommitHandler,
   OnAfterInsertHandler,
-} from "../../core/event-store.js";
-import { matchesFilter } from "../../core/event-store.js";
-import { ConstraintError, EventId, type StoredEvent } from "../../core/types.js";
+} from "../../core/event-store.ts";
+import { matchesFilter } from "../../core/event-store.ts";
+import { ConstraintError, EventId, type StoredEvent } from "../../core/types.ts";
 
 // ── Postgres types (peer dependency) ───────────────────────────────────
 
@@ -217,4 +217,4 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
 export {
   createPostgresProjectionAdapter,
   generateCreateTableDDL,
-} from "./read-model.js";
+} from "./read-model.ts";

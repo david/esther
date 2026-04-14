@@ -1,6 +1,6 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
-import type { AppendResult, DomainEvent, SliceError, StoredEvent } from "./types.js";
+import type { AppendResult, DomainEvent, SliceError, StoredEvent } from "./types.ts";
 
 // ── Event filter for store-level hooks ─────────────────────────────────
 

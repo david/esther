@@ -4,8 +4,8 @@ import type {
   ProjectionResult,
   ReadModelHandle,
   WhereEntry,
-} from "../../core/read-model.js";
-import { ReadModelNotFound } from "../../core/read-model.js";
+} from "../../core/read-model.ts";
+import { ReadModelNotFound } from "../../core/read-model.ts";
 
 // ── In-memory projection adapter ────────────────────────────────────
 

@@ -5,9 +5,9 @@ import type {
   EventStore,
   OnAfterCommitHandler,
   OnAfterInsertHandler,
-} from "../../core/event-store.js";
-import { matchesFilter } from "../../core/event-store.js";
-import { EventId, type StoredEvent } from "../../core/types.js";
+} from "../../core/event-store.ts";
+import { matchesFilter } from "../../core/event-store.ts";
+import { EventId, type StoredEvent } from "../../core/types.ts";
 
 type HandlerRegistration<H> = {
   readonly filter: EventFilter;

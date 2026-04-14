@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
-import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.js";
-import { createApp } from "./app.js";
-import type { EffectAdapter } from "./effect-adapter.js";
-import { defineProcessor } from "./processor.js";
-import { defineReadModel, getDescriptor } from "./read-model.js";
-import type { EffectResult } from "./types.js";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store.ts";
+import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.ts";
+import { createApp } from "./app.ts";
+import type { EffectAdapter } from "./effect-adapter.ts";
+import { defineProcessor } from "./processor.ts";
+import { defineReadModel, getDescriptor } from "./read-model.ts";
+import type { EffectResult } from "./types.ts";
 
 // ── Test helpers ────────────────────────────────────────────────────────
 

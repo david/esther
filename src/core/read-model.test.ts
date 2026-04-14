@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
-import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.js";
-import { createApp } from "./app.js";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store.ts";
+import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.ts";
+import { createApp } from "./app.ts";
 import {
   defineReadModel,
   defineReadModelQuery,
   getDescriptor,
   type ReadModelEventBinding,
-} from "./read-model.js";
+} from "./read-model.ts";
 
 // ── Valid schema for testing ────────────────────────────────────────
 

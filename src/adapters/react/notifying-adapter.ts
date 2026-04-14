@@ -1,5 +1,5 @@
 import { err, ok, type Result } from "neverthrow";
-import { ReadModelNotFound } from "../../core/read-model.js";
+import { ReadModelNotFound } from "../../core/read-model.ts";
 
 // ── Read model store (client-side key-value store) ──────────────────
 
