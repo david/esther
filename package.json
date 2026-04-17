@@ -9,13 +9,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./postgres": "./src/adapters/postgres/index.ts",
+    "./filesystem": "./src/adapters/filesystem/index.ts",
     "./fastify": "./src/adapters/fastify/index.ts",
     "./test": "./src/adapters/in-memory/index.ts",
     "./react": "./src/adapters/react/index.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit -p tsconfig.json",
-    "lint": "eslint src --max-warnings=0",
+    "lint": "bun run lint:code && bun run lint:deps",
+    "lint:code": "eslint src --max-warnings=0",
+    "lint:deps": "depcruise src --config .dependency-cruiser.cjs --output-type err",
     "lint:fix": "eslint src --fix",
     "format": "biome format src/ --write",
     "test": "bun test",
@@ -33,6 +36,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@typescript/native-preview": "^7.0.0-dev.20260417.1",
+    "dependency-cruiser": "^17.3.10",
     "eslint": "^10.2.0",
     "fastify": "^5.8.4",
     "happy-dom": "15.11.7",

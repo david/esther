@@ -7,6 +7,19 @@ export {
   type DispatchFn,
   type InMemoryInputAdapter,
 } from "./adapters/in-memory/index.js";
+export {
+  type DispatchFn as AppDispatchFn,
+  type InputAdapter,
+  type InputAdapterBinding,
+} from "./core/input-adapter.js";
+// ── Filesystem adapter ────────────────────────────────────────────────
+export {
+  createFilesystemCheckpointStore,
+  createFilesystemEventStore,
+  type Checkpoint,
+  type CheckpointStore,
+  type FilesystemEventStoreConfig,
+} from "./adapters/filesystem/index.js";
 // ── In-memory projection adapter ──────────────────────────────────────
 export { createInMemoryProjectionAdapter } from "./adapters/in-memory/read-model.js";
 // ── App ────────────────────────────────────────────────────────────────
@@ -28,6 +41,7 @@ export {
 } from "./core/effect-adapter.js";
 // ── Event store ────────────────────────────────────────────────────────
 export type {
+  AppendOptions,
   ConstraintMetadata,
   EventFilter,
   EventStore,
@@ -102,15 +116,18 @@ export {
   type ValidatePredicate,
 } from "./core/slice.js";
 export {
-  type AppendResult,
   ConstraintError,
-  type DomainEvent,
-  type EffectResult,
   EventId,
-  type InlineResult,
-  type SchemaError,
-  type SliceError,
-  type StoredEvent,
-  type TagQueryResult,
-  type ValidationError,
+} from "./core/types.js";
+export type {
+  AppendResult,
+  ConcurrencyError,
+  DomainEvent,
+  EffectResult,
+  InlineResult,
+  SchemaError,
+  SliceError,
+  StoredEvent,
+  TagQueryResult,
+  ValidationError,
 } from "./core/types.js";

@@ -3,6 +3,7 @@ import type { z } from "zod";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
+import type { InputAdapterBinding } from "./input-adapter.js";
 import { extractEventType, type Processor } from "./processor.js";
 import { createReadInterpreter, type ReadInterpreter } from "./read-interpreter.js";
 import type {
@@ -20,7 +21,10 @@ import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.
 
 type ErasedReadModelHandle = {
   readonly events?: ReadonlyArray<ReadModelEventBinding<unknown, z.ZodType, unknown>> | undefined;
-  project(value: unknown, operation?: "insert" | "update" | "upsert" | "delete"): {
+  project(
+    value: unknown,
+    operation?: "insert" | "update" | "upsert" | "delete",
+  ): {
     readonly type: "projection";
     readonly name: string;
     readonly key: string;
@@ -50,15 +54,7 @@ export type AppConfig = {
   readonly eventStore: EventStore;
   readonly projectionAdapters?: ReadonlyArray<ProjectionAdapterEntry> | undefined;
   readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
-  readonly inputAdapter: {
-    readonly adapter: {
-      readonly start: () => Promise<void>;
-      readonly stop: () => Promise<void>;
-    };
-    readonly bind: (
-      dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, unknown>>,
-    ) => void;
-  };
+  readonly inputAdapter: InputAdapterBinding;
   readonly slices: ReadonlyArray<RegisterableSlice>;
   readonly processors?: ReadonlyArray<Processor> | undefined;
   readonly projectionQuery?: ProjectionQueryAdapter | undefined;

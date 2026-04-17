@@ -137,9 +137,16 @@ function buildResolver<TInput, TContext>(
 
       const readResult = isQueryModel
         ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
-            const queryStep = step as QueryProjectionStep<string, TContext, unknown, unknown, boolean>;
+            const queryStep = step as QueryProjectionStep<
+              string,
+              TContext,
+              unknown,
+              unknown,
+              boolean
+            >;
             const args = queryStep.args(prev.context);
-            const { sourceName, entries, orderBy, orderDirection, limit } = queryStep.model.buildQuery(args);
+            const { sourceName, entries, orderBy, orderDirection, limit } =
+              queryStep.model.buildQuery(args);
             return projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
           })()
         : await projectionStore.get(
@@ -483,7 +490,10 @@ function normalizeOutputErrHandlers<
     for (const [type, group] of groups) {
       const handlerMap = handlers as unknown as {
         readonly [key: string]:
-          | ((errors: readonly [TError, ...TError[]], ctx: TCtx | TInput) => Result<TOutput, TError>)
+          | ((
+              errors: readonly [TError, ...TError[]],
+              ctx: TCtx | TInput,
+            ) => Result<TOutput, TError>)
           | undefined;
       };
       const handler = handlerMap[type];

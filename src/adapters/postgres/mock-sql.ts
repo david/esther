@@ -8,10 +8,7 @@ import type { PostgresClient, SqlPendingQuery, SqlQueryRows, SqlValueMap } from 
 //   - Identifier helpers: sql('table'), sql(['col1', 'col2'])
 //   - Object helpers: sql(obj, ...keys) for INSERT/UPDATE SET
 
-type MockQueryExecutor = (
-  query: string,
-  params: ReadonlyArray<unknown>,
-) => Promise<SqlQueryRows>;
+type MockQueryExecutor = (query: string, params: ReadonlyArray<unknown>) => Promise<SqlQueryRows>;
 
 type MockFragment = {
   readonly __mock: "fragment";
@@ -105,7 +102,10 @@ function isSqlValueMap(
 
 export function createMockSql(executeQuery: MockQueryExecutor): PostgresClient {
   function sql(template: TemplateStringsArray, ...values: unknown[]): MockQuery;
-  function sql(first: string | readonly string[] | SqlValueMap, ...rest: string[]): MockIdent | MockHelper;
+  function sql(
+    first: string | readonly string[] | SqlValueMap,
+    ...rest: string[]
+  ): MockIdent | MockHelper;
   function sql(
     first: TemplateStringsArray | string | readonly string[] | SqlValueMap,
     ...rest: unknown[]

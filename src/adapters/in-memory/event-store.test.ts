@@ -104,13 +104,31 @@ describe("onAfterCommit", () => {
 // ── queryByTags ────────────────────────────────────────────────────────
 
 describe("queryByTags", () => {
-  test("returns state only without position", async () => {
+  test("returns state and the matching maxPosition", async () => {
     const store = createInMemoryEventStore();
     await store.append([makeEvent("TestHappened", ["a"])]);
 
     const result = await store.queryByTags(["a"], [AnyEventSchema], (events) => events.length);
 
-    expect(result).toEqual({ state: 1 });
-    expect("position" in result).toBe(false);
+    expect(result).toEqual({ state: 1, maxPosition: 0n });
+  });
+});
+
+describe("append preconditions", () => {
+  test("fails when expectedPosition is stale for the requested boundary", async () => {
+    const store = createInMemoryEventStore();
+    await store.append([makeEvent("TestHappened", ["issue:ab12"])]);
+    const query = await store.queryByTags(["issue:ab12"], [AnyEventSchema], (events) => events);
+    await store.append([makeEvent("OtherHappened", ["issue:ab12"])]);
+
+    const stale = await store.append([makeEvent("ThirdHappened", ["issue:ab12"])], {
+      expectedPosition: query.maxPosition,
+      boundaryTags: ["issue:ab12"],
+    });
+
+    expect(stale.isErr()).toBe(true);
+    if (stale.isErr()) {
+      expect("_tag" in stale.error && stale.error._tag).toBe("ConcurrencyError");
+    }
   });
 });

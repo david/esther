@@ -1,15 +1,6 @@
-import type { Result } from "neverthrow";
+import type { DispatchFn, InputAdapter, InputAdapterBinding } from "../../core/input-adapter.js";
 
-// ── Input adapter interface ────────────────────────────────────────────
-
-export type InputAdapter = {
-  readonly start: () => Promise<void>;
-  readonly stop: () => Promise<void>;
-};
-
-// ── Dispatch function type (provided by app) ───────────────────────────
-
-export type DispatchFn = (sliceName: string, input: unknown) => Promise<Result<unknown, unknown>>;
+export type { DispatchFn } from "../../core/input-adapter.js";
 
 // ── In-memory input adapter (for testing) ──────────────────────────────
 
@@ -17,10 +8,7 @@ export type InMemoryInputAdapter = InputAdapter & {
   readonly dispatch: DispatchFn;
 };
 
-export function createInMemoryAdapter(): {
-  readonly adapter: InMemoryInputAdapter;
-  readonly bind: (dispatch: DispatchFn) => void;
-} {
+export function createInMemoryAdapter(): InputAdapterBinding<InMemoryInputAdapter> {
   let boundDispatch: DispatchFn | undefined;
 
   const adapter: InMemoryInputAdapter = {

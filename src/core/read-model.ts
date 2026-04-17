@@ -114,7 +114,7 @@ export type Where<T> = {
 
 export type GetDescriptor<T> = {
   readonly _tag: "get";
-  readonly model: ReadModelHandle<T>;
+  readonly model: ReadModelHandle<Exclude<T, undefined>>;
   readonly id: string;
 };
 
@@ -150,7 +150,10 @@ export type ReadDescriptor<T> = GetDescriptor<T> | QueryDescriptor<T> | EventsBy
 
 // ── Descriptor constructors ────────────────────────────────────────
 
-export function getDescriptor<T>(model: ReadModelHandle<T>, id: string): GetDescriptor<T> {
+export function getDescriptor<T>(
+  model: ReadModelHandle<Exclude<T, undefined>>,
+  id: string,
+): GetDescriptor<T | undefined> {
   return { _tag: "get", model, id };
 }
 

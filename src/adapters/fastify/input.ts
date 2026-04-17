@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { DispatchFn, InputAdapter } from "../in-memory/input-adapter.js";
+import type { DispatchFn, InputAdapter, InputAdapterBinding } from "../../core/input-adapter.js";
 
 export type FastifyAdapterConfig = {
   readonly port: number;
@@ -10,10 +10,9 @@ export type FastifyInputAdapter = InputAdapter & {
   readonly instance: FastifyInstance;
 };
 
-export function createFastifyInputAdapter(config: FastifyAdapterConfig): {
-  readonly adapter: FastifyInputAdapter;
-  readonly bind: (dispatch: DispatchFn) => void;
-} {
+export function createFastifyInputAdapter(
+  config: FastifyAdapterConfig,
+): InputAdapterBinding<FastifyInputAdapter> {
   let boundDispatch: DispatchFn | undefined;
 
   const Fastify = require("fastify") as typeof import("fastify");
@@ -51,6 +50,7 @@ export function createFastifyInputAdapter(config: FastifyAdapterConfig): {
     if (typeof error === "object" && error !== null && "_tag" in error) {
       switch (error._tag) {
         case "ConstraintError":
+        case "ConcurrencyError":
           return reply.status(409).send({ error });
         case "SchemaError":
           return reply.status(400).send({ error });

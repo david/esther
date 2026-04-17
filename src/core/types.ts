@@ -35,6 +35,27 @@ export type ValidationError = {
   readonly message: string;
 };
 
+export type ConcurrencyError = {
+  readonly _tag: "ConcurrencyError";
+  readonly message: string;
+  readonly expectedPosition: bigint | undefined;
+  readonly actualPosition: bigint | undefined;
+  readonly boundaryTags: ReadonlyArray<string> | undefined;
+};
+
+export const ConcurrencyError = (
+  message: string,
+  expectedPosition: bigint | undefined,
+  actualPosition: bigint | undefined,
+  boundaryTags: ReadonlyArray<string> | undefined,
+): ConcurrencyError => ({
+  _tag: "ConcurrencyError",
+  message,
+  expectedPosition,
+  actualPosition,
+  boundaryTags,
+});
+
 export type ConstraintError = {
   readonly _tag: "ConstraintError";
   readonly constraint: string;
@@ -68,7 +89,12 @@ export const SchemaError = (message: string, issues: ReadonlyArray<string> = [])
   issues,
 });
 
-export type SliceError = ValidationError | ConstraintError | SchemaError | ReadModelNotFound;
+export type SliceError =
+  | ValidationError
+  | ConcurrencyError
+  | ConstraintError
+  | SchemaError
+  | ReadModelNotFound;
 
 // ── Effects ────────────────────────────────────────────────────────────
 
@@ -89,6 +115,7 @@ export type AppendResult = {
 
 export type TagQueryResult<TState> = {
   readonly state: TState;
+  readonly maxPosition: bigint | undefined;
 };
 
 // ── Zod schema inference helper ────────────────────────────────────────

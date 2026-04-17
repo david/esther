@@ -1,18 +1,57 @@
-import { ok } from "neverthrow";
+import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type {
+  AppendOptions,
   EventFilter,
   EventStore,
   OnAfterCommitHandler,
   OnAfterInsertHandler,
 } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
-import { EventId, type StoredEvent } from "../../core/types.js";
+import {
+  ConcurrencyError,
+  EventId,
+  type ConcurrencyError as ConcurrencyErrorType,
+  type StoredEvent,
+} from "../../core/types.js";
 
 type HandlerRegistration<H> = {
   readonly filter: EventFilter;
   readonly handler: H;
 };
+
+function getMaxPositionForTags(
+  events: ReadonlyArray<StoredEvent>,
+  tags: ReadonlyArray<string>,
+): bigint | undefined {
+  const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
+  const last = matching[matching.length - 1];
+  return last?.position;
+}
+
+function validateAppendPrecondition(
+  events: ReadonlyArray<StoredEvent>,
+  options: AppendOptions | undefined,
+): Result<void, ConcurrencyErrorType> {
+  if (!options || options.expectedPosition === undefined) {
+    return ok(undefined);
+  }
+
+  const boundaryTags = options.boundaryTags ?? [];
+  const actualPosition = getMaxPositionForTags(events, boundaryTags);
+  if (actualPosition === options.expectedPosition) {
+    return ok(undefined);
+  }
+
+  return err(
+    ConcurrencyError(
+      "Append precondition failed: queried tag boundary changed before append",
+      options.expectedPosition,
+      actualPosition,
+      options.boundaryTags,
+    ),
+  );
+}
 
 export function createInMemoryEventStore(): EventStore {
   const events: Array<StoredEvent> = [];
@@ -20,7 +59,11 @@ export function createInMemoryEventStore(): EventStore {
   const afterCommitHandlers: Array<HandlerRegistration<OnAfterCommitHandler>> = [];
 
   return {
-    async append(eventsToAppend) {
+    async append(eventsToAppend, options) {
+      const precondition = validateAppendPrecondition(events, options);
+      if (precondition.isErr()) {
+        return err(precondition.error);
+      }
       const stored: Array<StoredEvent> = [];
       for (const event of eventsToAppend) {
         const position = BigInt(events.length);
@@ -59,8 +102,9 @@ export function createInMemoryEventStore(): EventStore {
       tags: ReadonlyArray<string>,
       schemas: ReadonlyArray<TSchema>,
       fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
-    ): Promise<{ readonly state: TState }> {
+    ) {
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
+      const maxPosition = matching[matching.length - 1]?.position;
 
       const parsed = matching.map((event) => {
         for (const schema of schemas) {
@@ -71,7 +115,7 @@ export function createInMemoryEventStore(): EventStore {
           `Event at position ${event.position} (type "${event.type}") does not match any provided schema`,
         );
       });
-      return { state: fold(parsed) };
+      return { state: fold(parsed), maxPosition };
     },
 
     onAfterInsert(filter, handler) {
