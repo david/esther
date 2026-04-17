@@ -8,19 +8,13 @@ import type {
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
 import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.js";
-
-// ── Postgres types (peer dependency) ───────────────────────────────────
-
-type PostgresTransactionClient = {
-  // biome-ignore lint/suspicious/noExplicitAny: postgres PendingQuery has private `then` — not structurally Promise or PromiseLike
-  (template: TemplateStringsArray, ...values: unknown[]): any;
-  // biome-ignore lint/suspicious/noExplicitAny: postgres helper — identifiers sql('table'), column lists sql(['a','b']), object helpers sql(obj, ...keys)
-  (first: string | readonly string[] | Record<string, unknown>, ...rest: string[]): any;
-};
-
-type PostgresClient = PostgresTransactionClient & {
-  readonly begin: <T>(fn: (sql: PostgresTransactionClient) => Promise<T>) => Promise<T>;
-};
+import type {
+  PostgresClient,
+  PostgresTransactionClient,
+  SqlFragment,
+  SqlPendingQuery,
+  SqlValueMap,
+} from "./sql-types.js";
 
 // ── Zod-to-DDL column mapping ──────────────────────────────────────────
 
@@ -112,10 +106,8 @@ function translateEntries(
   sql: PostgresTransactionClient,
   entries: ReadonlyArray<WhereEntry>,
   allowedColumns: ReadonlySet<string>,
-  // biome-ignore lint/suspicious/noExplicitAny: returns a postgres tagged-template fragment
-): any {
-  // biome-ignore lint/suspicious/noExplicitAny: postgres fragment accumulator
-  const fragments: any[] = [];
+): SqlFragment {
+  const fragments: SqlFragment[] = [];
 
   for (const entry of entries) {
     if (!allowedColumns.has(entry.field)) {
@@ -155,8 +147,8 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
   const columns = Object.keys(schema.shape);
   const nonKeyColumns = columns.filter((c) => c !== key);
 
-  function asRecord(value: T): Record<string, unknown> {
-    return value as Record<string, unknown>;
+  function asSqlValueMap(value: T): SqlValueMap {
+    return value as SqlValueMap;
   }
 
   const adapter: ProjectionAdapter<T> = {
@@ -167,12 +159,13 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
 
       switch (operation) {
         case "insert": {
-          await sql`INSERT INTO ${sql(tableName)} ${sql(asRecord(value), ...columns)}`;
+          await sql`INSERT INTO ${sql(tableName)} ${sql(asSqlValueMap(value), ...columns)}`;
           break;
         }
 
         case "update": {
-          const updateObj = Object.fromEntries(nonKeyColumns.map((c) => [c, asRecord(value)[c]]));
+          const source = asSqlValueMap(value);
+          const updateObj = Object.fromEntries(nonKeyColumns.map((c) => [c, source[c]]));
           const updated = await sql`
             UPDATE ${sql(tableName)}
             SET ${sql(updateObj, ...nonKeyColumns)}
@@ -196,7 +189,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
           }
 
           await sql`
-            INSERT INTO ${sql(tableName)} ${sql(asRecord(value), ...columns)}
+            INSERT INTO ${sql(tableName)} ${sql(asSqlValueMap(value), ...columns)}
             ON CONFLICT (${sql(key)}) DO UPDATE SET ${excludedSet}`;
           break;
         }
@@ -243,7 +236,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
       throw new Error(`query: limit must be a non-negative integer, got ${limit}`);
     }
 
-    let q = sql`SELECT ${sql(columns)} FROM ${sql(tableName)}`;
+    let q: SqlPendingQuery = sql`SELECT ${sql(columns)} FROM ${sql(tableName)}`;
     if (entries.length > 0) {
       const where = translateEntries(sql, entries, allowedColumns);
       q = sql`${q} WHERE ${where}`;
@@ -256,7 +249,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     }
     if (limit !== undefined) q = sql`${q} LIMIT ${limit}`;
 
-    const raw: unknown[] = await q;
+    const raw: ReadonlyArray<unknown> = await q;
     return raw.map((row) => schema.parse(row));
   }
 

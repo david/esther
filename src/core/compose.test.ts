@@ -28,8 +28,8 @@ function throwingStep(): Step<AnyCtx, never, never> {
 describe("compose", () => {
   test("threads ctx across three steps", async () => {
     const s1 = fakeStep("a", () => 1);
-    const s2 = fakeStep("b", (ctx) => (ctx.a as number) + 1);
-    const s3 = fakeStep("c", (ctx) => (ctx.a as number) + (ctx.b as number));
+    const s2 = fakeStep("b", (ctx) => (ctx["a"] as number) + 1);
+    const s3 = fakeStep("c", (ctx) => (ctx["a"] as number) + (ctx["b"] as number));
 
     const result = (await compose([s1, s2, s3])({})) as Result<AnyCtx, never>;
 

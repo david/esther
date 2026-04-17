@@ -42,14 +42,13 @@ export type ReadModelHandle<
   readonly key: K;
   readonly schema: S;
   readonly constraints: Constraints;
-  readonly project: (value: T, operation?: Operation) => ProjectionResult<T>;
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous bindings with different event schemas and read shapes
-  readonly events?: ReadonlyArray<ReadModelEventBinding<T, any, any>> | undefined;
+  project(value: T, operation?: Operation): ProjectionResult<T>;
+  readonly events?: ReadonlyArray<ReadModelEventBinding<T, z.ZodType, unknown>> | undefined;
 };
 
 export type ProjectionAdapter<T> = {
   readonly name: string;
-  readonly execute: (result: ProjectionResult<T>) => Promise<void>;
+  execute(result: ProjectionResult<T>): Promise<void>;
 };
 
 // ── Read model event bindings ──────────────────────────────────────────
@@ -59,13 +58,13 @@ export type ReadModelEventBinding<T, TEventSchema extends z.ZodType, TReads> = {
   readonly reads?: {
     readonly [K in keyof TReads]: (event: z.infer<TEventSchema>) => ReadDescriptor<TReads[K]>;
   };
-  readonly handler: (
+  handler(
     event: z.infer<TEventSchema>,
     ctx: {
-      readonly project: (value: T, operation?: Operation) => ProjectionResult<T>;
-      readonly get: (id: string) => Promise<Result<{ value: T }, ReadModelNotFound>>;
+      project(value: T, operation?: Operation): ProjectionResult<T>;
+      get(id: string): Promise<Result<{ value: T }, ReadModelNotFound>>;
     } & TReads,
-  ) => ProjectionResult<T> | undefined;
+  ): ProjectionResult<T> | undefined;
 };
 
 // ── Validation ──────────────────────────────────────────────────────
@@ -250,8 +249,7 @@ type DefineReadModelInput<S extends z.ZodObject<z.ZodRawShape>> = {
   readonly key: string & keyof z.infer<S>;
   readonly schema: S;
   readonly constraints?: Constraints;
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous bindings with different event schemas and read shapes
-  readonly events?: ReadonlyArray<ReadModelEventBinding<z.infer<S>, any, any>>;
+  readonly events?: ReadonlyArray<ReadModelEventBinding<z.infer<S>, z.ZodType, unknown>>;
 };
 
 export function defineReadModel<

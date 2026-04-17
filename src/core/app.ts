@@ -1,4 +1,5 @@
 import { err, ok, type Result } from "neverthrow";
+import type { z } from "zod";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
@@ -9,7 +10,7 @@ import type {
   ProjectionAdapter,
   ProjectionQueryAdapter,
   ReadDescriptor,
-  ReadModelHandle,
+  ReadModelEventBinding,
   ReadModelNotFound,
 } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
@@ -17,15 +18,24 @@ import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.
 
 // ── App config ─────────────────────────────────────────────────────────
 
+type ErasedReadModelHandle = {
+  readonly events?: ReadonlyArray<ReadModelEventBinding<unknown, z.ZodType, unknown>> | undefined;
+  project(value: unknown, operation?: "insert" | "update" | "upsert" | "delete"): {
+    readonly type: "projection";
+    readonly name: string;
+    readonly key: string;
+    readonly value: unknown;
+    readonly operation: "insert" | "update" | "upsert" | "delete";
+  };
+};
+
 export type ProjectionAdapterTableEntry = {
   readonly kind: "table";
-  // biome-ignore lint/suspicious/noExplicitAny: projection adapter result types are erased at the registry level
-  readonly adapter: ProjectionAdapter<any>;
+  readonly adapter: ProjectionAdapter<unknown>;
   readonly get: (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
   readonly constraints: Constraints;
   readonly tableName: string;
-  // biome-ignore lint/suspicious/noExplicitAny: read model handle type is erased at the registry level
-  readonly handle?: ReadModelHandle<any>;
+  readonly handle?: ErasedReadModelHandle;
 };
 
 export type ProjectionAdapterViewEntry = {
@@ -68,8 +78,7 @@ export function createApp(config: AppConfig): App {
   const { eventStore, inputAdapter, slices } = config;
 
   // Build projection adapter registry and projection store
-  // biome-ignore lint/suspicious/noExplicitAny: type erased at registry level
-  const projectionAdapterRegistry = new Map<string, ProjectionAdapter<any>>();
+  const projectionAdapterRegistry = new Map<string, ProjectionAdapter<unknown>>();
   const projectionGetters = new Map<
     string,
     (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>

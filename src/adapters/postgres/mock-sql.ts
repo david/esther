@@ -1,3 +1,5 @@
+import type { PostgresClient, SqlPendingQuery, SqlQueryRows, SqlValueMap } from "./sql-types.js";
+
 // Tagged-template mock for postgres adapter tests.
 //
 // Wraps an `unsafe(query, params)` handler (the existing test harness
@@ -6,7 +8,10 @@
 //   - Identifier helpers: sql('table'), sql(['col1', 'col2'])
 //   - Object helpers: sql(obj, ...keys) for INSERT/UPDATE SET
 
-type UnsafeFn = (query: string, params: ReadonlyArray<unknown>) => Promise<unknown[]>;
+type MockQueryExecutor = (
+  query: string,
+  params: ReadonlyArray<unknown>,
+) => Promise<SqlQueryRows>;
 
 type MockFragment = {
   readonly __mock: "fragment";
@@ -21,9 +26,11 @@ type MockIdent = {
 
 type MockHelper = {
   readonly __mock: "helper";
-  readonly obj: Record<string, unknown>;
+  readonly obj: SqlValueMap;
   readonly keys: readonly string[];
 };
+
+type MockQuery = MockFragment & SqlPendingQuery;
 
 function isMockFragment(v: unknown): v is MockFragment {
   return typeof v === "object" && v !== null && (v as MockFragment).__mock === "fragment";
@@ -84,51 +91,74 @@ function flatten(fragment: MockFragment): { sql: string; params: unknown[] } {
   return { sql: emit(fragment), params };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: mock returns any to match PostgresClient structural type
-export function createMockSql(unsafeFn: UnsafeFn): any {
-  // biome-ignore lint/suspicious/noExplicitAny: must match both tagged-template and helper call signatures
-  function sql(first: any, ...rest: any[]): any {
-    // Tagged template call — first arg has `raw` property
-    if (first?.raw !== undefined) {
+function isTemplateStringsArray(
+  value: TemplateStringsArray | string | readonly string[] | SqlValueMap,
+): value is TemplateStringsArray {
+  return Array.isArray(value) && "raw" in value;
+}
+
+function isSqlValueMap(
+  value: TemplateStringsArray | string | readonly string[] | SqlValueMap,
+): value is SqlValueMap {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && !("raw" in value);
+}
+
+export function createMockSql(executeQuery: MockQueryExecutor): PostgresClient {
+  function sql(template: TemplateStringsArray, ...values: unknown[]): MockQuery;
+  function sql(first: string | readonly string[] | SqlValueMap, ...rest: string[]): MockIdent | MockHelper;
+  function sql(
+    first: TemplateStringsArray | string | readonly string[] | SqlValueMap,
+    ...rest: unknown[]
+  ): MockQuery | MockIdent | MockHelper {
+    if (isTemplateStringsArray(first)) {
       const fragment: MockFragment = {
         __mock: "fragment",
         strings: first,
         values: rest,
       };
-      // Return a thenable fragment: embeddable in other templates, executable when awaited.
-      return {
+
+      const query: MockQuery = {
         ...fragment,
-        // biome-ignore lint/suspicious/noThenProperty: intentional — mimics postgres PendingQuery (thenable + embeddable fragment)
-        then(resolve: (v: unknown) => void, reject?: (e: unknown) => void) {
-          try {
-            const { sql: query, params } = flatten(fragment);
-            return unsafeFn(query, params).then(resolve, reject);
-          } catch (e) {
-            if (reject) return reject(e);
-            throw e;
-          }
+        then(onfulfilled, onrejected) {
+          return Promise.resolve()
+            .then(() => {
+              const { sql: text, params } = flatten(fragment);
+              return executeQuery(text, params);
+            })
+            .then(onfulfilled, onrejected);
         },
       };
+
+      return query;
     }
 
-    // Identifier: sql('table') or sql(['col1', 'col2'])
     if (typeof first === "string" && rest.length === 0) {
       return { __mock: "ident", sql: `"${first}"` } satisfies MockIdent;
     }
+
     if (Array.isArray(first) && rest.length === 0) {
       return {
         __mock: "ident",
-        sql: (first as string[]).map((c) => `"${c}"`).join(", "),
+        sql: first.map((column) => `"${column}"`).join(", "),
       } satisfies MockIdent;
     }
 
-    // Object helper: sql(obj, ...keys)
-    if (typeof first === "object" && first !== null) {
-      return { __mock: "helper", obj: first, keys: rest } satisfies MockHelper;
+    if (isSqlValueMap(first)) {
+      return {
+        __mock: "helper",
+        obj: first,
+        keys: rest.filter((value): value is string => typeof value === "string"),
+      } satisfies MockHelper;
     }
 
     throw new Error(`mock-sql: unexpected call pattern`);
   }
 
-  return sql;
+  const sqlWithBegin: PostgresClient = Object.assign(sql, {
+    async begin<T>(fn: (tx: PostgresClient) => Promise<T>): Promise<T> {
+      return fn(sqlWithBegin);
+    },
+  });
+
+  return sqlWithBegin;
 }

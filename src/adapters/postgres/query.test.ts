@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineReadModel, type WhereEntry } from "../../core/read-model.js";
 import { createMockSql } from "./mock-sql.js";
 import { createPostgresProjectionAdapter } from "./read-model.js";
+import type { PostgresClient } from "./sql-types.js";
 
 // ── In-memory SQL harness ────────────────────────────────────────────
 //
@@ -27,8 +28,7 @@ type QueryLog = {
 };
 
 function createHarness(jsonbCols: Set<string> = new Set()): {
-  // biome-ignore lint/suspicious/noExplicitAny: test mock for the private PostgresClient type
-  readonly sql: any;
+  readonly sql: PostgresClient;
   readonly log: ReadonlyArray<QueryLog>;
 } {
   const tables: { [table: string]: HarnessRow[] } = {};
@@ -196,8 +196,7 @@ const carol: Member = {
 };
 
 async function seed(
-  // biome-ignore lint/suspicious/noExplicitAny: harness sql mock
-  sql: any,
+  sql: PostgresClient,
   rows: ReadonlyArray<Member>,
 ): Promise<ReturnType<typeof createPostgresProjectionAdapter<typeof memberSchema>>> {
   const result = createPostgresProjectionAdapter(sql, memberModel);

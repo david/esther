@@ -8,19 +8,7 @@ import type {
 } from "../../core/event-store.js";
 import { matchesFilter } from "../../core/event-store.js";
 import { ConstraintError, EventId, type StoredEvent } from "../../core/types.js";
-
-// ── Postgres types (peer dependency) ───────────────────────────────────
-
-type PostgresTransactionClient = {
-  // biome-ignore lint/suspicious/noExplicitAny: postgres PendingQuery has private `then` — not structurally Promise or PromiseLike
-  (template: TemplateStringsArray, ...values: unknown[]): any;
-  // biome-ignore lint/suspicious/noExplicitAny: postgres helper — identifiers sql('table'), column lists sql(['a','b']), object helpers sql(obj, ...keys)
-  (first: string | readonly string[] | Record<string, unknown>, ...rest: string[]): any;
-};
-
-type PostgresClient = PostgresTransactionClient & {
-  readonly begin: <T>(fn: (sql: PostgresTransactionClient) => Promise<T>) => Promise<T>;
-};
+import type { PostgresClient, SqlValueMap } from "./sql-types.js";
 
 type HandlerRegistration<T> = {
   readonly filter: EventFilter;
@@ -31,8 +19,7 @@ type HandlerRegistration<T> = {
 // Tagged template queries return unknown[]. This is the single place
 // where we assert the row shape.
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function queryRows<T>(raw: unknown[]): T[] {
+function queryRows<T>(raw: ReadonlyArray<unknown>): T[] {
   return raw as T[];
 }
 
@@ -70,7 +57,7 @@ type EventRow = {
   readonly id: string;
   readonly type: string;
   readonly tags: readonly string[];
-  readonly payload: Record<string, unknown>;
+  readonly payload: SqlValueMap;
   readonly position: string;
   readonly timestamp: Date;
 };

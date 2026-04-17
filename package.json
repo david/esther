@@ -14,8 +14,9 @@
     "./react": "./src/adapters/react/index.ts"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
-    "lint": "biome check src/",
+    "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "lint": "eslint src --max-warnings=0",
+    "lint:fix": "eslint src --fix",
     "format": "biome format src/ --write",
     "test": "bun test",
     "build": "bun build src/index.ts --outdir dist --target node"
@@ -26,15 +27,19 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
+    "@eslint/js": "^10.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/bun": "^1.2.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev.20260329.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260417.1",
+    "eslint": "^10.2.0",
+    "fastify": "^5.8.4",
     "happy-dom": "15.11.7",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "typescript": "^5.7.3"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.58.2"
   },
   "peerDependencies": {
     "fastify": "^5.8.4",

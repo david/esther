@@ -36,10 +36,9 @@ const probeInputSchema = z.object({
 type ProbeInput = z.output<typeof probeInputSchema>;
 
 // Lenient output schema — individual tests assert their own shapes.
-// Typed as z.ZodType<any> so it's assignable to the output type each slice
-// declares via its output/outputErr functions.
-// biome-ignore lint/suspicious/noExplicitAny: intentionally-lenient test schema
-const probeOutputSchema: z.ZodType<any> = z.object({}).passthrough();
+function probeOutputSchema<TOutput>(): z.ZodType<TOutput> {
+  return z.custom<TOutput>(() => true);
+}
 
 // A bind step that injects { a: input.a } into ctx — the simplest legal
 // `input` chain. Used by tests that don't need a real cast/projection.
@@ -102,7 +101,7 @@ describe("command pipeline v2 — wiring", () => {
     const slice = defineCommandSlice({
       name: "probe-validate-fail-noevent",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
+      outputSchema: probeOutputSchema<object>(),
       input: compose<ProbeInput, { readonly type: "rate" }>([bindA]),
       validate: [(_ctx) => [{ type: "rate" as const }]],
       event: (_ctx) => {
@@ -205,7 +204,7 @@ describe("command pipeline v2 — wiring", () => {
     const slice = defineCommandSlice({
       name: "probe-validate-routes-outputErr",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
+      outputSchema: probeOutputSchema(),
       input: compose<ProbeInput, { type: "rate" }>([bindA]),
       validate: [(_ctx) => [{ type: "rate" as const }]],
       event: (_ctx) => {
@@ -235,7 +234,7 @@ describe("command pipeline v2 — wiring", () => {
     const slice = defineCommandSlice({
       name: "probe-validate-order",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
+      outputSchema: probeOutputSchema<object>(),
       input: compose<ProbeInput, ValErr>([bindA]),
       validate: [(_ctx) => [{ type: "first" as const }], (_ctx) => [{ type: "second" as const }]],
       event: (_ctx) => {
@@ -272,7 +271,7 @@ describe("command pipeline v2 — wiring", () => {
     const slice = defineCommandSlice({
       name: "probe-validate-ctx",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
+      outputSchema: probeOutputSchema<{ ok: boolean }>(),
       input: async (ctx: ProbeInput) => ok({ a: ctx.a, counter: 42 }),
       validate: [
         (ctx) => {
@@ -297,7 +296,7 @@ describe("command pipeline v2 — wiring", () => {
     const slice = defineCommandSlice({
       name: "probe-append-event",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
+      outputSchema: probeOutputSchema<{ ok: boolean }>(),
       input: compose<ProbeInput, never>([bindA]),
       validate: [],
       event: (_ctx) => ({
@@ -402,7 +401,7 @@ describe("command pipeline v2 — wiring", () => {
     const slice = defineCommandSlice({
       name: "probe-propagate-outputErr",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema,
+      outputSchema: probeOutputSchema<object>(),
       input: compose<ProbeInput, RateErr>([bindA]),
       validate: [(_ctx) => [{ type: "rate" as const, code: "X" as const }]],
       event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),

@@ -342,8 +342,11 @@ describe("read model events", () => {
         }),
     };
 
-    // biome-ignore lint/suspicious/noExplicitAny: type erasure needed for heterogeneous event binding array
-    const deactivateBinding: ReadModelEventBinding<Member, any, any> = {
+    const deactivateBinding: ReadModelEventBinding<
+      Member,
+      typeof MemberDeactivatedSchema,
+      { readonly current: Member | undefined }
+    > = {
       schema: MemberDeactivatedSchema,
       reads: {
         current: (event: z.infer<typeof MemberDeactivatedSchema>) =>
@@ -637,11 +640,20 @@ describe("defineReadModelQuery", () => {
       resolve: () => ({ where: {} }),
     });
 
+    const invalidSource = {
+      ...queryHandle,
+      key: "id" as const,
+      schema: z.object({ id: z.string() }),
+      constraints: {},
+      project(): never {
+        throw new Error("project should never be called in this test");
+      },
+    };
+
     expect(() =>
       defineReadModelQuery({
         name: "nested_query",
-        // biome-ignore lint/suspicious/noExplicitAny: intentionally passing wrong type to test runtime validation
-        source: queryHandle as any,
+        source: invalidSource,
         args: argsSchema,
         resolve: () => ({ where: {} }),
       }),

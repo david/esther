@@ -62,7 +62,7 @@ function createCapturingEffectAdapter(): {
   const captured: EffectResult[] = [];
   const adapter: EffectAdapter = {
     name: "test-effect",
-    match: (effect) => effect.type === "effect" && "kind" in effect && effect.kind === "test",
+    match: (effect) => effect.type === "effect" && "kind" in effect && effect["kind"] === "test",
     execute: async (effect) => {
       captured.push(effect);
     },

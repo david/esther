@@ -75,11 +75,11 @@ export function useProjection<T>(name: string, id: string): ProjectionState<T> {
     mountedRef.current = true;
 
     // Initial fetch
-    refresh();
+    void refresh();
 
     // Subscribe to changes
     const unsubscribe = readModelStore.subscribe(() => {
-      refresh();
+      void refresh();
     });
 
     return () => {

@@ -102,81 +102,76 @@ function buildResolver<TInput, TContext>(
     projectionStore: ProjectionStore,
   ) => Promise<Result<ResolveResult<TContext>, ReadModelNotFound>>,
 ): StateResolver<TInput, TContext> {
-  return {
-    resolve: resolveFn,
+  const pipe = ((
+    step:
+      | TagQueryStep<string, TContext, unknown>
+      | ProjectionStep<string, TContext, unknown, boolean>
+      | QueryProjectionStep<string, TContext, unknown, unknown, boolean>
+      | GenerateStep<string, TContext, unknown>,
+  ) => {
+    const nextResolver = async (
+      input: TInput,
+      eventStore: EventStore,
+      projectionStore: ProjectionStore,
+    ) => {
+      const prevResult = await resolveFn(input, eventStore, projectionStore);
+      if (prevResult.isErr()) return prevResult;
+      const prev = prevResult.value;
 
-    pipe(
-      step:
-        | TagQueryStep<string, TContext, unknown>
-        | ProjectionStep<string, TContext, unknown, boolean>
-        | QueryProjectionStep<string, TContext, unknown, unknown, boolean>
-        | GenerateStep<string, TContext, unknown>,
-    ) {
-      // biome-ignore lint/suspicious/noExplicitAny: pipe overloads carry the correct accumulated type to callers; the body can't express TContext & { [K in TKey]: TState } without the concrete TKey/TState
-      return buildResolver<TInput, any>(async (input, eventStore, projectionStore) => {
-        const prevResult = await resolveFn(input, eventStore, projectionStore);
-        if (prevResult.isErr()) return prevResult;
-        const prev = prevResult.value;
+      if (step._tag === "tagQuery") {
+        const tags = step.tags(prev.context);
+        const result = await eventStore.queryByTags(tags, step.schemas, step.fold);
+        return ok({
+          context: addField(prev.context, step.key, result.state),
+        });
+      }
 
-        if (step._tag === "tagQuery") {
-          const tags = step.tags(prev.context);
-          const result = await eventStore.queryByTags(tags, step.schemas, step.fold);
-          return ok({
-            context: addField(prev.context, step.key, result.state),
-          });
-        }
+      if (step._tag === "generate") {
+        const value = await step.fn(prev.context);
+        return ok({
+          context: addField(prev.context, step.key, value),
+        });
+      }
 
-        if (step._tag === "generate") {
-          const value = await step.fn(prev.context);
-          return ok({
-            context: addField(prev.context, step.key, value),
-          });
-        }
+      const isQueryModel = "buildQuery" in step.model && step.model._tag === "ReadModelQueryHandle";
 
-        // projection — read from projection store
-        const isQueryModel =
-          "buildQuery" in step.model && step.model._tag === "ReadModelQueryHandle";
+      const readResult = isQueryModel
+        ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
+            const queryStep = step as QueryProjectionStep<string, TContext, unknown, unknown, boolean>;
+            const args = queryStep.args(prev.context);
+            const { sourceName, entries, orderBy, orderDirection, limit } = queryStep.model.buildQuery(args);
+            return projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
+          })()
+        : await projectionStore.get(
+            step.model.name,
+            (step as ProjectionStep<string, TContext, unknown, boolean>).id(prev.context),
+          );
 
-        const readResult = isQueryModel
-          ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
-              const queryStep = step as QueryProjectionStep<
-                string,
-                TContext,
-                unknown,
-                unknown,
-                boolean
-              >;
-              const queryModel = queryStep.model;
-              const args = queryStep.args(prev.context);
-              const { sourceName, entries, orderBy, orderDirection, limit } =
-                queryModel.buildQuery(args);
-              return projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
-            })()
-          : await projectionStore.get(
-              step.model.name,
-              (step as ProjectionStep<string, TContext, unknown, boolean>).id(prev.context),
-            );
-
-        if (step.required) {
-          if (readResult.isErr()) {
-            return err(readResult.error);
-          }
-          return ok({
-            context: addField(prev.context, step.key, readResult.value.value),
-          });
-        }
-
-        // optional — wrap as Result
-        if (readResult.isOk()) {
-          return ok({
-            context: addField(prev.context, step.key, ok(readResult.value.value)),
-          });
+      if (step.required) {
+        if (readResult.isErr()) {
+          return err(readResult.error);
         }
         return ok({
-          context: addField(prev.context, step.key, err(readResult.error)),
+          context: addField(prev.context, step.key, readResult.value.value),
         });
+      }
+
+      if (readResult.isOk()) {
+        return ok({
+          context: addField(prev.context, step.key, ok(readResult.value.value)),
+        });
+      }
+      return ok({
+        context: addField(prev.context, step.key, err(readResult.error)),
       });
-    },
+    };
+
+    return buildResolver(nextResolver);
+  }) as StateResolver<TInput, TContext>["pipe"];
+
+  return {
+    resolve: resolveFn,
+    pipe,
   };
 }
 
@@ -486,8 +481,15 @@ function normalizeOutputErrHandlers<
     }
     let firstOk: Result<TOutput, TError> | undefined;
     for (const [type, group] of groups) {
-      // biome-ignore lint/suspicious/noExplicitAny: dynamic dispatch — handler map is keyed by TError["type"] but TS cannot narrow a Record<string, Function> lookup to the correct overload
-      const handler = (handlers as Record<string, any>)[type];
+      const handlerMap = handlers as unknown as {
+        readonly [key: string]:
+          | ((errors: readonly [TError, ...TError[]], ctx: TCtx | TInput) => Result<TOutput, TError>)
+          | undefined;
+      };
+      const handler = handlerMap[type];
+      if (handler === undefined) {
+        return err(errors[0]);
+      }
       const result = handler(group, ctx);
       if (result.isErr()) return result;
       if (!firstOk) firstOk = result;
