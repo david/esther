@@ -146,9 +146,23 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
   const { name: tableName, key, schema } = handle;
   const columns = Object.keys(schema.shape);
   const nonKeyColumns = columns.filter((c) => c !== key);
+  const jsonbColumns = new Set(
+    columns.filter((column) => {
+      const fieldType = schema.shape[column];
+      if (fieldType === undefined) return false;
+      const typeName = getZodTypeName(fieldType);
+      return typeName === "ZodArray" || typeName === "ZodObject";
+    }),
+  );
 
   function asSqlValueMap(value: T): SqlValueMap {
-    return value as SqlValueMap;
+    const raw = value as SqlValueMap;
+    if (jsonbColumns.size === 0) return raw;
+    const out: { [key: string]: unknown } = { ...raw };
+    for (const column of jsonbColumns) {
+      out[column] = sql.json(out[column]);
+    }
+    return out;
   }
 
   const adapter: ProjectionAdapter<T> = {

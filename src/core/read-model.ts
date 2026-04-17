@@ -1,7 +1,7 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
-import type { StoredEvent } from "./types.js";
-import { getZodTypeName } from "./zod-internals.js";
+import type { StoredEvent } from "./types";
+import { getZodTypeName } from "./zod-internals";
 
 // ── Read model not found ───────────────────────────────────────────────
 

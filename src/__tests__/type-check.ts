@@ -5,7 +5,7 @@
 
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent, SliceDeps, StoredEvent } from "../index.js";
+import type { DomainEvent, SliceDeps, StoredEvent } from "../index";
 import {
   defineCommandSlice,
   defineQuerySlice,
@@ -16,7 +16,7 @@ import {
   type ReadModelNotFound,
   state,
   tagQuery,
-} from "../index.js";
+} from "../index";
 
 // ── Shared contracts ───────────────────────────────────────────────────
 

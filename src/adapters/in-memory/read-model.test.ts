@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { defineReadModel } from "../../core/read-model.js";
-import { createInMemoryProjectionAdapter } from "./read-model.js";
+import { defineReadModel } from "../../core/read-model";
+import { createInMemoryProjectionAdapter } from "./read-model";
 
 // ── Test setup ──────────────────────────────────────────────────────
 

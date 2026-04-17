@@ -1,4 +1,10 @@
-import type { PostgresClient, SqlPendingQuery, SqlQueryRows, SqlValueMap } from "./sql-types.js";
+import type {
+  PostgresClient,
+  SqlJsonFn,
+  SqlPendingQuery,
+  SqlQueryRows,
+  SqlValueMap,
+} from "./sql-types.js";
 
 // Tagged-template mock for postgres adapter tests.
 //
@@ -27,6 +33,11 @@ type MockHelper = {
   readonly keys: readonly string[];
 };
 
+type MockJson = {
+  readonly __mock: "json";
+  readonly value: unknown;
+};
+
 type MockQuery = MockFragment & SqlPendingQuery;
 
 function isMockFragment(v: unknown): v is MockFragment {
@@ -41,6 +52,14 @@ function isMockHelper(v: unknown): v is MockHelper {
   return typeof v === "object" && v !== null && (v as MockHelper).__mock === "helper";
 }
 
+function isMockJson(v: unknown): v is MockJson {
+  return typeof v === "object" && v !== null && (v as MockJson).__mock === "json";
+}
+
+function unwrapJson(v: unknown): unknown {
+  return isMockJson(v) ? v.value : v;
+}
+
 function flatten(fragment: MockFragment): { sql: string; params: unknown[] } {
   const params: unknown[] = [];
 
@@ -50,7 +69,7 @@ function flatten(fragment: MockFragment): { sql: string; params: unknown[] } {
       const cols = helper.keys.map((k) => `"${k}"`).join(", ");
       const phs = helper.keys
         .map((k) => {
-          params.push(helper.obj[k]);
+          params.push(unwrapJson(helper.obj[k]));
           return `$${params.length}`;
         })
         .join(", ");
@@ -58,7 +77,7 @@ function flatten(fragment: MockFragment): { sql: string; params: unknown[] } {
     }
     return helper.keys
       .map((k) => {
-        params.push(helper.obj[k]);
+        params.push(unwrapJson(helper.obj[k]));
         return `"${k}" = $${params.length}`;
       })
       .join(", ");
@@ -77,7 +96,7 @@ function flatten(fragment: MockFragment): { sql: string; params: unknown[] } {
         } else if (isMockHelper(val)) {
           sql += emitHelper(val, sql);
         } else {
-          params.push(val);
+          params.push(unwrapJson(val));
           sql += `$${params.length}`;
         }
       }
@@ -151,10 +170,20 @@ export function createMockSql(executeQuery: MockQueryExecutor): PostgresClient {
       } satisfies MockHelper;
     }
 
-    throw new Error(`mock-sql: unexpected call pattern`);
+    throw new Error("mock-sql: unexpected call pattern");
   }
 
+  const jsonCalls: unknown[] = [];
+  const json: SqlJsonFn = Object.assign(
+    (value: unknown): MockJson => {
+      jsonCalls.push(value);
+      return { __mock: "json", value };
+    },
+    { calls: jsonCalls },
+  );
+
   const sqlWithBegin: PostgresClient = Object.assign(sql, {
+    json,
     async begin<T>(fn: (tx: PostgresClient) => Promise<T>): Promise<T> {
       return fn(sqlWithBegin);
     },

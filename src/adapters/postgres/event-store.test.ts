@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ConstraintError } from "../../core/types.js";
-import { isConstraintViolation, mapConstraintError } from "./index.js";
+import { ConstraintError } from "../../core/types";
+import { isConstraintViolation, mapConstraintError } from "./index";
 
 describe("isConstraintViolation", () => {
   test("returns true for unique violation (23505)", () => {

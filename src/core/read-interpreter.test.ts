@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok } from "neverthrow";
 import { z } from "zod";
-import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
-import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model.js";
-import { createReadInterpreter } from "./read-interpreter.js";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
+import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
+import { createReadInterpreter } from "./read-interpreter";
 import {
   defineReadModel,
   eventsByTagsDescriptor,
   getDescriptor,
   type ProjectionQueryAdapter,
   queryDescriptor,
-} from "./read-model.js";
-import type { ProjectionStore } from "./slice.js";
+} from "./read-model";
+import type { ProjectionStore } from "./slice";
 
 // ── Test utilities ───────────────────────────────────────────────────
 

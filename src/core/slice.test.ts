@@ -1,11 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import { createInMemoryEventStore } from "../adapters/in-memory/event-store.js";
-import { compose, type Step } from "./compose.js";
-import { defineReadModel, defineReadModelQuery } from "./read-model.js";
-import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice.js";
-import type { DomainEvent } from "./types.js";
+import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
+import { compose, type Step } from "./compose";
+import { defineReadModel, defineReadModelQuery } from "./read-model";
+import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice";
+import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 

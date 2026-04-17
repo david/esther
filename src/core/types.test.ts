@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ConstraintError, type SliceError } from "./types.js";
+import { ConstraintError, type SliceError } from "./types";
 
 describe("ConstraintError", () => {
   test("constructor creates correct discriminated union", () => {

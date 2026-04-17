@@ -1,12 +1,12 @@
-import type { EventStore } from "./event-store.js";
+import type { EventStore } from "./event-store";
 import type {
   EventsByTagsDescriptor,
   GetDescriptor,
   ProjectionQueryAdapter,
   QueryDescriptor,
   ReadDescriptor,
-} from "./read-model.js";
-import type { ProjectionStore } from "./slice.js";
+} from "./read-model";
+import type { ProjectionStore } from "./slice";
 
 // ── ReadInterpreter ────────────────────────────────────────────────
 //

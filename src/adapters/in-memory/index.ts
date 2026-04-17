@@ -1,6 +1,6 @@
-export { createInMemoryEventStore } from "./event-store.js";
+export { createInMemoryEventStore } from "./event-store";
 export {
   createInMemoryAdapter,
   type DispatchFn,
   type InMemoryInputAdapter,
-} from "./input-adapter.js";
+} from "./input-adapter";
