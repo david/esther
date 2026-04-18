@@ -1,8 +1,15 @@
 import { err, ok, type Result } from "neverthrow";
+import type {
+  CastTagQueryDescriptor,
+  CommandLookupDescriptor,
+  DeriveStep,
+  GenerateStep,
+  SliceDeps,
+  TagQueryStep,
+} from "./slice";
 
 // ── Step ───────────────────────────────────────────────────────────────
-// A step takes the accumulated ctx and returns a Result containing a
-// patch to merge into the ctx, or an error to short-circuit on.
+// Generic reducer step used by the array-form compose utility.
 
 export type Step<TIn, TPatch, TError> = (ctx: TIn) => Promise<Result<TPatch, TError>>;
 
@@ -51,47 +58,40 @@ export function compose<TCtx, TError>(
   return buildPipeline([]);
 }
 
-// ── InputPipeline — type-safe builder for command slice input ──────────
+// ── InputPipeline — command-slice descriptor builder ──────────────────
 
-// Structural type for deferred steps (e.g. CastTagQueryDescriptor).
-// compose.ts must NOT import from slice.ts — this avoids the circular dep.
-// CastTagQueryDescriptor satisfies this structurally via its toStep method.
+type PipelineDeps = Pick<SliceDeps, "eventStore" | "projectionStore">;
 
-type PipelineDeps = {
-  readonly eventStore: unknown;
-  readonly projectionStore: unknown;
-};
-
-type DeferredStep<TInput, TPatch, TError> = {
-  readonly _tag: string;
-  toStep(deps: PipelineDeps): Step<TInput, TPatch, TError>;
-};
-
-// Structural type for generate steps (GenerateStep from slice.ts).
-// Returns a single key/value pair to merge into the context. Synchronous or async.
-
-type GenerateEntry<TKey extends string = string, TContext = unknown, TValue = unknown> = {
-  readonly _tag: "generate";
-  readonly key: TKey;
-  readonly fn: (ctx: TContext) => TValue | Promise<TValue>;
-};
-
-type PipelineEntry =
-  | { readonly kind: "step"; readonly step: Step<never, object, unknown> }
-  | { readonly kind: "deferred"; readonly descriptor: DeferredStep<never, object, unknown> }
-  | { readonly kind: "generate"; readonly entry: GenerateEntry<string, never, unknown> };
+type CommandInputDescriptor =
+  | TagQueryStep<string, never, unknown>
+  | CastTagQueryDescriptor<string, never, unknown, unknown, unknown>
+  | CommandLookupDescriptor<string, never, unknown, unknown, unknown>
+  | DeriveStep<never, object, unknown>
+  | GenerateStep<string, never, unknown>;
 
 export type InputPipeline<TInput, TCtx, TError> = {
   readonly _tag: "inputPipeline";
   readonly add: {
+    <TKey extends string, TState>(
+      descriptor: TagQueryStep<TKey, TCtx, TState>,
+    ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TState }, TError>;
+    <TKey extends string, TState, TSubject, TCause>(
+      descriptor: CastTagQueryDescriptor<TKey, TCtx, TSubject, TState, TCause>,
+    ): InputPipeline<
+      TInput,
+      TCtx &
+        { readonly [K in TKey]: TState } &
+        { readonly [K in `${TKey}Subject`]: TSubject },
+      TError | TCause
+    >;
+    <TKey extends string, TValue, TArgs, TCause>(
+      descriptor: CommandLookupDescriptor<TKey, TCtx, TValue, TArgs, TCause>,
+    ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TValue }, TError | TCause>;
     <TPatch extends object, TErr>(
-      step: Step<TCtx, TPatch, TErr>,
-    ): InputPipeline<TInput, TCtx & TPatch, TError | TErr>;
-    <TPatch extends object, TErr>(
-      descriptor: DeferredStep<TCtx, TPatch, TErr>,
+      descriptor: DeriveStep<TCtx, TPatch, TErr>,
     ): InputPipeline<TInput, TCtx & TPatch, TError | TErr>;
     <TKey extends string, TValue>(
-      gen: GenerateEntry<TKey, TCtx, TValue>,
+      descriptor: GenerateStep<TKey, TCtx, TValue>,
     ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TValue }, TError>;
   };
   readonly execute: (ctx: TInput, deps: PipelineDeps) => Promise<Result<TCtx, TError>>;
@@ -101,34 +101,20 @@ export type InputPipeline<TInput, TCtx, TError> = {
 // Same limitation as the array-form compose — TypeScript cannot track
 // progressive type accumulation across a dynamic for-loop. The builder's
 // public types (InputPipeline generics) carry correct accumulated types
-// to callers. Internal entries are erased to `unknown`/`never` because
-// the heterogeneous PipelineEntry array cannot express per-index type
-// progression.
+// to callers. Internal entries are erased because the heterogeneous
+// descriptor array cannot express per-index type progression.
 
-type AddParam =
-  | Step<never, object, unknown>
-  | DeferredStep<never, object, unknown>
-  | GenerateEntry<string, never, unknown>;
+type PipelineEntry = {
+  readonly descriptor: CommandInputDescriptor;
+};
+
+type AddParam = CommandInputDescriptor;
 
 function buildPipeline<TInput, TCtx, TError>(
   entries: ReadonlyArray<PipelineEntry>,
 ): InputPipeline<TInput, TCtx, TError> {
-  const add = ((stepOrDescriptor: AddParam) => {
-    let entry: PipelineEntry;
-    if (typeof stepOrDescriptor === "function") {
-      entry = { kind: "step", step: stepOrDescriptor };
-    } else if (stepOrDescriptor._tag === "generate") {
-      entry = {
-        kind: "generate",
-        entry: stepOrDescriptor as GenerateEntry<string, never, unknown>,
-      };
-    } else {
-      entry = {
-        kind: "deferred",
-        descriptor: stepOrDescriptor as DeferredStep<never, object, unknown>,
-      };
-    }
-    return buildPipeline([...entries, entry]);
+  const add = ((descriptor: AddParam) => {
+    return buildPipeline([...entries, { descriptor }]);
   }) as InputPipeline<TInput, TCtx, TError>["add"];
 
   return {
@@ -139,15 +125,9 @@ function buildPipeline<TInput, TCtx, TError>(
     async execute(ctx, deps) {
       let acc: object = ctx as object;
       for (const entry of entries) {
-        if (entry.kind === "generate") {
-          const value = await entry.entry.fn(acc as never);
-          acc = { ...acc, [entry.entry.key]: value };
-        } else {
-          const stepFn = entry.kind === "step" ? entry.step : entry.descriptor.toStep(deps);
-          const result = await stepFn(acc as never);
-          if (result.isErr()) return result as Result<TCtx, TError>;
-          acc = { ...acc, ...result.value };
-        }
+        const result = await entry.descriptor.toStep(deps)(acc as never);
+        if (result.isErr()) return result as Result<TCtx, TError>;
+        acc = { ...acc, ...result.value };
       }
       return ok(acc as TCtx);
     },

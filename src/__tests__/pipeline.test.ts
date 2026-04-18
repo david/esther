@@ -3,6 +3,7 @@ import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import type { DomainEvent } from "../index";
 import {
+  compose,
   createApp,
   createInMemoryAdapter,
   createInMemoryEventStore,
@@ -13,8 +14,8 @@ import {
   defineReadModelQuery,
   projection,
   ReadModelNotFound,
-  type SliceDeps,
   state,
+  tagQuery,
 } from "../index";
 
 // ── Test domain ──────────────────────────────────────────────────────
@@ -75,17 +76,14 @@ const balanceFold = (events: ReadonlyArray<AccountEvent>): Balance =>
     { balance: 0 },
   );
 
-// Helper: load account balance via event store tag query.
-async function loadAccountCtx<TCtx extends { readonly accountId: string }>(
-  ctx: TCtx,
-  deps: SliceDeps,
-): Promise<TCtx & { readonly account: Balance }> {
-  const result = await deps.eventStore.queryByTags(
-    [`account:${ctx.accountId}`],
-    accountSchemas,
-    balanceFold,
-  );
-  return { ...ctx, account: result.state };
+// Helper: declaratively bind account balance from the event store.
+function accountState<TCtx extends { readonly accountId: string }>() {
+  return tagQuery({
+    key: "account" as const,
+    tags: (ctx: TCtx) => [`account:${ctx.accountId}`],
+    schemas: accountSchemas,
+    fold: balanceFold,
+  });
 }
 
 type DepositCtx = DepositInput & { readonly account: Balance };
@@ -100,7 +98,7 @@ const depositSlice = defineCommandSlice<
   name: "deposit",
   inputSchema: depositInputSchema,
   outputSchema: depositOutputSchema,
-  input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+  input: compose<DepositInput>().add(accountState<DepositInput>()),
   validate: [],
   event: (ctx) => ({
     type: "Deposited" as const,
@@ -138,7 +136,7 @@ const withdrawSlice = defineCommandSlice<
   name: "withdraw",
   inputSchema: withdrawInputSchema,
   outputSchema: withdrawOutputSchema,
-  input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+  input: compose<WithdrawInput>().add(accountState<WithdrawInput>()),
   validate: [
     (ctx) => {
       if (ctx.account.balance < ctx.amount) {
@@ -208,7 +206,7 @@ const creditSlice = defineCommandSlice<
   name: "credit",
   inputSchema: creditInputSchema,
   outputSchema: creditOutputSchema,
-  input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+  input: compose<CreditInput>().add(accountState<CreditInput>()),
   validate: [],
   event: (ctx) => ({
     type: "CreditApplied" as const,
@@ -238,7 +236,7 @@ const rejectSlice = defineCommandSlice<
   name: "reject",
   inputSchema: rejectInputSchema,
   outputSchema: rejectOutputSchema,
-  input: async (ctx) => ok(ctx),
+  input: compose<z.output<typeof rejectInputSchema>>(),
   validate: [
     (_ctx) => [
       { type: "AlwaysFails" as const, code: "ALWAYS_FAILS", message: "This always fails" } as const,
@@ -854,7 +852,7 @@ describe("replay", () => {
       name: "replay-deposit",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      input: compose<DepositInput>().add(accountState<DepositInput>()),
       validate: [],
       event: (ctx) => ({
         type: "Deposited" as const,
@@ -996,7 +994,7 @@ describe("end-to-end integration", () => {
       name: "deposit-e2e",
       inputSchema: depositInputSchema,
       outputSchema: depositOutputSchema,
-      input: async (ctx, deps) => ok(await loadAccountCtx(ctx, deps)),
+      input: compose<DepositInput>().add(accountState<DepositInput>()),
       validate: [],
       event: (ctx) => ({
         type: "Deposited" as const,

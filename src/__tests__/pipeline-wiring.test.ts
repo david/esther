@@ -8,11 +8,11 @@ import {
   createInMemoryAdapter,
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
+  derive,
   type DomainEvent,
   defineCommandSlice,
   defineReadModel,
   type RegisterableSlice,
-  type Step,
 } from "../index";
 
 // ── Probe domain ───────────────────────────────────────────────────────
@@ -40,9 +40,11 @@ function probeOutputSchema<TOutput>(): z.ZodType<TOutput> {
   return z.custom<TOutput>(() => true);
 }
 
-// A bind step that injects { a: input.a } into ctx — the simplest legal
-// `input` chain. Used by tests that don't need a real cast/projection.
-const bindA: Step<ProbeInput, { readonly a: number }, never> = async (ctx) => ok({ a: ctx.a });
+// A derive descriptor that rebinds { a: input.a } into ctx — the simplest
+// legal `input` chain. Used by tests that don't need a real cast/projection.
+const bindA = derive<ProbeInput, { readonly a: number }, never>({
+  fn: (ctx) => ok({ a: ctx.a }),
+});
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -65,7 +67,7 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-happy",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ ok: z.boolean(), a: z.number() }),
-      input: compose<ProbeInput, never>([bindA]),
+      input: compose<ProbeInput>().add(bindA),
       validate: [(_ctx) => []],
       event: (ctx) => ({
         type: "Probe" as const,
@@ -98,17 +100,23 @@ describe("command pipeline v2 — wiring", () => {
 
   test("event not constructed on validate failure", async () => {
     let eventCalled = false;
-    const slice = defineCommandSlice({
+    const slice = defineCommandSlice<
+      ProbeInput,
+      ProbeInput,
+      { readonly failed: string },
+      ProbeEvent,
+      { readonly type: "rate" }
+    >({
       name: "probe-validate-fail-noevent",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema<object>(),
-      input: compose<ProbeInput, { readonly type: "rate" }>([bindA]),
+      outputSchema: z.object({ failed: z.string() }),
+      input: compose<ProbeInput>().add(bindA),
       validate: [(_ctx) => [{ type: "rate" as const }]],
       event: (_ctx) => {
         eventCalled = true;
         throw new Error("event() must not run");
       },
-      output: (_event, _ctx) => ok({}),
+      output: (_event, _ctx) => ok({ failed: "unused" }),
       outputErr: { rate: (errors, _ctx) => ok({ failed: errors[0].type }) },
     });
 
@@ -151,7 +159,13 @@ describe("command pipeline v2 — wiring", () => {
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
 
-    const slice = defineCommandSlice({
+    const slice = defineCommandSlice<
+      ProbeInput,
+      ProbeInput & { readonly thing: object; readonly thingSubject: { readonly id: string } },
+      { readonly status: string; readonly code: string },
+      ProbeEvent,
+      { readonly type: "NotFound" }
+    >({
       name: "probe-cast-absent",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ status: z.string(), code: z.string() }),
@@ -201,11 +215,17 @@ describe("command pipeline v2 — wiring", () => {
 
   test("validate failure routes to outputErr, not output", async () => {
     let outputCalled = false;
-    const slice = defineCommandSlice({
+    const slice = defineCommandSlice<
+      ProbeInput,
+      ProbeInput,
+      { readonly failed: string },
+      ProbeEvent,
+      { readonly type: "rate" }
+    >({
       name: "probe-validate-routes-outputErr",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema(),
-      input: compose<ProbeInput, { type: "rate" }>([bindA]),
+      input: compose<ProbeInput>().add(bindA),
       validate: [(_ctx) => [{ type: "rate" as const }]],
       event: (_ctx) => {
         throw new Error("event() must not run");
@@ -231,16 +251,22 @@ describe("command pipeline v2 — wiring", () => {
     type ValErr = { type: "first" } | { type: "second" };
     let firstSeen = 0;
     let secondSeen = 0;
-    const slice = defineCommandSlice({
+    const slice = defineCommandSlice<
+      ProbeInput,
+      ProbeInput,
+      { readonly kind: string },
+      ProbeEvent,
+      ValErr
+    >({
       name: "probe-validate-order",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema<object>(),
-      input: compose<ProbeInput, ValErr>([bindA]),
+      outputSchema: z.object({ kind: z.string() }),
+      input: compose<ProbeInput>().add(bindA),
       validate: [(_ctx) => [{ type: "first" as const }], (_ctx) => [{ type: "second" as const }]],
       event: (_ctx) => {
         throw new Error("event must not run");
       },
-      output: (_event, _ctx) => ok({}),
+      output: (_event, _ctx) => ok({ kind: "unused" }),
       outputErr: {
         first: (errors, _ctx) => {
           firstSeen = errors.length;
@@ -272,7 +298,11 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-validate-ctx",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema<{ ok: boolean }>(),
-      input: async (ctx: ProbeInput) => ok({ a: ctx.a, counter: 42 }),
+      input: compose<ProbeInput>().add(
+        derive({
+          fn: (_ctx: ProbeInput) => ok({ counter: 42 }),
+        }),
+      ),
       validate: [
         (ctx) => {
           observed = ctx.counter;
@@ -297,7 +327,7 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-append-event",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema<{ ok: boolean }>(),
-      input: compose<ProbeInput, never>([bindA]),
+      input: compose<ProbeInput>().add(bindA),
       validate: [],
       event: (_ctx) => ({
         type: "Probe" as const,
@@ -323,7 +353,7 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-output-event-shape",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ marker: z.string() }),
-      input: compose<ProbeInput, never>([bindA]),
+      input: compose<ProbeInput>().add(bindA),
       validate: [],
       event: (_ctx): ProbeEvent => ({
         type: "Probe",
@@ -347,7 +377,11 @@ describe("command pipeline v2 — wiring", () => {
       name: "probe-output-ctx",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ mark: z.string() }),
-      input: async (_ctx: ProbeInput) => ok({ mark: "from-input" }),
+      input: compose<ProbeInput>().add(
+        derive({
+          fn: (_ctx: ProbeInput) => ok({ mark: "from-input" }),
+        }),
+      ),
       validate: [(_ctx) => []],
       event: (_ctx) => ({
         type: "Probe" as const,
@@ -368,11 +402,17 @@ describe("command pipeline v2 — wiring", () => {
   test("outputErr typed error union — discriminates on e.type", async () => {
     type AB = { type: "A" } | { type: "B" };
     const makeSlice = (which: "A" | "B") =>
-      defineCommandSlice({
+      defineCommandSlice<
+        ProbeInput,
+        ProbeInput,
+        { readonly kind: string },
+        ProbeEvent,
+        AB
+      >({
         name: `probe-union-${which}`,
         inputSchema: probeInputSchema,
         outputSchema: z.object({ kind: z.string() }),
-        input: compose<ProbeInput, AB>([bindA]),
+        input: compose<ProbeInput>().add(bindA),
         validate: [(_ctx) => (which === "A" ? [{ type: "A" as const }] : [{ type: "B" as const }])],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ kind: "ok" }),
@@ -398,11 +438,17 @@ describe("command pipeline v2 — wiring", () => {
 
   test("outputErr handler propagates error", async () => {
     type RateErr = { type: "rate"; code: string };
-    const slice = defineCommandSlice({
+    const slice = defineCommandSlice<
+      ProbeInput,
+      ProbeInput,
+      object,
+      ProbeEvent,
+      RateErr
+    >({
       name: "probe-propagate-outputErr",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema<object>(),
-      input: compose<ProbeInput, RateErr>([bindA]),
+      input: compose<ProbeInput>().add(bindA),
       validate: [(_ctx) => [{ type: "rate" as const, code: "X" as const }]],
       event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
       output: (_event, _ctx) => ok({}),
@@ -447,7 +493,13 @@ describe("command pipeline v2 — wiring", () => {
       fold: (_events, subject) => ({ found: subject.id }),
     });
 
-    const slice = defineCommandSlice({
+    const slice = defineCommandSlice<
+      LoginInput,
+      LoginInput & { readonly user: { readonly found: string }; readonly userSubject: UserSubject },
+      { readonly userId: string },
+      ProbeEvent,
+      { readonly type: "NoUser" }
+    >({
       name: "probe-cast-uses-projection",
       inputSchema: loginSchema,
       outputSchema: z.object({ userId: z.string() }),
@@ -502,7 +554,7 @@ describe("command pipeline v2 — wiring", () => {
         name: "probe-bad-output-success",
         inputSchema: probeInputSchema,
         outputSchema: z.object({ must: z.string() }),
-        input: compose<ProbeInput, never>([bindA]),
+        input: compose<ProbeInput>().add(bindA),
         validate: [],
         event: (_ctx) => ({ type: "Probe" as const, tags: ["probe:bad-out"], payload: {} }),
         // wrong shape — missing `must`
@@ -520,11 +572,17 @@ describe("command pipeline v2 — wiring", () => {
     // Case (b): outputErr returns wrong shape on error path.
     {
       type Bad = { type: "bad" };
-      const slice = defineCommandSlice({
+      const slice = defineCommandSlice<
+        ProbeInput,
+        ProbeInput,
+        { must: string },
+        ProbeEvent,
+        Bad
+      >({
         name: "probe-bad-output-err",
         inputSchema: probeInputSchema,
         outputSchema: z.object({ must: z.string() }),
-        input: compose<ProbeInput, Bad>([bindA]),
+        input: compose<ProbeInput>().add(bindA),
         validate: [(_ctx) => [{ type: "bad" as const }]],
         event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),
         output: (_event, _ctx) => ok({ must: "ok" }),

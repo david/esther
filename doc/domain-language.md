@@ -14,7 +14,7 @@ A plain string attached to events. Tags form the query model -- events are retri
 
 A slice that resolves typed context from raw input, validates it against event-derived state, and appends a single event. Defined with `defineCommandSlice`. A command slice has the fields `input`, `validate`, `event`, `output`, and (optionally) `outputErr`.
 
-- `input(ctx, deps)`: resolves typed context — reads the event store or projection store via `deps`, returns `Result<TCtx, TError>`.
+- `input`: a descriptor pipeline built with `compose().add(...)`. It resolves typed context declaratively through framework-owned helpers such as `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
 - `validate`: an array of pure predicates `(ctx) => Result<void, TError>`; they run in order and short-circuit on first error.
 - `event(ctx)`: constructs the single domain event (no `Result` wrapper).
 - `output(event, ctx)`: maps the appended event plus final context into the slice's output shape.
@@ -28,13 +28,15 @@ A slice that resolves state and returns a read-only result without appending eve
 
 A composable pipeline (`state().pipe(...)`) that builds typed context for a query slice by chaining `tagQuery`, `projection`, and `generate` steps.
 
-## Step / compose
+## Command input pipeline / compose
 
-Command slices build their `input` pipeline from `Step<TIn, TOut, TErr>` functions composed with `compose([...])`. A `Step` takes a context and returns `Promise<Result<TOut, TErr>>`.
+Command slices build their `input` pipeline with `compose().add(...)`. Only framework-owned descriptor helpers may be added there — not raw async `input` functions and not raw step functions. The main helpers are `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
+
+The lower-level `Step<TIn, TOut, TErr>` type and `compose([...])` array form still exist as framework internals / utilities, but they are no longer the public command-input DSL.
 
 ## castTagQuery
 
-A command-side primitive that resolves a *subject* via a cast check, then runs a tag query folded over `(events, subject)`. Produces a `Step` via `.toStep(deps)` for use inside a `compose([...])` chain.
+A command-side primitive that resolves a *subject* via a declarative lookup, then runs a tag query folded over `(events, subject)`. Use it inside a command `input` pipeline with `compose().add(castTagQuery(...))`.
 
 ## Read Model
 

@@ -92,6 +92,9 @@ export {
 // ── Slice definitions ──────────────────────────────────────────────────
 export {
   type CastTagQueryDescriptor,
+  type CommandLookupDescriptor,
+  type CommandLookupByArgsDescriptor,
+  type CommandLookupByIdDescriptor,
   type CommandSlice,
   type CommandSliceDefinition,
   type CompileDeps,
@@ -99,8 +102,11 @@ export {
   castTagQuery,
   defineCommandSlice,
   defineQuerySlice,
+  type DeriveStep,
+  derive,
   type GenerateStep,
   generate,
+  lookup,
   type OutputErrHandlers,
   type ProjectionStep,
   type ProjectionStore,

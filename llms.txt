@@ -160,13 +160,17 @@ defineCommandSlice({
 });
 ```
 
-For complex input pipelines, compose declarative steps with `compose().add(...)`:
+For complex command input pipelines, compose framework-owned descriptors with `compose().add(...)`:
 
 ```typescript
 input: compose<Input>()
   .add(tagQuery({ key: "inventory" as const, tags: (ctx) => [...], schemas: [...], fold: ... }))
+  .add(lookup({ key: "pricing" as const, model: prices, id: (ctx) => ctx.priceId, absent: { type: "MissingPrice" } as const }))
+  .add(derive({ fn: (ctx) => ok({ normalizedEmail: ctx.email.trim().toLowerCase() }) }))
   .add(generate({ key: "token" as const, fn: () => crypto.randomUUID() })),
 ```
+
+Raw async command `input` functions and raw `.add(async (ctx) => ...)` steps are not part of the public DSL.
 
 `castTagQuery` is a higher-level primitive that resolves a subject via a declarative projection lookup, then runs a tag query against it:
 

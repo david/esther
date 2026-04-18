@@ -35,14 +35,18 @@ export type ProjectionStore = {
 };
 
 // ── SliceDeps ─────────────────────────────────────────────────────────
-// Runtime dependencies threaded into a v2 slice's `input` function. The
-// user's `input` closes over these and builds a compose(...) chain that
-// can read the event store (for tag queries) or the projection store
-// (for view lookups) without any module-level mutable state.
+// Runtime dependencies used by framework-owned command-input descriptors
+// and by query state resolution.
 
 export type SliceDeps = {
   readonly eventStore: EventStore;
   readonly projectionStore: ProjectionStore;
+};
+
+const frameworkStepBrand: unique symbol = Symbol("frameworkStepBrand");
+
+type FrameworkStepBrand = {
+  readonly [frameworkStepBrand]: true;
 };
 
 // ── addField — the ONE computed-key cast in the codebase ───────────────
@@ -222,21 +226,46 @@ export function state<TInput>(): StateResolver<TInput, TInput> {
 
 // ── State step types ───────────────────────────────────────────────────
 
-export type TagQueryStep<TKey extends string, TInput, TState> = {
+export type TagQueryStep<
+  TKey extends string,
+  TInput,
+  TState,
+  TSchema extends z.ZodType = z.ZodType,
+> = FrameworkStepBrand & {
   readonly _tag: "tagQuery";
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>) => TState;
+  readonly schemas: ReadonlyArray<TSchema>;
+  readonly fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState;
+  readonly toStep: (deps: SliceDeps) => Step<TInput, { readonly [K in TKey]: TState }, never>;
 };
 
-export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
+export function tagQuery<TKey extends string, TInput, TState, TSchema extends z.ZodType>(descriptor: {
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>) => TState;
-}): TagQueryStep<TKey, TInput, TState> {
-  return { _tag: "tagQuery", ...descriptor };
+  readonly schemas: ReadonlyArray<TSchema>;
+  readonly fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState;
+}): TagQueryStep<TKey, TInput, TState, TSchema> {
+  const toStep =
+    (_deps: SliceDeps): Step<TInput, { readonly [K in TKey]: TState }, never> =>
+    async (ctx) => {
+      const result = await _deps.eventStore.queryByTags(
+        descriptor.tags(ctx),
+        descriptor.schemas,
+        descriptor.fold,
+      );
+      return ok(addField({}, descriptor.key, result.state));
+    };
+
+  return {
+    [frameworkStepBrand]: true,
+    _tag: "tagQuery",
+    key: descriptor.key,
+    tags: descriptor.tags,
+    schemas: descriptor.schemas,
+    fold: descriptor.fold,
+    toStep,
+  };
 }
 
 // ── castTagQuery — NEW DSL primitive (alongside tagQuery) ─────────────
@@ -262,21 +291,22 @@ export type CastDescriptor<TInput, TSubject, TCause> =
   | CastDescriptorById<TInput, TSubject, TCause>
   | CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
 
-export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> = {
-  readonly _tag: "castTagQuery";
-  readonly key: TKey;
-  readonly cast: CastDescriptor<TInput, TSubject, TCause>;
-  readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-  readonly toStep: (
-    deps: SliceDeps,
-  ) => Step<
-    TInput,
-    { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
-    TCause
-  >;
-};
+export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> =
+  FrameworkStepBrand & {
+    readonly _tag: "castTagQuery";
+    readonly key: TKey;
+    readonly cast: CastDescriptor<TInput, TSubject, TCause>;
+    readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+    readonly schemas: ReadonlyArray<z.ZodType>;
+    readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
+    readonly toStep: (
+      deps: SliceDeps,
+    ) => Step<
+      TInput,
+      { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
+      TCause
+    >;
+  };
 
 // Overload: id-based lookup (ReadModelHandle)
 export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
@@ -353,12 +383,136 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
   };
 
   return {
+    [frameworkStepBrand]: true,
     _tag: "castTagQuery",
     key: descriptor.key,
     cast: descriptor.cast,
     tags: descriptor.tags,
     schemas: descriptor.schemas,
     fold: descriptor.fold,
+    toStep,
+  };
+}
+
+export type CommandLookupByIdDescriptor<TKey extends string, TInput, TValue, TCause> =
+  FrameworkStepBrand & {
+    readonly _tag: "commandLookup";
+    readonly key: TKey;
+    readonly model: ReadModelHandle<TValue>;
+    readonly id: (ctx: TInput) => string;
+    readonly absent: TCause;
+    readonly toStep: (
+      deps: SliceDeps,
+    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause>;
+  };
+
+export type CommandLookupByArgsDescriptor<TKey extends string, TInput, TValue, TArgs, TCause> =
+  FrameworkStepBrand & {
+    readonly _tag: "commandLookup";
+    readonly key: TKey;
+    readonly model: ReadModelQueryHandle<TValue, TArgs>;
+    readonly args: (ctx: TInput) => TArgs;
+    readonly absent: TCause;
+    readonly toStep: (
+      deps: SliceDeps,
+    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause>;
+  };
+
+export type CommandLookupDescriptor<TKey extends string, TInput, TValue, TArgs, TCause> =
+  | CommandLookupByIdDescriptor<TKey, TInput, TValue, TCause>
+  | CommandLookupByArgsDescriptor<TKey, TInput, TValue, TArgs, TCause>;
+
+export function lookup<TKey extends string, TInput, TValue, TCause>(descriptor: {
+  readonly key: TKey;
+  readonly model: ReadModelHandle<TValue>;
+  readonly id: (ctx: TInput) => string;
+  readonly absent: TCause;
+}): CommandLookupByIdDescriptor<TKey, TInput, TValue, TCause>;
+
+export function lookup<TKey extends string, TInput, TValue, TArgs, TCause>(descriptor: {
+  readonly key: TKey;
+  readonly model: ReadModelQueryHandle<TValue, TArgs>;
+  readonly args: (ctx: TInput) => TArgs;
+  readonly absent: TCause;
+}): CommandLookupByArgsDescriptor<TKey, TInput, TValue, TArgs, TCause>;
+
+export function lookup<TKey extends string, TInput, TValue, TArgs, TCause>(descriptor: {
+  readonly key: TKey;
+  readonly model: ReadModelHandle<TValue> | ReadModelQueryHandle<TValue, TArgs>;
+  readonly id?: ((ctx: TInput) => string) | undefined;
+  readonly args?: ((ctx: TInput) => TArgs) | undefined;
+  readonly absent: TCause;
+}): CommandLookupDescriptor<TKey, TInput, TValue, TArgs, TCause> {
+  const toStep = (
+    deps: SliceDeps,
+  ): Step<TInput, { readonly [K in TKey]: TValue }, TCause> => {
+    return async (ctx) => {
+      const isQueryLookup =
+        descriptor.args !== undefined &&
+        "_tag" in descriptor.model &&
+        descriptor.model._tag === "ReadModelQueryHandle";
+
+      const lookupResult = isQueryLookup
+        ? await (() => {
+            const queryModel = descriptor.model as ReadModelQueryHandle<TValue, TArgs>;
+            const args = descriptor.args?.(ctx);
+            const { sourceName, entries, orderBy, orderDirection, limit } =
+              queryModel.buildQuery(args as TArgs);
+            return deps.projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
+          })()
+        : await deps.projectionStore.get(
+            descriptor.model.name,
+            descriptor.id === undefined ? "" : descriptor.id(ctx),
+          );
+
+      if (lookupResult.isErr()) {
+        return err(descriptor.absent);
+      }
+
+      return ok(addField({}, descriptor.key, lookupResult.value.value as TValue));
+    };
+  };
+
+  if (descriptor.args !== undefined) {
+    return {
+      [frameworkStepBrand]: true,
+      _tag: "commandLookup",
+      key: descriptor.key,
+      model: descriptor.model as ReadModelQueryHandle<TValue, TArgs>,
+      args: descriptor.args,
+      absent: descriptor.absent,
+      toStep,
+    };
+  }
+
+  return {
+    [frameworkStepBrand]: true,
+    _tag: "commandLookup",
+    key: descriptor.key,
+    model: descriptor.model as ReadModelHandle<TValue>,
+    id: descriptor.id as (ctx: TInput) => string,
+    absent: descriptor.absent,
+    toStep,
+  };
+}
+
+export type DeriveStep<TContext, TPatch extends object, TError> = FrameworkStepBrand & {
+  readonly _tag: "derive";
+  readonly fn: (ctx: TContext) => Result<TPatch, TError>;
+  readonly toStep: (deps: SliceDeps) => Step<TContext, TPatch, TError>;
+};
+
+export function derive<TContext, TPatch extends object, TError>(descriptor: {
+  readonly fn: (ctx: TContext) => Result<TPatch, TError>;
+}): DeriveStep<TContext, TPatch, TError> {
+  const toStep = (_deps: SliceDeps): Step<TContext, TPatch, TError> => {
+    return async (ctx) => descriptor.fn(ctx);
+  };
+
+  return {
+    [frameworkStepBrand]: true,
+    _tag: "derive",
+    fn: descriptor.fn,
     toStep,
   };
 }
@@ -481,17 +635,28 @@ export function projection<TKey extends string, TInput, TValue, TArgs>(descripto
   };
 }
 
-export type GenerateStep<TKey extends string, TContext, TValue> = {
+export type GenerateStep<TKey extends string, TContext, TValue> = FrameworkStepBrand & {
   readonly _tag: "generate";
   readonly key: TKey;
-  readonly fn: (ctx: TContext) => TValue | Promise<TValue>;
+  readonly fn: (ctx: TContext) => TValue;
+  readonly toStep: (deps: SliceDeps) => Step<TContext, { readonly [K in TKey]: TValue }, never>;
 };
 
 export function generate<TKey extends string, TContext, TValue>(descriptor: {
   readonly key: TKey;
-  readonly fn: (ctx: TContext) => TValue | Promise<TValue>;
+  readonly fn: (ctx: TContext) => TValue;
 }): GenerateStep<TKey, TContext, TValue> {
-  return { _tag: "generate", ...descriptor };
+  const toStep =
+    (_deps: SliceDeps): Step<TContext, { readonly [K in TKey]: TValue }, never> =>
+    async (ctx) => ok(addField({}, descriptor.key, descriptor.fn(ctx)));
+
+  return {
+    [frameworkStepBrand]: true,
+    _tag: "generate",
+    key: descriptor.key,
+    fn: descriptor.fn,
+    toStep,
+  };
 }
 
 // ── Compiled slice ─────────────────────────────────────────────────────
@@ -610,15 +775,14 @@ export type CommandSliceDefinition<
   TOutput,
   TEvent extends DomainEvent,
   TError extends { readonly type: string },
+  TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 > = {
   readonly name?: string | undefined;
   readonly inputSchema: TInputSchema;
   readonly outputSchema: TOutputSchema;
-  readonly input:
-    | InputPipeline<TInput, TCtx, TError>
-    | ((ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>>);
+  readonly input: InputPipeline<TInput, TCtx, TInputError>;
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
@@ -632,6 +796,7 @@ export function defineCommandSlice<
   TOutput,
   TEvent extends DomainEvent,
   TError extends { readonly type: string } = never,
+  TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(
@@ -641,13 +806,12 @@ export function defineCommandSlice<
     TOutput,
     TEvent,
     TError,
+    TInputError,
     TInputSchema,
     TOutputSchema
   >,
 ): CommandSlice<TInput, TCtx, TOutput, TEvent, TError> {
-  const defInput = definition.input;
-  const inputFn: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>> =
-    typeof defInput === "function" ? defInput : (ctx, deps) => defInput.execute(ctx, deps);
+  const inputFn = (ctx: TInput, deps: SliceDeps) => definition.input.execute(ctx, deps);
 
   const outputErrFn = definition.outputErr
     ? normalizeOutputErrHandlers(

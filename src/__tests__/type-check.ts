@@ -5,13 +5,16 @@
 
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent, SliceDeps, StoredEvent } from "../index";
+import type { DomainEvent } from "../index";
 import {
+  compose,
   defineCommandSlice,
   defineQuerySlice,
   defineReadModel,
   defineReadModelQuery,
+  derive,
   generate,
+  lookup,
   projection,
   type ReadModelNotFound,
   state,
@@ -61,7 +64,10 @@ const BookingCreatedSchema = z.object({
 
 const propertySchemas = [BookingCreatedSchema];
 
-const propertyReducer = (state: PropertyState, event: StoredEvent): PropertyState => {
+const propertyReducer = (
+  state: PropertyState,
+  event: z.infer<typeof BookingCreatedSchema>,
+): PropertyState => {
   switch (event.type) {
     case "BookingCreated":
       return {
@@ -108,16 +114,26 @@ type PricingRow = { propertyId: string; pricePerNight: number };
 
 // ── Command slice — new DSL (input/validate/event/output) ────────────
 
-type CreateBookingCtx = CreateBookingInput & {
-  readonly property: PropertyState;
-  readonly pricing: Result<PricingRow, ReadModelNotFound>;
-};
-
-type CreateBookingError = {
-  readonly type: "PropertyUnavailable";
-  code: "PROPERTY_UNAVAILABLE";
+type PricingMissing = {
+  readonly type: "PricingMissing";
+  code: "PRICING_MISSING";
   message: string;
 };
+
+type CreateBookingCtx = CreateBookingInput & {
+  readonly property: PropertyState;
+  readonly pricing: PricingRow;
+  readonly confirmedAt: string;
+  readonly bookingId: string;
+};
+
+type CreateBookingError =
+  | {
+      readonly type: "PropertyUnavailable";
+      code: "PROPERTY_UNAVAILABLE";
+      message: string;
+    }
+  | PricingMissing;
 
 const _createBookingSlice = defineCommandSlice<
   CreateBookingInput,
@@ -130,44 +146,47 @@ const _createBookingSlice = defineCommandSlice<
   inputSchema: createBookingInputSchema,
   outputSchema: createBookingOutputSchema,
 
-  input: async (
-    ctx: CreateBookingInput,
-    deps: SliceDeps,
-  ): Promise<Result<CreateBookingCtx, CreateBookingError>> => {
-    const propertyResult = await deps.eventStore.queryByTags(
-      ["property", `property:${ctx.propertyId}`],
-      propertySchemas,
-      (events): PropertyState =>
-        events.reduce((acc: PropertyState, event) => {
-          if (event.type === "BookingCreated") {
-            return {
-              available: false,
-              bookedRanges: [
-                ...acc.bookedRanges,
-                { checkIn: event.payload.checkIn, checkOut: event.payload.checkOut },
-              ],
-            };
-          }
-          return acc;
-        }, initialPropertyState),
-    );
-    const pricingResult = await deps.projectionStore.get(pricingModel.name, ctx.propertyId);
-    const pricing: Result<PricingRow, ReadModelNotFound> = pricingResult.isOk()
-      ? ok(pricingResult.value.value as PricingRow)
-      : err(pricingResult.error);
-    return ok({
-      ...ctx,
-      property: propertyResult.state,
-      pricing,
-    });
-  },
+  input: compose<CreateBookingInput>()
+    .add(
+      tagQuery({
+        key: "property" as const,
+        tags: (ctx: CreateBookingInput) => ["property", `property:${ctx.propertyId}`],
+        schemas: propertySchemas,
+        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+      }),
+    )
+    .add(
+      lookup({
+        key: "pricing" as const,
+        model: pricingModel,
+        id: (ctx: CreateBookingInput & { readonly property: PropertyState }) => ctx.propertyId,
+        absent: {
+          type: "PricingMissing" as const,
+          code: "PRICING_MISSING" as const,
+          message: "Pricing row not found",
+        },
+      }),
+    )
+    .add(
+      derive({
+        fn: (_ctx: CreateBookingInput & { readonly property: PropertyState; readonly pricing: PricingRow }) =>
+          ok({ confirmedAt: new Date().toISOString() }),
+      }),
+    )
+    .add(
+      generate({
+        key: "bookingId" as const,
+        fn: () => crypto.randomUUID(),
+      }),
+    ),
 
   validate: [
     (ctx) => {
-      // ctx is fully typed: CreateBookingInput & { property: PropertyState } & { pricing: Result<PricingRow, ReadModelNotFound> }
       const _propertyCheck: PropertyState = ctx.property;
       const _inputCheck: string = ctx.propertyId;
-      const _pricingCheck: Result<PricingRow, ReadModelNotFound> = ctx.pricing;
+      const _pricingCheck: PricingRow = ctx.pricing;
+      const _confirmedAtCheck: string = ctx.confirmedAt;
+      const _bookingIdCheck: string = ctx.bookingId;
 
       if (!ctx.property.available) {
         return [
@@ -186,8 +205,8 @@ const _createBookingSlice = defineCommandSlice<
     type: "BookingCreated",
     tags: ["booking", `property:${ctx.propertyId}`, `tenant:${ctx.tenantId}`],
     payload: {
-      bookingId: crypto.randomUUID(),
-      confirmedAt: new Date().toISOString(),
+      bookingId: ctx.bookingId,
+      confirmedAt: ctx.confirmedAt,
       propertyId: ctx.propertyId,
       tenantId: ctx.tenantId,
       checkIn: ctx.checkIn,
@@ -203,8 +222,60 @@ const _createBookingSlice = defineCommandSlice<
 
   outputErr: {
     PropertyUnavailable: (errors) => err(errors[0]),
+    PricingMissing: (errors) => err(errors[0]),
   },
 });
+
+const _rawAsyncInputSlice = defineCommandSlice({
+  name: "raw-async-input",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  // @ts-expect-error command inputs must be descriptor pipelines, not raw async functions
+  input: async (ctx: CreateBookingInput) =>
+    ok({
+      ...ctx,
+      property: initialPropertyState,
+      pricing: { propertyId: ctx.propertyId, pricePerNight: 100 },
+      confirmedAt: new Date().toISOString(),
+      bookingId: crypto.randomUUID(),
+    }),
+  validate: [],
+  event: (ctx: CreateBookingCtx): BookingCreated => ({
+    type: "BookingCreated",
+    tags: ["booking"],
+    payload: {
+      bookingId: ctx.bookingId,
+      confirmedAt: ctx.confirmedAt,
+      propertyId: ctx.propertyId,
+      tenantId: ctx.tenantId,
+      checkIn: ctx.checkIn,
+      checkOut: ctx.checkOut,
+    },
+  }),
+  output: (event: BookingCreated) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+});
+
+const _descriptorOnlyPipeline = compose<CreateBookingInput>()
+  .add(
+    derive({
+      fn: (ctx: CreateBookingInput) => ok({ confirmedAt: `${ctx.checkIn}T00:00:00.000Z` }),
+    }),
+  )
+  .add(
+    generate({
+      key: "bookingId" as const,
+      fn: () => crypto.randomUUID(),
+    }),
+  );
+
+const _rawFunctionPipeline = compose<CreateBookingInput>().add(
+  // @ts-expect-error raw function steps are no longer allowed in command input pipelines
+  async (ctx: CreateBookingInput) => ok({ bookingId: `${ctx.propertyId}-booking` }),
+);
 
 // ── Query slice with required projection ─────────────────────────────
 
@@ -256,7 +327,7 @@ const _getPropertySlice = defineQuerySlice({
     tagQuery({
       key: "property" as const,
       tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-      schemas: [],
+      schemas: [BookingCreatedSchema],
       fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
     }),
   ),
@@ -284,7 +355,7 @@ const _generateFlowSlice = defineQuerySlice({
       tagQuery({
         key: "property" as const,
         tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-        schemas: [],
+        schemas: [BookingCreatedSchema],
         fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
       }),
     )

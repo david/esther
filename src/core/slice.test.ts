@@ -2,9 +2,9 @@ import { describe, expect, mock, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
-import { compose, type Step } from "./compose";
+import { compose } from "./compose";
 import { defineReadModel, defineReadModelQuery } from "./read-model";
-import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice";
+import { castTagQuery, defineCommandSlice, derive, type ValidatePredicate } from "./slice";
 import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ describe("defineCommandSlice outputErr", () => {
     name: "test/output-err",
     inputSchema,
     outputSchema,
-    input: async (ctx: TestInput): Promise<Result<TestInput, TestError>> => ok(ctx),
+    input: compose<TestInput>(),
     validate: [] as ReadonlyArray<ValidatePredicate<TestInput, TestError>>,
     event: (_ctx: TestInput): TestEvent => ({
       type: "TestEvent" as const,
@@ -326,7 +326,7 @@ describe("defineCommandSlice outputErr", () => {
       name: "test/no-errors",
       inputSchema,
       outputSchema,
-      input: async (ctx: TestInput): Promise<Result<TestInput, never>> => ok(ctx),
+      input: compose<TestInput>(),
       validate: [] as ReadonlyArray<ValidatePredicate<TestInput, never>>,
       event: (_ctx: TestInput): TestEvent => ({
         type: "TestEvent" as const,
@@ -351,13 +351,18 @@ describe("compose builder", () => {
   };
   const deps = { eventStore, projectionStore };
 
-  test("accumulates context through plain steps", async () => {
-    const step1: Step<{ a: number }, { b: string }, never> = async (ctx) =>
-      ok({ b: `got-${ctx.a}` });
-    const step2: Step<{ a: number; b: string }, { c: boolean }, never> = async (_ctx) =>
-      ok({ c: true });
-
-    const pipeline = compose<{ a: number }>().add(step1).add(step2);
+  test("accumulates context through framework-owned descriptors", async () => {
+    const pipeline = compose<{ a: number }>()
+      .add(
+        derive({
+          fn: (ctx: { a: number }) => ok({ b: `got-${ctx.a}` }),
+        }),
+      )
+      .add(
+        derive({
+          fn: (_ctx: { a: number; b: string }) => ok({ c: true }),
+        }),
+      );
     const result = await pipeline.execute({ a: 42 }, deps);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
@@ -423,13 +428,15 @@ describe("compose builder", () => {
   });
 
   test("defineCommandSlice accepts InputPipeline as input", async () => {
-    const step: Step<{ a: number }, { b: string }, never> = async (ctx) => ok({ b: String(ctx.a) });
-
     const slice = defineCommandSlice({
       name: "probe-pipeline-input",
       inputSchema: z.object({ a: z.number() }),
       outputSchema: z.object({ b: z.string() }),
-      input: compose<{ a: number }>().add(step),
+      input: compose<{ a: number }>().add(
+        derive({
+          fn: (ctx: { a: number }) => ok({ b: String(ctx.a) }),
+        }),
+      ),
       validate: [],
       event: (ctx) => ({ type: "Probe" as const, tags: [], payload: { b: ctx.b } }),
       output: (_event, ctx) => ok({ b: ctx.b }),
