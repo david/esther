@@ -2,29 +2,20 @@ import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type { InputPipeline, Step } from "./compose";
 import type { EventStore } from "./event-store";
-import type {
-  OrderDirection,
-  ReadModelHandle,
-  ReadModelNotFound,
-  ReadModelQueryHandle,
-  WhereEntry,
-} from "./read-model";
+import type { ReadModelHandle, ReadModelNotFound, ReadModelQueryHandle } from "./read-model";
 import type { DomainEvent, ValidationError } from "./types";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
 
 export type ProjectionStore = {
-  readonly get: (
-    name: string,
+  readonly get: <T>(
+    model: ReadModelHandle<T>,
     id: string,
-  ) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
-  readonly query: (
-    sourceName: string,
-    entries: ReadonlyArray<WhereEntry>,
-    orderBy: string | undefined,
-    limit: number | undefined,
-    orderDirection?: OrderDirection,
-  ) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
+  ) => Promise<Result<{ value: T }, ReadModelNotFound>>;
+  readonly query: <T, TArgs>(
+    model: ReadModelQueryHandle<T, TArgs>,
+    args: TArgs,
+  ) => Promise<Result<{ value: T }, ReadModelNotFound>>;
 };
 
 // ── SliceDeps ─────────────────────────────────────────────────────────
@@ -42,16 +33,6 @@ function isReadModelQueryHandle<T, TArgs>(
   model: ReadModelHandle<T> | ReadModelQueryHandle<T, TArgs>,
 ): model is ReadModelQueryHandle<T, TArgs> {
   return "buildQuery" in model && model._tag === "ReadModelQueryHandle";
-}
-
-function parseProjectionValue<T, TArgs>(
-  model: ReadModelHandle<T> | ReadModelQueryHandle<T, TArgs>,
-  value: unknown,
-): T {
-  const parsed = isReadModelQueryHandle(model)
-    ? model.source.schema.parse(value)
-    : model.schema.parse(value);
-  return parsed as T;
 }
 
 function isQueryProjectionStep<TKey extends string, TContext, TValue, TArgs, TRequired extends boolean>(
@@ -73,7 +54,7 @@ function isCastDescriptorByArgs<TInput, TSubject, TCause>(
 // This is a known TS limitation for computed property keys. Every other
 // type in the framework is fully inferred.
 
-function addField<TObj, TKey extends string, TValue>(
+export function addField<TObj, TKey extends string, TValue>(
   obj: TObj,
   key: TKey,
   value: TValue,
@@ -125,6 +106,14 @@ export type StateResolver<TInput, TContext> = {
   };
 };
 
+function isQueryProjectionStep<TKey extends string, TInput, TValue, TArgs, TRequired extends boolean>(
+  step:
+    | ProjectionStep<TKey, TInput, TValue, TRequired>
+    | QueryProjectionStep<TKey, TInput, TValue, TArgs, TRequired>,
+): step is QueryProjectionStep<TKey, TInput, TValue, TArgs, TRequired> {
+  return "args" in step;
+}
+
 function buildResolver<TInput, TContext>(
   resolveFn: (
     input: TInput,
@@ -132,13 +121,35 @@ function buildResolver<TInput, TContext>(
     projectionStore: ProjectionStore,
   ) => Promise<Result<ResolveResult<TContext>, ReadModelNotFound>>,
 ): StateResolver<TInput, TContext> {
-  const pipe = ((
+  function pipe<TKey extends string, TEvent, TState>(
+    step: TagQueryStep<TKey, TContext, TEvent, TState>,
+  ): StateResolver<TInput, TContext & { readonly [K in TKey]: TState }>;
+  function pipe<TKey extends string, T, TRequired extends boolean>(
+    step: ProjectionStep<TKey, TContext, T, TRequired>,
+  ): StateResolver<
+    TInput,
+    TContext & {
+      readonly [K in TKey]: TRequired extends true ? T : Result<T, ReadModelNotFound>;
+    }
+  >;
+  function pipe<TKey extends string, T, TArgs, TRequired extends boolean>(
+    step: QueryProjectionStep<TKey, TContext, T, TArgs, TRequired>,
+  ): StateResolver<
+    TInput,
+    TContext & {
+      readonly [K in TKey]: TRequired extends true ? T : Result<T, ReadModelNotFound>;
+    }
+  >;
+  function pipe<TKey extends string, TValue>(
+    step: GenerateStep<TKey, TContext, TValue>,
+  ): StateResolver<TInput, TContext & { readonly [K in TKey]: TValue }>;
+  function pipe(
     step:
       | TagQueryStep<string, TContext, unknown, unknown>
       | ProjectionStep<string, TContext, unknown, boolean>
       | QueryProjectionStep<string, TContext, unknown, unknown, boolean>
       | GenerateStep<string, TContext, unknown>,
-  ) => {
+  ): StateResolver<TInput, unknown> {
     const nextResolver = async (
       input: TInput,
       eventStore: EventStore,
@@ -164,30 +175,21 @@ function buildResolver<TInput, TContext>(
       }
 
       const readResult = isQueryProjectionStep(step)
-        ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
-            const args = step.args(prev.context);
-            const { sourceName, entries, orderBy, orderDirection, limit } =
-              step.model.buildQuery(args);
-            return projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
-          })()
-        : await projectionStore.get(step.model.name, step.id(prev.context));
+        ? await projectionStore.query(step.model, step.args(prev.context))
+        : await projectionStore.get(step.model, step.id(prev.context));
 
       if (step.required) {
         if (readResult.isErr()) {
           return err(readResult.error);
         }
         return ok({
-          context: addField(prev.context, step.key, parseProjectionValue(step.model, readResult.value.value)),
+          context: addField(prev.context, step.key, readResult.value.value),
         });
       }
 
       if (readResult.isOk()) {
         return ok({
-          context: addField(
-            prev.context,
-            step.key,
-            ok(parseProjectionValue(step.model, readResult.value.value)),
-          ),
+          context: addField(prev.context, step.key, ok(readResult.value.value)),
         });
       }
       return ok({
@@ -196,7 +198,7 @@ function buildResolver<TInput, TContext>(
     };
 
     return buildResolver(nextResolver);
-  }) as StateResolver<TInput, TContext>["pipe"];
+  }
 
   return {
     resolve: resolveFn,
@@ -250,9 +252,9 @@ export type CastDescriptorByArgs<TInput, TSubject, TArgs, TCause> = {
   readonly absent: TCause;
 };
 
-export type CastDescriptor<TInput, TSubject, TCause> =
+export type CastDescriptor<TInput, TSubject, TCause, TArgs = unknown> =
   | CastDescriptorById<TInput, TSubject, TCause>
-  | CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
+  | CastDescriptorByArgs<TInput, TSubject, TArgs, TCause>;
 
 export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TEvent, TState, TCause> = {
   readonly _tag: "castTagQuery";
@@ -313,18 +315,12 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TEvent, TSta
   > => {
     return async (ctx) => {
       const cast = descriptor.cast;
-
       const lookup = isCastDescriptorByArgs(cast)
-        ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
-            const args = cast.args(ctx);
-            const { sourceName, entries, orderBy, orderDirection, limit } =
-              cast.model.buildQuery(args);
-            return deps.projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
-          })()
-        : await deps.projectionStore.get(cast.model.name, cast.id(ctx));
+        ? await deps.projectionStore.query(cast.model, cast.args(ctx))
+        : await deps.projectionStore.get(cast.model, cast.id(ctx));
 
       if (lookup.isErr()) return err(descriptor.cast.absent);
-      const subject = parseProjectionValue(cast.model, lookup.value.value);
+      const subject = lookup.value.value;
       const tags = descriptor.tags(subject);
       const queryResult = await deps.eventStore.queryByTags(
         tags,
@@ -378,6 +374,20 @@ export type QueryProjectionStep<
   readonly required: TRequired;
 };
 
+type ProjectionByIdDescriptor<TKey extends string, TInput, TValue> = {
+  readonly key: TKey;
+  readonly model: ReadModelHandle<TValue>;
+  readonly id: (ctx: TInput) => string;
+  readonly required?: boolean | undefined;
+};
+
+type ProjectionByArgsDescriptor<TKey extends string, TInput, TValue, TArgs> = {
+  readonly key: TKey;
+  readonly model: ReadModelQueryHandle<TValue, TArgs>;
+  readonly args: (ctx: TInput) => TArgs;
+  readonly required?: boolean | undefined;
+};
+
 // ── projection() overloads ──────────────────────────────────────────
 
 // Query handle + args + required
@@ -413,20 +423,18 @@ export function projection<TKey extends string, TInput, TValue>(descriptor: {
 }): ProjectionStep<TKey, TInput, TValue, false>;
 
 // Implementation
-export function projection<TKey extends string, TInput, TValue, TArgs>(descriptor: {
-  readonly key: TKey;
-  readonly model: ReadModelHandle<TValue> | ReadModelQueryHandle<TValue, TArgs>;
-  readonly id?: ((ctx: TInput) => string) | undefined;
-  readonly args?: ((ctx: TInput) => TArgs) | undefined;
-  readonly required?: boolean | undefined;
-}):
+export function projection<TKey extends string, TInput, TValue, TArgs>(
+  descriptor:
+    | ProjectionByIdDescriptor<TKey, TInput, TValue>
+    | ProjectionByArgsDescriptor<TKey, TInput, TValue, TArgs>,
+):
   | ProjectionStep<TKey, TInput, TValue, boolean>
   | QueryProjectionStep<TKey, TInput, TValue, TArgs, boolean> {
-  if ("args" in descriptor && descriptor.args !== undefined) {
+  if ("args" in descriptor) {
     return {
       _tag: "projection",
       key: descriptor.key,
-      model: descriptor.model as ReadModelQueryHandle<TValue, TArgs>,
+      model: descriptor.model,
       args: descriptor.args,
       required: descriptor.required ?? false,
     };
@@ -434,8 +442,8 @@ export function projection<TKey extends string, TInput, TValue, TArgs>(descripto
   return {
     _tag: "projection",
     key: descriptor.key,
-    model: descriptor.model as ReadModelHandle<TValue>,
-    id: descriptor.id as (ctx: TInput) => string,
+    model: descriptor.model,
+    id: descriptor.id,
     required: descriptor.required ?? false,
   };
 }
@@ -603,9 +611,10 @@ export function defineCommandSlice<
   const inputFn: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>> =
     typeof defInput === "function" ? defInput : (ctx, deps) => defInput.execute(ctx, deps);
 
-  const outputErrFn = definition.outputErr
-    ? normalizeOutputErrHandlers(definition.outputErr)
-    : ([first]: readonly [TError, ...TError[]]) => err(first);
+  const outputErrFn =
+    definition.outputErr === undefined
+      ? ([first]: readonly [TError, ...TError[]]) => err(first)
+      : normalizeOutputErrHandlers(definition.outputErr);
 
   const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {
     _tag: "command",

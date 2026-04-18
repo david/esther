@@ -10,17 +10,10 @@ import {
   getDescriptor,
   type ProjectionQueryAdapter,
   queryDescriptor,
+  type ReadModelHandle,
+  type ReadModelQueryHandle,
 } from "./read-model";
 import type { ProjectionStore } from "./slice";
-
-// ── Test utilities ───────────────────────────────────────────────────
-
-function expectArray<T>(value: unknown, schema: z.ZodType<T>): ReadonlyArray<T> {
-  if (!Array.isArray(value)) {
-    throw new Error(`Expected array, got ${typeof value}`);
-  }
-  return value.map((item) => schema.parse(item));
-}
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -63,21 +56,27 @@ function buildDeps() {
   const { adapter, get, query } = createInMemoryProjectionAdapter(memberModel);
 
   const projectionStore: ProjectionStore = {
-    async get(name, id) {
-      if (name !== memberModel.name) {
-        throw new Error(`Unknown model ${name}`);
+    async get<T>(model: ReadModelHandle<T>, id: string) {
+      if (model.name !== memberModel.name) {
+        throw new Error(`Unknown model ${model.name}`);
       }
-      return get(id);
+      const result = await get(id);
+      if (result.isErr()) {
+        return err(result.error);
+      }
+      return ok({ value: model.schema.parse(result.value.value) });
     },
-    async query(name, entries, orderBy, limit) {
-      if (name !== memberModel.name) {
-        throw new Error(`Unknown model ${name}`);
+    async query<T, TArgs>(model: ReadModelQueryHandle<T, TArgs>, args: TArgs) {
+      const { sourceName, entries, orderBy, limit } = model.buildQuery(args);
+      if (sourceName !== memberModel.name) {
+        throw new Error(`Unknown model ${sourceName}`);
       }
       const rows = await query(entries, orderBy, limit);
-      if (rows.length === 0) {
-        return err({ _tag: "ReadModelNotFound" as const, name, id: "query" });
+      const first = rows[0];
+      if (first === undefined) {
+        return err({ _tag: "ReadModelNotFound" as const, name: sourceName, id: "query" });
       }
-      return ok({ value: rows[0] });
+      return ok({ value: model.source.schema.parse(first) });
     },
   };
 
@@ -136,9 +135,8 @@ describe("createReadInterpreter — query", () => {
       queryDescriptor({ model: memberModel, where: { active: true } }),
     );
 
-    const rows = expectArray(result, memberSchema);
-    expect(rows).toHaveLength(2);
-    const ids = rows.map((m) => m.id).sort();
+    expect(result).toHaveLength(2);
+    const ids = result.map((m) => m.id).sort();
     expect(ids).toEqual([alice.id, carol.id]);
   });
 
@@ -150,9 +148,8 @@ describe("createReadInterpreter — query", () => {
       queryDescriptor({ model: memberModel, where: { age: { gte: 35, lte: 45 } } }),
     );
 
-    const rows = expectArray(result, memberSchema);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.id).toBe(bob.id);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe(bob.id);
   });
 
   test("in membership on id field", async () => {
@@ -166,9 +163,8 @@ describe("createReadInterpreter — query", () => {
       }),
     );
 
-    const rows = expectArray(result, memberSchema);
-    expect(rows).toHaveLength(2);
-    const ids = rows.map((m) => m.id).sort();
+    expect(result).toHaveLength(2);
+    const ids = result.map((m) => m.id).sort();
     expect(ids).toEqual([alice.id, carol.id]);
   });
 
@@ -178,7 +174,7 @@ describe("createReadInterpreter — query", () => {
 
     const result = await interpreter.resolve(queryDescriptor({ model: memberModel, where: {} }));
 
-    expect(expectArray(result, memberSchema)).toHaveLength(3);
+    expect(result).toHaveLength(3);
   });
 
   test("orderBy ascending with limit", async () => {
@@ -189,9 +185,8 @@ describe("createReadInterpreter — query", () => {
       queryDescriptor({ model: memberModel, where: {}, orderBy: "age", limit: 2 }),
     );
 
-    const rows = expectArray(result, memberSchema);
-    expect(rows).toHaveLength(2);
-    const ages = rows.map((m) => m.age);
+    expect(result).toHaveLength(2);
+    const ages = result.map((m) => m.age);
     expect(ages).toEqual([30, 40]);
   });
 

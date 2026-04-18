@@ -4,7 +4,12 @@ import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { compose, type Step } from "./compose";
 import { defineReadModel, defineReadModelQuery } from "./read-model";
-import { castTagQuery, defineCommandSlice, type ValidatePredicate } from "./slice";
+import {
+  castTagQuery,
+  defineCommandSlice,
+  type ProjectionStore,
+  type ValidatePredicate,
+} from "./slice";
 import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -42,12 +47,16 @@ describe("castTagQuery", () => {
       fold: foldSpy,
     });
 
-    const projectionStore = {
-      get: async (name: string, id: string) => {
-        if (name === "users" && id === "u1") return ok({ value: subject });
-        return err({ _tag: "ReadModelNotFound" as const, name, id });
+    const projectionStore: ProjectionStore = {
+      async get(model, id) {
+        if (model.name === "users" && id === "u1") {
+          return ok({ value: model.schema.parse(subject) });
+        }
+        return err({ _tag: "ReadModelNotFound" as const, name: model.name, id });
       },
-      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      async query() {
+        return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+      },
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
@@ -60,7 +69,7 @@ describe("castTagQuery", () => {
         stateSubject: { userId: "u1", name: "Ada" },
       });
       // Reading .name does not require .isOk().
-      const sub = (result.value as { stateSubject: { name: string } }).stateSubject;
+      const sub = result.value.stateSubject;
       expect(sub.name).toBe("Ada");
     }
 
@@ -96,9 +105,13 @@ describe("castTagQuery", () => {
       fold: foldSpy,
     });
 
-    const projectionStore = {
-      get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
-      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    const projectionStore: ProjectionStore = {
+      async get() {
+        return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+      },
+      async query() {
+        return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+      },
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
@@ -150,19 +163,16 @@ describe("castTagQuery", () => {
       fold: foldSpy,
     });
 
-    const querySpy = mock(
-      async (
-        _sourceName: string,
-        _entries: ReadonlyArray<unknown>,
-        _orderBy: string | undefined,
-        _limit: number | undefined,
-      ) => ok({ value: subject }),
-    );
+    const querySpy = mock((_model: unknown, _args: unknown) => undefined);
 
-    const projectionStore = {
-      get: async (_name: string, _id: string) =>
-        err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
-      query: querySpy,
+    const projectionStore: ProjectionStore = {
+      async get() {
+        return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+      },
+      async query(model, args) {
+        querySpy(model, args);
+        return ok({ value: model.source.schema.parse(subject) });
+      },
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({ email: "ada@test.com" });
@@ -175,10 +185,10 @@ describe("castTagQuery", () => {
       });
     }
 
-    // projectionStore.query was called with the source name "users" (not "users_by_email")
+    // projectionStore.query was called with the typed query handle.
     expect(querySpy).toHaveBeenCalledTimes(1);
-    const [sourceName] = querySpy.mock.calls[0] ?? [];
-    expect(sourceName).toBe("users");
+    const [model] = querySpy.mock.calls[0] ?? [];
+    expect(model).toBe(usersByEmail);
 
     expect(tagsSpy).toHaveBeenCalledTimes(1);
     expect(tagsSpy).toHaveBeenCalledWith(subject);
@@ -218,9 +228,13 @@ describe("castTagQuery", () => {
       fold: foldSpy,
     });
 
-    const projectionStore = {
-      get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
-      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    const projectionStore: ProjectionStore = {
+      async get() {
+        return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+      },
+      async query() {
+        return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+      },
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({ email: "missing@test.com" });
@@ -340,8 +354,13 @@ describe("defineCommandSlice outputErr", () => {
 
 describe("compose builder", () => {
   const eventStore = createInMemoryEventStore();
-  const projectionStore = {
-    get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+  const projectionStore: ProjectionStore = {
+    async get() {
+      return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+    },
+    async query() {
+      return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
+    },
   };
   const deps = { eventStore, projectionStore };
 
@@ -366,10 +385,15 @@ describe("compose builder", () => {
       key: "id",
     });
 
-    const composeProjectionStore = {
-      get: async (name: string, id: string) => {
-        if (name === "compose_users") return ok({ value: { id: "u1" } });
-        return err({ _tag: "ReadModelNotFound" as const, name, id });
+    const composeProjectionStore: ProjectionStore = {
+      async get(model, id) {
+        if (model.name === "compose_users") {
+          return ok({ value: model.schema.parse({ id: "u1" }) });
+        }
+        return err({ _tag: "ReadModelNotFound" as const, name: model.name, id });
+      },
+      async query() {
+        return err({ _tag: "ReadModelNotFound" as const, name: "", id: "" });
       },
     };
     const composeDeps = { eventStore, projectionStore: composeProjectionStore };

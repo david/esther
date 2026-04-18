@@ -23,14 +23,13 @@ import type { ProjectionStore } from "./slice";
 //  - `eventsByTags`: calls `eventStore.queryByTags(tags, schemas, fold)` and
 //    returns the folded state.
 //
-// The return type is `Promise<unknown>` because the three variants
-// produce different shapes (`T | undefined`, `ReadonlyArray<T>`, and
-// the fold's arbitrary output). Callers that know which descriptor
-// they passed can narrow on their side; task 03 will add typed
-// helpers at the handler-surface level.
-
 export type ReadInterpreter = {
-  readonly resolve: <T>(descriptor: ReadDescriptor<T>) => Promise<unknown>;
+  readonly resolve: {
+    <T>(descriptor: GetDescriptor<T>): Promise<T | undefined>;
+    <T>(descriptor: QueryDescriptor<T>): Promise<ReadonlyArray<T>>;
+    <T>(descriptor: EventsByTagsDescriptor<T>): Promise<T>;
+    <T>(descriptor: ReadDescriptor<T>): Promise<T | ReadonlyArray<T> | undefined>;
+  };
 };
 
 export type ReadInterpreterDeps = {
@@ -42,22 +41,23 @@ export type ReadInterpreterDeps = {
 export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterpreter {
   const { eventStore, projectionStore, projectionQuery } = deps;
 
-  async function resolveGet<T>(descriptor: GetDescriptor<T>): Promise<unknown> {
-    const result = await projectionStore.get(descriptor.model.name, descriptor.id);
+  async function resolveGet<T>(descriptor: GetDescriptor<T>): Promise<T | undefined> {
+    const result = await projectionStore.get(descriptor.model, descriptor.id);
     if (result.isErr()) {
       return undefined;
     }
     return result.value.value;
   }
 
-  async function resolveQuery<T>(descriptor: QueryDescriptor<T>): Promise<ReadonlyArray<unknown>> {
-    return projectionQuery.query(
+  async function resolveQuery<T>(descriptor: QueryDescriptor<T>): Promise<ReadonlyArray<T>> {
+    const rows = await projectionQuery.query(
       descriptor.model.name,
       descriptor.entries,
       descriptor.orderBy,
       descriptor.limit,
       undefined,
     );
+    return rows.map((row) => descriptor.model.schema.parse(row));
   }
 
   async function resolveEventsByTags<T>(descriptor: EventsByTagsDescriptor<T>): Promise<T> {
@@ -69,16 +69,24 @@ export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterprete
     return result.state;
   }
 
+  async function resolve<T>(descriptor: GetDescriptor<T>): Promise<T | undefined>;
+  async function resolve<T>(descriptor: QueryDescriptor<T>): Promise<ReadonlyArray<T>>;
+  async function resolve<T>(descriptor: EventsByTagsDescriptor<T>): Promise<T>;
+  async function resolve<T>(descriptor: ReadDescriptor<T>): Promise<T | ReadonlyArray<T> | undefined>;
+  async function resolve<T>(
+    descriptor: GetDescriptor<T> | QueryDescriptor<T> | EventsByTagsDescriptor<T>,
+  ): Promise<T | ReadonlyArray<T> | undefined> {
+    switch (descriptor._tag) {
+      case "get":
+        return resolveGet(descriptor);
+      case "query":
+        return resolveQuery(descriptor);
+      case "eventsByTags":
+        return resolveEventsByTags(descriptor);
+    }
+  }
+
   return {
-    async resolve<T>(descriptor: ReadDescriptor<T>): Promise<unknown> {
-      switch (descriptor._tag) {
-        case "get":
-          return resolveGet(descriptor);
-        case "query":
-          return resolveQuery(descriptor);
-        case "eventsByTags":
-          return resolveEventsByTags(descriptor);
-      }
-    },
+    resolve,
   };
 }
