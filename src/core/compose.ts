@@ -7,6 +7,7 @@ import type {
   SliceDeps,
   TagQueryStep,
 } from "./slice";
+import type { ReadModelSchemaError } from "./types";
 
 // ── Step ───────────────────────────────────────────────────────────────
 // Generic reducer step used by the array-form compose utility.
@@ -94,7 +95,10 @@ export type InputPipeline<TInput, TCtx, TError> = {
       descriptor: GenerateStep<TKey, TCtx, TValue>,
     ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TValue }, TError>;
   };
-  readonly execute: (ctx: TInput, deps: PipelineDeps) => Promise<Result<TCtx, TError>>;
+  readonly execute: (
+    ctx: TInput,
+    deps: PipelineDeps,
+  ) => Promise<Result<TCtx, TError | ReadModelSchemaError>>;
 };
 
 // Cast justification (acc as TCtx, entry typing):
@@ -126,7 +130,7 @@ function buildPipeline<TInput, TCtx, TError>(
       let acc: object = ctx as object;
       for (const entry of entries) {
         const result = await entry.descriptor.toStep(deps)(acc as never);
-        if (result.isErr()) return result as Result<TCtx, TError>;
+        if (result.isErr()) return result as Result<TCtx, TError | ReadModelSchemaError>;
         acc = { ...acc, ...result.value };
       }
       return ok(acc as TCtx);

@@ -3,6 +3,20 @@ import type { EventStore } from "./event-store";
 import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice";
 import { type DomainEvent, SchemaError, type SliceError } from "./types";
 
+function isFrameworkInputError(error: unknown): error is SliceError {
+  if (typeof error !== "object" || error === null || !("_tag" in error)) {
+    return false;
+  }
+  const tag = error._tag;
+  return (
+    tag === "SchemaError" ||
+    tag === "ConstraintError" ||
+    tag === "ConcurrencyError" ||
+    tag === "ReadModelNotFound" ||
+    tag === "ReadModelSchemaError"
+  );
+}
+
 // ── Command pipeline ───────────────────────────────────────────────────
 // Executes a CommandSlice in the order:
 //   1. parse input via inputSchema
@@ -36,6 +50,9 @@ export async function executeCommand<
   // 2. Run input step chain — threads framework deps into user's `input` fn
   const inputResult = await slice.input(input, { eventStore, projectionStore });
   if (inputResult.isErr()) {
+    if (isFrameworkInputError(inputResult.error)) {
+      return err(inputResult.error);
+    }
     return finishCommand(slice, slice.outputErr([inputResult.error], input));
   }
   const ctx: TCtx = inputResult.value;

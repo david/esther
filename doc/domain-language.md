@@ -28,15 +28,21 @@ A slice that resolves state and returns a read-only result without appending eve
 
 A composable pipeline (`state().pipe(...)`) that builds typed context for a query slice by chaining `tagQuery`, `projection`, and `generate` steps.
 
+`projection()` steps schema-validate persisted rows before `handle()` runs. Required lookups still fail with `ReadModelNotFound` when no row exists; malformed rows fail fast with `ReadModelSchemaError`. `projection({ many: true })` validates every returned row and fails the whole query on the first malformed row.
+
 ## Command input pipeline / compose
 
 Command slices build their `input` pipeline with `compose().add(...)`. Only framework-owned descriptor helpers may be added there — not raw async `input` functions and not raw step functions. The main helpers are `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
+
+Projection-backed command descriptors (`lookup` and `castTagQuery`) always schema-validate persisted rows before binding them into context. Missing rows map to `ReadModelNotFound` or the descriptor's `absent` domain error; malformed rows surface as framework `ReadModelSchemaError`.
 
 The lower-level `Step<TIn, TOut, TErr>` type and `compose([...])` array form still exist as framework internals / utilities, but they are no longer the public command-input DSL.
 
 ## castTagQuery
 
 A command-side primitive that resolves a *subject* via a declarative lookup, then runs a tag query folded over `(events, subject)`. Use it inside a command `input` pipeline with `compose().add(castTagQuery(...))`.
+
+`castTagQuery` distinguishes three outcomes: absent row → descriptor `absent` error, malformed row → framework `ReadModelSchemaError`, valid row → typed subject bound under `${key}Subject`.
 
 ## Read Model
 

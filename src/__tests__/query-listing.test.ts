@@ -94,6 +94,144 @@ describe("query slice list projections", () => {
     ] satisfies ReadonlyArray<SongRow>);
   });
 
+  test("single-row projection rejects malformed persisted rows", async () => {
+    const eventStore = createInMemoryEventStore();
+    const input = createInMemoryAdapter();
+
+    const getSong = defineQuerySlice({
+      name: "songs/get-one",
+      inputSchema: z.object({ songId: z.string() }),
+      outputSchema: songs.schema,
+      state: state<{ songId: string }>().pipe(
+        projection({
+          key: "row" as const,
+          model: songs,
+          id: (ctx: { songId: string }) => ctx.songId,
+          required: true,
+        }),
+      ),
+      handle: (ctx) => ok(ctx.row),
+    });
+
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [
+        {
+          kind: "view",
+          name: songs.name,
+          get: async () => ok({ value: { songId: "song-1", title: 42 } }),
+        },
+      ],
+      inputAdapter: input,
+      slices: [getSong],
+    });
+
+    const result = await app.dispatch("songs/get-one", { songId: "song-1" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as {
+        readonly _tag: string;
+        readonly readModelName: string;
+        readonly queryName?: string;
+      };
+      expect(error._tag).toBe("ReadModelSchemaError");
+      expect(error.readModelName).toBe("test_songs");
+      expect(error.queryName).toBeUndefined();
+    }
+  });
+
+  test("single-row query projection rejects malformed rows before handle", async () => {
+    const eventStore = createInMemoryEventStore();
+    const input = createInMemoryAdapter();
+    let handleCalled = false;
+
+    const getSong = defineQuerySlice({
+      name: "songs/get-one-by-query",
+      inputSchema: z.object({}),
+      outputSchema: songs.schema,
+      state: state<Record<string, never>>().pipe(
+        projection({
+          key: "row" as const,
+          model: allSongs,
+          args: () => ({}),
+          required: true,
+        }),
+      ),
+      handle: (ctx) => {
+        handleCalled = true;
+        return ok(ctx.row);
+      },
+    });
+
+    const app = createApp({
+      eventStore,
+      projectionQuery: {
+        query: async () => [{ songId: "song-1", title: 42 }],
+      },
+      inputAdapter: input,
+      slices: [getSong],
+    });
+
+    const result = await app.dispatch("songs/get-one-by-query", {});
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as {
+        readonly _tag: string;
+        readonly readModelName: string;
+        readonly queryName?: string;
+      };
+      expect(error._tag).toBe("ReadModelSchemaError");
+      expect(error.readModelName).toBe("test_songs");
+      expect(error.queryName).toBe("test_songs_all");
+    }
+    expect(handleCalled).toBe(false);
+  });
+
+  test("projection({ many: true }) fails the whole query on malformed rows", async () => {
+    const eventStore = createInMemoryEventStore();
+    const input = createInMemoryAdapter();
+
+    const listSongs = defineQuerySlice({
+      name: "songs/list-many-malformed",
+      inputSchema: z.object({}),
+      outputSchema: z.array(songs.schema),
+      state: state<Record<string, never>>().pipe(
+        projection({
+          key: "rows" as const,
+          model: allSongs,
+          args: () => ({}),
+          many: true,
+        }),
+      ),
+      handle: (ctx) => ok(ctx.rows),
+    });
+
+    const app = createApp({
+      eventStore,
+      projectionQuery: {
+        query: async () => [
+          { songId: "song-1", title: "Aclame" },
+          { songId: "song-2", title: 42 },
+        ],
+      },
+      inputAdapter: input,
+      slices: [listSongs],
+    });
+
+    const result = await app.dispatch("songs/list-many-malformed", {});
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as {
+        readonly _tag: string;
+        readonly readModelName: string;
+        readonly queryName?: string;
+      };
+      expect(error._tag).toBe("ReadModelSchemaError");
+      expect(error.readModelName).toBe("test_songs");
+      expect(error.queryName).toBe("test_songs_all");
+    }
+  });
+
   test("query slices can return custom typed errors", async () => {
     const eventStore = createInMemoryEventStore();
     const input = createInMemoryAdapter();

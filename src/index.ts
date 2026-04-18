@@ -124,6 +124,7 @@ export {
 export {
   ConstraintError,
   EventId,
+  ReadModelSchemaError,
 } from "./core/types.js";
 export type {
   AppendResult,

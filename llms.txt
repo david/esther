@@ -172,6 +172,8 @@ input: compose<Input>()
 
 Raw async command `input` functions and raw `.add(async (ctx) => ...)` steps are not part of the public DSL.
 
+Projection-backed command descriptors validate persisted rows before binding them. Missing rows map to `ReadModelNotFound` or the descriptor's `absent` domain error; malformed rows surface as framework `ReadModelSchemaError`.
+
 `castTagQuery` is a higher-level primitive that resolves a subject via a declarative projection lookup, then runs a tag query against it:
 
 ```typescript
@@ -189,6 +191,8 @@ const subject = castTagQuery({
 
 input: compose<Input>().add(subject),
 ```
+
+`castTagQuery` distinguishes absent and malformed rows: absent → descriptor `absent` error, malformed → `ReadModelSchemaError`, valid → typed subject.
 
 ## Query slice state pipeline
 
@@ -218,7 +222,7 @@ defineQuerySlice({
 ```
 
 - `tagQuery`: queries events by tag intersection, folds to state.
-- `projection`: fetches a read model row. Pass `id` for direct key lookup, or `args` for a `defineReadModelQuery` model. `required: true` → fails on missing. `required: false` (default) → wraps as `Result<T, ReadModelNotFound>`.
+- `projection`: fetches a read model row. Pass `id` for direct key lookup, or `args` for a `defineReadModelQuery` model. Every returned row is schema-validated before `handle()` runs. `required: true` → fails on missing with `ReadModelNotFound`. `required: false` (default) → wraps missing as `Result<T, ReadModelNotFound>`. Malformed rows always fail with `ReadModelSchemaError`.
 - `generate`: adds a derived value (sync or async) to the context.
 
 ## Projectors and processors
@@ -314,13 +318,19 @@ Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`. Handlers are async and r
 Command execution returns `Result<TOutput, SliceError>`. The `SliceError` union:
 
 ```typescript
-type SliceError = ValidationError | ConstraintError | SchemaError | ReadModelNotFound;
+type SliceError =
+  | ValidationError
+  | ConstraintError
+  | SchemaError
+  | ReadModelNotFound
+  | ReadModelSchemaError;
 ```
 
 - `ValidationError` — `{ code, message }` from `validate` or `handle`
 - `ConstraintError` — `{ _tag: "ConstraintError", constraint, columns, table, message }` from database constraint violations (unique, FK, check). Projector writes that violate a constraint roll back the event and return this.
 - `SchemaError` — `{ _tag: "SchemaError", message, issues }` from Zod input/output parsing
 - `ReadModelNotFound` — `{ _tag: "ReadModelNotFound", name, id }` from required projection lookups
+- `ReadModelSchemaError` — `{ _tag: "ReadModelSchemaError", readModelName, queryName?, issues, message }` when a persisted row exists but does not satisfy the declared read-model schema
 
 The Fastify adapter maps `ConstraintError` to HTTP 409, `SchemaError` to 400, and other errors to 422.
 

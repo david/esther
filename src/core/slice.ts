@@ -9,7 +9,12 @@ import type {
   ReadModelQueryHandle,
   WhereEntry,
 } from "./read-model";
-import type { DomainEvent, StoredEvent } from "./types";
+import {
+  ReadModelSchemaError as mkReadModelSchemaError,
+  type DomainEvent,
+  type ReadModelSchemaError,
+  type StoredEvent,
+} from "./types";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
 
@@ -62,6 +67,53 @@ function addField<TObj, TKey extends string, TValue>(
   return { ...obj, [key]: value } as TObj & { readonly [K in TKey]: TValue };
 }
 
+function formatReadModelIssues(issues: ReadonlyArray<z.ZodIssue>): ReadonlyArray<string> {
+  return issues.map((issue) => {
+    const path = issue.path.map(String).join(".");
+    return path.length === 0 ? issue.message : `${path}: ${issue.message}`;
+  });
+}
+
+function validateReadModelRow(input: {
+  readonly model: { readonly name: string; readonly schema: z.ZodTypeAny };
+  readonly row: unknown;
+  readonly queryName?: string | undefined;
+}): Result<unknown, ReadModelSchemaError> {
+  const parseResult = input.model.schema.safeParse(input.row);
+  if (!parseResult.success) {
+    return err(
+      mkReadModelSchemaError(
+        input.model.name,
+        formatReadModelIssues(parseResult.error.issues),
+        input.queryName,
+      ),
+    );
+  }
+  return ok(parseResult.data);
+}
+
+function validateReadModelRows(input: {
+  readonly model: { readonly name: string; readonly schema: z.ZodTypeAny };
+  readonly rows: ReadonlyArray<unknown>;
+  readonly queryName?: string | undefined;
+}): Result<ReadonlyArray<unknown>, ReadModelSchemaError> {
+  const validatedRows: unknown[] = [];
+  for (const row of input.rows) {
+    const result = validateReadModelRow({
+      model: input.model,
+      row,
+      queryName: input.queryName,
+    });
+    if (result.isErr()) {
+      return err(result.error);
+    }
+    validatedRows.push(result.value);
+  }
+  return ok(validatedRows);
+}
+
+type ProjectionReadError = ReadModelNotFound | ReadModelSchemaError;
+
 // ── State resolver ─────────────────────────────────────────────────────
 // A function that takes typed input and produces typed enriched context.
 // Built by composing tagQuery / projection steps via pipe().
@@ -75,7 +127,7 @@ export type StateResolver<TInput, TContext> = {
     input: TInput,
     eventStore: EventStore,
     projectionStore: ProjectionStore,
-  ) => Promise<Result<ResolveResult<TContext>, ReadModelNotFound>>;
+  ) => Promise<Result<ResolveResult<TContext>, ProjectionReadError>>;
 
   readonly pipe: {
     <TKey extends string, TState>(
@@ -115,7 +167,7 @@ function buildResolver<TInput, TContext>(
     input: TInput,
     eventStore: EventStore,
     projectionStore: ProjectionStore,
-  ) => Promise<Result<ResolveResult<TContext>, ReadModelNotFound>>,
+  ) => Promise<Result<ResolveResult<TContext>, ProjectionReadError>>,
 ): StateResolver<TInput, TContext> {
   const pipe = ((
     step:
@@ -162,8 +214,16 @@ function buildResolver<TInput, TContext>(
         if (readManyResult.isErr()) {
           return err(readManyResult.error);
         }
+        const validatedRows = validateReadModelRows({
+          model: step.model.source,
+          rows: readManyResult.value.value,
+          queryName: step.model.name,
+        });
+        if (validatedRows.isErr()) {
+          return err(validatedRows.error);
+        }
         return ok({
-          context: addField(prev.context, step.key, readManyResult.value.value),
+          context: addField(prev.context, step.key, validatedRows.value),
         });
       }
 
@@ -188,22 +248,52 @@ function buildResolver<TInput, TContext>(
             (step as ProjectionStep<string, TContext, unknown, boolean>).id(prev.context),
           );
 
-      if (step.required) {
-        if (readResult.isErr()) {
+      if (readResult.isErr()) {
+        if (step.required) {
           return err(readResult.error);
         }
         return ok({
-          context: addField(prev.context, step.key, readResult.value.value),
+          context: addField(prev.context, step.key, err(readResult.error)),
         });
       }
 
-      if (readResult.isOk()) {
+      if (isQueryModel) {
+        const queryStep = step as QueryProjectionStep<string, TContext, unknown, unknown, boolean>;
+        const validatedRow = validateReadModelRow({
+          model: queryStep.model.source,
+          row: readResult.value.value,
+          queryName: queryStep.model.name,
+        });
+        if (validatedRow.isErr()) {
+          return err(validatedRow.error);
+        }
+        if (step.required) {
+          return ok({
+            context: addField(prev.context, step.key, validatedRow.value),
+          });
+        }
         return ok({
-          context: addField(prev.context, step.key, ok(readResult.value.value)),
+          context: addField(prev.context, step.key, ok(validatedRow.value)),
         });
       }
+
+      const projectionStep = step as ProjectionStep<string, TContext, unknown, boolean>;
+      const validatedRow = validateReadModelRow({
+        model: projectionStep.model,
+        row: readResult.value.value,
+      });
+      if (validatedRow.isErr()) {
+        return err(validatedRow.error);
+      }
+
+      if (step.required) {
+        return ok({
+          context: addField(prev.context, step.key, validatedRow.value),
+        });
+      }
+
       return ok({
-        context: addField(prev.context, step.key, err(readResult.error)),
+        context: addField(prev.context, step.key, ok(validatedRow.value)),
       });
     };
 
@@ -304,7 +394,7 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
     ) => Step<
       TInput,
       { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
-      TCause
+      TCause | ReadModelSchemaError
     >;
   };
 
@@ -346,7 +436,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
   ): Step<
     TInput,
     { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
-    TCause
+    TCause | ReadModelSchemaError
   > => {
     return async (ctx) => {
       const cast = descriptor.cast;
@@ -368,7 +458,26 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
           );
 
       if (lookup.isErr()) return err(descriptor.cast.absent);
-      const subject = lookup.value.value as TSubject;
+      const subjectResult = isQueryCast
+        ? (() => {
+            const queryCast = cast as CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
+            return validateReadModelRow({
+              model: queryCast.model.source,
+              row: lookup.value.value,
+              queryName: queryCast.model.name,
+            });
+          })()
+        : (() => {
+            const idCast = cast as CastDescriptorById<TInput, TSubject, TCause>;
+            return validateReadModelRow({
+              model: idCast.model,
+              row: lookup.value.value,
+            });
+          })();
+      if (subjectResult.isErr()) {
+        return err(subjectResult.error);
+      }
+      const subject = subjectResult.value as TSubject;
       const tags = descriptor.tags(subject);
       const queryResult = await deps.eventStore.queryByTags(tags, descriptor.schemas, (events) =>
         descriptor.fold(events, subject),
@@ -403,7 +512,7 @@ export type CommandLookupByIdDescriptor<TKey extends string, TInput, TValue, TCa
     readonly absent: TCause;
     readonly toStep: (
       deps: SliceDeps,
-    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause>;
+    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause | ReadModelSchemaError>;
   };
 
 export type CommandLookupByArgsDescriptor<TKey extends string, TInput, TValue, TArgs, TCause> =
@@ -415,7 +524,7 @@ export type CommandLookupByArgsDescriptor<TKey extends string, TInput, TValue, T
     readonly absent: TCause;
     readonly toStep: (
       deps: SliceDeps,
-    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause>;
+    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause | ReadModelSchemaError>;
   };
 
 export type CommandLookupDescriptor<TKey extends string, TInput, TValue, TArgs, TCause> =
@@ -445,7 +554,7 @@ export function lookup<TKey extends string, TInput, TValue, TArgs, TCause>(descr
 }): CommandLookupDescriptor<TKey, TInput, TValue, TArgs, TCause> {
   const toStep = (
     deps: SliceDeps,
-  ): Step<TInput, { readonly [K in TKey]: TValue }, TCause> => {
+  ): Step<TInput, { readonly [K in TKey]: TValue }, TCause | ReadModelSchemaError> => {
     return async (ctx) => {
       const isQueryLookup =
         descriptor.args !== undefined &&
@@ -469,7 +578,21 @@ export function lookup<TKey extends string, TInput, TValue, TArgs, TCause>(descr
         return err(descriptor.absent);
       }
 
-      return ok(addField({}, descriptor.key, lookupResult.value.value as TValue));
+      const valueResult = isQueryLookup
+        ? validateReadModelRow({
+            model: (descriptor.model as ReadModelQueryHandle<TValue, TArgs>).source,
+            row: lookupResult.value.value,
+            queryName: (descriptor.model as ReadModelQueryHandle<TValue, TArgs>).name,
+          })
+        : validateReadModelRow({
+            model: descriptor.model as ReadModelHandle<TValue>,
+            row: lookupResult.value.value,
+          });
+      if (valueResult.isErr()) {
+        return err(valueResult.error);
+      }
+
+      return ok(addField({}, descriptor.key, valueResult.value as TValue));
     };
   };
 
@@ -742,7 +865,10 @@ export type CommandSlice<
   readonly _tag: "command";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
-  readonly input: (ctx: TInput, deps: SliceDeps) => Promise<Result<TCtx, TError>>;
+  readonly input: (
+    ctx: TInput,
+    deps: SliceDeps,
+  ) => Promise<Result<TCtx, TError | ReadModelSchemaError>>;
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;

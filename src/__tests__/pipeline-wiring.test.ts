@@ -8,10 +8,12 @@ import {
   createInMemoryAdapter,
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
+  defineReadModelQuery,
   derive,
   type DomainEvent,
   defineCommandSlice,
   defineReadModel,
+  lookup,
   type RegisterableSlice,
 } from "../index";
 
@@ -461,6 +463,199 @@ describe("command pipeline v2 — wiring", () => {
     if (result.isErr()) {
       expect(result.error).toEqual({ type: "rate", code: "X" });
     }
+  });
+
+  test("query-backed lookup maps absence but surfaces malformed rows as ReadModelSchemaError", async () => {
+    const userModel = defineReadModel({
+      name: "lookup_users",
+      schema: z.object({ userId: z.string(), email: z.string() }),
+      key: "userId",
+    });
+
+    const usersByEmail = defineReadModelQuery({
+      name: "lookup_users_by_email",
+      source: userModel,
+      args: z.object({ email: z.string() }),
+      resolve: (args) => ({ where: { email: args.email }, limit: 1 }),
+    });
+
+    type LoginInput = { readonly email: string };
+    type LoginOutput = { readonly status: string; readonly userId: string };
+    type NoUser = { readonly type: "NoUser" };
+
+    const loginSchema = z.object({ email: z.string() });
+    const outputSchema = z.object({ status: z.string(), userId: z.string() });
+    let rows: ReadonlyArray<unknown> = [];
+    let noUserCalls = 0;
+
+    const slice = defineCommandSlice<
+      LoginInput,
+      LoginInput & { readonly user: { readonly userId: string; readonly email: string } },
+      LoginOutput,
+      ProbeEvent,
+      NoUser
+    >({
+      name: "probe-lookup-validated",
+      inputSchema: loginSchema,
+      outputSchema,
+      input: compose<LoginInput>().add(
+        lookup({
+          key: "user" as const,
+          model: usersByEmail,
+          args: (ctx: LoginInput) => ({ email: ctx.email }),
+          absent: { type: "NoUser" as const },
+        }),
+      ),
+      validate: [],
+      event: (ctx) => ({
+        type: "Probe" as const,
+        tags: ["probe:lookup-validated"],
+        payload: { marker: ctx.user.userId },
+      }),
+      output: (_event, ctx) => ok({ status: "ok", userId: ctx.user.userId }),
+      outputErr: {
+        NoUser: () => {
+          noUserCalls += 1;
+          return ok({ status: "absent", userId: "none" });
+        },
+      },
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      projectionQuery: {
+        query: async () => rows,
+      },
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+    });
+
+    const missing = await app.dispatch("probe-lookup-validated", { email: "nobody@test" });
+    expect(missing.isOk()).toBe(true);
+    if (missing.isOk()) {
+      expect(missing.value).toEqual({ status: "absent", userId: "none" });
+    }
+    expect(noUserCalls).toBe(1);
+
+    rows = [{ userId: "u-1", email: "alice@test" }];
+    const hit = await app.dispatch("probe-lookup-validated", { email: "alice@test" });
+    expect(hit.isOk()).toBe(true);
+    if (hit.isOk()) {
+      expect(hit.value).toEqual({ status: "ok", userId: "u-1" });
+    }
+
+    rows = [{ userId: 123, email: "alice@test" }];
+    const malformed = await app.dispatch("probe-lookup-validated", { email: "alice@test" });
+    expect(malformed.isErr()).toBe(true);
+    if (malformed.isErr()) {
+      const error = malformed.error as {
+        readonly _tag: string;
+        readonly readModelName: string;
+        readonly queryName?: string;
+      };
+      expect(error._tag).toBe("ReadModelSchemaError");
+      expect(error.readModelName).toBe("lookup_users");
+      expect(error.queryName).toBe("lookup_users_by_email");
+    }
+    expect(noUserCalls).toBe(1);
+
+    const queried = await eventStore.queryByTags(
+      ["probe:lookup-validated"],
+      probeSchemas,
+      (events) => events,
+    );
+    expect(queried.state).toHaveLength(1);
+  });
+
+  test("castTagQuery surfaces malformed rows as ReadModelSchemaError", async () => {
+    const userModel = defineReadModel({
+      name: "cast_users",
+      schema: z.object({ userId: z.string(), name: z.string() }),
+      key: "userId",
+    });
+
+    type CastInput = { readonly userId: string };
+    type CastOutput = { readonly status: string };
+    type NoUser = { readonly type: "NoUser" };
+
+    const cast = castTagQuery({
+      key: "userState" as const,
+      cast: {
+        model: userModel,
+        id: (ctx: CastInput) => ctx.userId,
+        absent: { type: "NoUser" as const },
+      },
+      tags: (subject) => [`user:${subject.userId}`],
+      schemas: [],
+      fold: () => ({ active: true }),
+    });
+
+    let validateCalled = false;
+    let noUserCalls = 0;
+
+    const slice = defineCommandSlice<
+      CastInput,
+      CastInput & {
+        readonly userState: { readonly active: boolean };
+        readonly userStateSubject: { readonly userId: string; readonly name: string };
+      },
+      CastOutput,
+      ProbeEvent,
+      NoUser
+    >({
+      name: "probe-cast-malformed",
+      inputSchema: z.object({ userId: z.string() }),
+      outputSchema: z.object({ status: z.string() }),
+      input: compose<CastInput>().add(cast),
+      validate: [
+        () => {
+          validateCalled = true;
+          return [];
+        },
+      ],
+      event: () => ({
+        type: "Probe" as const,
+        tags: ["probe:cast-malformed"],
+        payload: {},
+      }),
+      output: () => ok({ status: "ok" }),
+      outputErr: {
+        NoUser: () => {
+          noUserCalls += 1;
+          return ok({ status: "absent" });
+        },
+      },
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      projectionAdapters: [
+        {
+          kind: "view",
+          name: userModel.name,
+          get: async () => ok({ value: { userId: 123, name: "Ada" } }),
+        },
+      ],
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+    });
+
+    const result = await app.dispatch("probe-cast-malformed", { userId: "u-1" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as { readonly _tag: string; readonly readModelName: string };
+      expect(error._tag).toBe("ReadModelSchemaError");
+      expect(error.readModelName).toBe("cast_users");
+    }
+    expect(validateCalled).toBe(false);
+    expect(noUserCalls).toBe(0);
+
+    const queried = await eventStore.queryByTags(["probe:cast-malformed"], probeSchemas, (events) => events);
+    expect(queried.state).toHaveLength(0);
   });
 
   test("declarative cast resolves subject from projection", async () => {

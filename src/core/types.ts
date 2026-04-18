@@ -89,12 +89,36 @@ export const SchemaError = (message: string, issues: ReadonlyArray<string> = [])
   issues,
 });
 
+export type ReadModelSchemaError = {
+  readonly _tag: "ReadModelSchemaError";
+  readonly readModelName: string;
+  readonly queryName?: string;
+  readonly issues: ReadonlyArray<string>;
+  readonly message: string;
+};
+
+export const ReadModelSchemaError = (
+  readModelName: string,
+  issues: ReadonlyArray<string>,
+  queryName?: string,
+): ReadModelSchemaError => ({
+  _tag: "ReadModelSchemaError",
+  readModelName,
+  ...(queryName === undefined ? {} : { queryName }),
+  issues,
+  message:
+    queryName === undefined
+      ? `Persisted row for read model "${readModelName}" failed schema validation`
+      : `Persisted row for read model "${readModelName}" from query "${queryName}" failed schema validation`,
+});
+
 export type SliceError =
   | ValidationError
   | ConcurrencyError
   | ConstraintError
   | SchemaError
-  | ReadModelNotFound;
+  | ReadModelNotFound
+  | ReadModelSchemaError;
 
 // ── Effects ────────────────────────────────────────────────────────────
 

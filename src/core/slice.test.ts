@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { compose } from "./compose";
 import { defineReadModel, defineReadModelQuery } from "./read-model";
-import { castTagQuery, defineCommandSlice, derive, type ValidatePredicate } from "./slice";
+import { castTagQuery, defineCommandSlice, derive, lookup, type ValidatePredicate } from "./slice";
 import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -235,6 +235,78 @@ describe("castTagQuery", () => {
     }
     expect(tagsSpy).not.toHaveBeenCalled();
     expect(foldSpy).not.toHaveBeenCalled();
+  });
+  test("malformed row returns ReadModelSchemaError instead of absent cause", async () => {
+    const eventStore = createInMemoryEventStore();
+
+    const userModel = defineReadModel({
+      name: "users",
+      schema: z.object({ userId: z.string(), name: z.string() }),
+      key: "userId",
+    });
+
+    const descriptor = castTagQuery({
+      key: "state" as const,
+      cast: {
+        model: userModel,
+        id: () => "u1",
+        absent: { type: "NotFound" as const },
+      },
+      tags: () => [],
+      schemas: [],
+      fold: () => ({}),
+    });
+
+    const projectionStore = {
+      get: async () => ok({ value: { userId: 123, name: "Ada" } }),
+      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      queryMany: async () => ok({ value: [] }),
+    };
+    const step = descriptor.toStep({ eventStore, projectionStore });
+    const result = await step({});
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toMatchObject({
+        _tag: "ReadModelSchemaError",
+        readModelName: "users",
+      });
+    }
+  });
+});
+
+describe("lookup", () => {
+  test("malformed row returns ReadModelSchemaError instead of absent cause", async () => {
+    const eventStore = createInMemoryEventStore();
+    const accountModel = defineReadModel({
+      name: "accounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+
+    const descriptor = lookup({
+      key: "account" as const,
+      model: accountModel,
+      id: () => "acc-1",
+      absent: { type: "MissingAccount" as const },
+    });
+
+    const projectionStore = {
+      get: async () => ok({ value: { accountId: "acc-1", balance: "bad" } }),
+      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      queryMany: async () => ok({ value: [] }),
+    };
+
+    const step = descriptor.toStep({ eventStore, projectionStore });
+    const result = await step({});
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toMatchObject({
+        _tag: "ReadModelSchemaError",
+        readModelName: "accounts",
+      });
+    }
   });
 });
 
