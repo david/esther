@@ -15,7 +15,12 @@ import {
   type ConcurrencyError as ConcurrencyErrorType,
   type StoredEvent,
 } from "../../core/types.js";
-import type { PostgresClient, PostgresTransactionClient, SqlValueMap } from "./sql-types.js";
+import {
+  executeSqlQuery,
+  type PostgresClient,
+  type PostgresTransactionClient,
+  type SqlValueMap,
+} from "./sql-types.js";
 
 type HandlerRegistration<T> = {
   readonly filter: EventFilter;
@@ -88,11 +93,11 @@ async function fetchEventRows(
   const where = buildTagsWhere(sql, tags);
 
   return queryRows<EventRow>(
-    await sql`
+    await executeSqlQuery(sql`
       SELECT id, type, tags, payload, position, timestamp
       FROM events
       WHERE ${where}
-      ORDER BY position ASC`,
+      ORDER BY position ASC`),
   );
 }
 
@@ -102,10 +107,10 @@ async function fetchMaxPosition(
 ): Promise<bigint | undefined> {
   const where = buildTagsWhere(sql, tags);
   const rows = queryRows<{ readonly pos: string | null }>(
-    await sql`
+    await executeSqlQuery(sql`
       SELECT MAX(position) as pos
       FROM events
-      WHERE ${where}`,
+      WHERE ${where}`),
   );
   const pos = rows[0]?.pos;
   return pos === null || pos === undefined ? undefined : BigInt(pos);
@@ -157,7 +162,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
 
           // 1. Get next position (no FOR UPDATE)
           const posResult = queryRows<{ pos: string }>(
-            await tx`SELECT COALESCE(MAX(position), -1) as pos FROM events`,
+            await executeSqlQuery(tx`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
           );
           let nextPos = BigInt(posResult[0]?.pos ?? "-1") + 1n;
 

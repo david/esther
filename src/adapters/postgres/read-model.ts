@@ -8,15 +8,45 @@ import type {
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
 import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.js";
-import type {
-  PostgresClient,
-  PostgresTransactionClient,
-  SqlFragment,
-  SqlPendingQuery,
-  SqlValueMap,
+import {
+  executeSqlQuery,
+  type PostgresClient,
+  type PostgresTransactionClient,
+  type SqlFragment,
+  type SqlJsonInput,
+  type SqlParameter,
+  type SqlValueMap,
 } from "./sql-types.js";
 
 // ── Zod-to-DDL column mapping ──────────────────────────────────────────
+
+function isSqlJsonInput(value: unknown): value is SqlJsonInput {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    return value.every(isSqlJsonInput);
+  }
+
+  if (typeof value !== "object") {
+    return false;
+  }
+
+  return Object.values(value).every(isSqlJsonInput);
+}
+
+function toSqlJsonInput(value: unknown, column: string): SqlJsonInput {
+  if (!isSqlJsonInput(value)) {
+    throw new Error(`Invalid JSONB value for column \"${column}\"`);
+  }
+  return value;
+}
 
 function zodToColumnType(zodType: z.ZodTypeAny): string {
   const typeName = getZodTypeName(zodType);
@@ -157,10 +187,14 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
 
   function asSqlValueMap(value: T): SqlValueMap {
     const raw = value as SqlValueMap;
-    if (jsonbColumns.size === 0) return raw;
-    const out: { [key: string]: unknown } = { ...raw };
+    if (jsonbColumns.size === 0) {
+      return raw;
+    }
+
+    const out: { [key: string]: SqlParameter } = { ...raw };
     for (const column of jsonbColumns) {
-      out[column] = sql.json(out[column]);
+      const columnValue = out[column];
+      out[column] = sql.json(toSqlJsonInput(columnValue, column));
     }
     return out;
   }
@@ -173,18 +207,25 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
 
       switch (operation) {
         case "insert": {
-          await sql`INSERT INTO ${sql(tableName)} ${sql(asSqlValueMap(value), ...columns)}`;
+          await executeSqlQuery(sql`INSERT INTO ${sql(tableName)} ${sql(asSqlValueMap(value), ...columns)}`);
           break;
         }
 
         case "update": {
           const source = asSqlValueMap(value);
-          const updateObj = Object.fromEntries(nonKeyColumns.map((c) => [c, source[c]]));
-          const updated = await sql`
+          const updateObj: { [key: string]: SqlParameter } = {};
+          for (const column of nonKeyColumns) {
+            const columnValue = source[column];
+            if (columnValue === undefined) {
+              throw new Error(`Missing value for column \"${column}\" in read model \"${tableName}\"`);
+            }
+            updateObj[column] = columnValue;
+          }
+          const updated = await executeSqlQuery(sql`
             UPDATE ${sql(tableName)}
             SET ${sql(updateObj, ...nonKeyColumns)}
             WHERE ${sql(key)} = ${keyValue}
-            RETURNING ${sql(key)}`;
+            RETURNING ${sql(key)}`);
 
           if (updated.length === 0) {
             throw new Error(
@@ -202,15 +243,15 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
             excludedSet = sql`${excludedSet}, ${sql(col)} = EXCLUDED.${sql(col)}`;
           }
 
-          await sql`
+          await executeSqlQuery(sql`
             INSERT INTO ${sql(tableName)} ${sql(asSqlValueMap(value), ...columns)}
-            ON CONFLICT (${sql(key)}) DO UPDATE SET ${excludedSet}`;
+            ON CONFLICT (${sql(key)}) DO UPDATE SET ${excludedSet}`);
           break;
         }
 
         case "delete": {
-          const deleted = await sql`
-            DELETE FROM ${sql(tableName)} WHERE ${sql(key)} = ${keyValue} RETURNING 1`;
+          const deleted = await executeSqlQuery(sql`
+            DELETE FROM ${sql(tableName)} WHERE ${sql(key)} = ${keyValue} RETURNING 1`);
           if (deleted.length === 0) {
             throw new Error(
               `Delete failed: key "${keyValue}" not found in read model "${tableName}"`,
@@ -223,8 +264,8 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
   };
 
   async function get(id: string): Promise<Result<StoredEntry<T>, ReadModelNotFound>> {
-    const raw = await sql`
-      SELECT ${sql(columns)} FROM ${sql(tableName)} WHERE ${sql(key)} = ${id}`;
+    const raw = await executeSqlQuery(sql`
+      SELECT ${sql(columns)} FROM ${sql(tableName)} WHERE ${sql(key)} = ${id}`);
 
     if (raw.length === 0) {
       return err(ReadModelNotFound(tableName, id));
@@ -250,7 +291,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
       throw new Error(`query: limit must be a non-negative integer, got ${limit}`);
     }
 
-    let q: SqlPendingQuery = sql`SELECT ${sql(columns)} FROM ${sql(tableName)}`;
+    let q: SqlFragment = sql`SELECT ${sql(columns)} FROM ${sql(tableName)}`;
     if (entries.length > 0) {
       const where = translateEntries(sql, entries, allowedColumns);
       q = sql`${q} WHERE ${where}`;
@@ -263,7 +304,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     }
     if (limit !== undefined) q = sql`${q} LIMIT ${limit}`;
 
-    const raw: ReadonlyArray<unknown> = await q;
+    const raw = await executeSqlQuery(q);
     return raw.map((row) => schema.parse(row));
   }
 

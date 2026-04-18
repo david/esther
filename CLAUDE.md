@@ -46,7 +46,7 @@ Casts (`as`) are only permitted at these boundaries:
 ```bash
 bun run typecheck   # tsgo --noEmit
 bun run test        # bun test
-bun run lint        # biome check src/
+bun run lint        # eslint src --max-warnings=0
 bun run format      # biome format src/ --write
 ```
 

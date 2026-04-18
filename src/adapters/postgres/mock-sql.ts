@@ -1,7 +1,7 @@
 import type {
   PostgresClient,
+  SqlFragment,
   SqlJsonFn,
-  SqlPendingQuery,
   SqlQueryRows,
   SqlValueMap,
 } from "./sql-types.js";
@@ -38,7 +38,7 @@ type MockJson = {
   readonly value: unknown;
 };
 
-type MockQuery = MockFragment & SqlPendingQuery;
+type MockQuery = MockFragment & SqlFragment & PromiseLike<SqlQueryRows>;
 
 function isMockFragment(v: unknown): v is MockFragment {
   return typeof v === "object" && v !== null && (v as MockFragment).__mock === "fragment";

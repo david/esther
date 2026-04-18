@@ -46,7 +46,7 @@ Nowhere else. If you think you need a cast, redesign first. If one is truly unav
 ```bash
 bun run typecheck   # tsgo --noEmit
 bun run test        # bun test
-bun run lint        # biome check src/
+bun run lint        # eslint src --max-warnings=0
 bun run format      # biome format src/ --write
 ```
 
