@@ -4,7 +4,7 @@ import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
 import { createApp } from "./app";
 import type { EffectAdapter } from "./effect-adapter";
-import { defineProcessor } from "./processor";
+import { defineProcessor, processorEvent } from "./processor";
 import { defineReadModel, getDescriptor } from "./read-model";
 import type { EffectResult } from "./types";
 
@@ -80,14 +80,14 @@ describe("defineProcessor", () => {
     const processor = defineProcessor({
       name: "test-processor",
       events: [
-        {
+        processorEvent({
           schema: TestEventSchema,
           handler: (event): EffectResult => ({
             type: "effect",
             kind: "test",
             email: event.payload.email,
           }),
-        },
+        }),
       ],
     });
 
@@ -128,7 +128,7 @@ describe("defineProcessor", () => {
     const processor = defineProcessor({
       name: "read-processor",
       events: [
-        {
+        processorEvent({
           schema: TestEventSchema,
           reads: {
             user: (event: TestEvent) => getDescriptor(userModel, event.payload.userId),
@@ -137,7 +137,7 @@ describe("defineProcessor", () => {
             const email = extractUserEmail(reads);
             return { type: "effect", kind: "test", email };
           },
-        },
+        }),
       ],
     });
 
@@ -181,13 +181,13 @@ describe("defineProcessor", () => {
     const processor = defineProcessor({
       name: "void-processor",
       events: [
-        {
+        processorEvent({
           schema: TestEventSchema,
           handler: () => {
             // intentionally produces no effect
             return undefined;
           },
-        },
+        }),
       ],
     });
 
@@ -221,10 +221,10 @@ describe("defineProcessor", () => {
       defineProcessor({
         name: "bad-processor",
         events: [
-          {
+          processorEvent({
             schema: BadSchema,
             handler: () => undefined,
-          },
+          }),
         ],
       }),
     ).toThrow(/literal/i);

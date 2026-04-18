@@ -22,7 +22,7 @@ type InMemoryProjectionAdapterResult<T> = {
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
-    orderDirection?: OrderDirection | undefined,
+    orderDirection?: OrderDirection,
   ) => Promise<ReadonlyArray<T>>;
 };
 

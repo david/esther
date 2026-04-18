@@ -34,10 +34,11 @@ Casts (`as`) are only permitted at these boundaries:
 
 1. **Branded type constructors** such as `EventId()`. By definition.
 2. **`addField()`** in `src/core/slice.ts`. TypeScript cannot infer `{ ...obj, [computedKey]: value }`. One function, one cast.
-3. **Storage/serialization boundaries** such as `queryRows<T>()` in the postgres adapter or `data.get(k) as T` in the notifying adapter. Deserialization and heterogeneous store retrieval are inherently untyped.
+3. **Storage/serialization boundaries** such as `readJsonFile()` in the filesystem adapter, `parseRows()` in the postgres adapter, or `data.get(k) as T` in the notifying adapter. Raw external data stays `unknown` until parsed.
 4. **Zod internals** such as `_def.typeName` and `_def.checks` access in `src/core/zod-internals.ts`. Zod does not expose these in public types.
 5. **`compose()` accumulator** in `src/core/compose.ts`, where `acc as TCtx` is required because TypeScript cannot track progressive type accumulation across a dynamic loop over heterogeneous steps.
-6. **`normalizeOutputErrHandlers()`** in `src/core/slice.ts`, where `handlers as Record<string, any>` is used for dynamic dispatch.
+6. **`normalizeOutputErrHandlers()`** in `src/core/slice.ts`, where the handler map is cast to an indexable function dictionary for dynamic dispatch.
+7. **Framework compile-time erasure points** such as `defineProcessor()` and `parseProjectionValue()` where runtime validation has already happened, but TypeScript cannot carry the validated generic through the erased registry boundary.
 
 Nowhere else. If you think you need a cast, redesign first. If one is truly unavoidable, add it to this list with a justification.
 
@@ -46,7 +47,7 @@ Nowhere else. If you think you need a cast, redesign first. If one is truly unav
 ```bash
 bun run typecheck   # tsgo --noEmit
 bun run test        # bun test
-bun run lint        # biome check src/
+bun run lint        # eslint src/ + depcruise
 bun run format      # biome format src/ --write
 ```
 

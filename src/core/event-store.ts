@@ -30,16 +30,18 @@ export type AppendOptions = {
   readonly boundaryTags: ReadonlyArray<string> | undefined;
 };
 
+export type EventSchema<TEvent = unknown> = z.ZodType<TEvent>;
+
 export type EventStore = {
   readonly append: (
     events: ReadonlyArray<DomainEvent>,
     options?: AppendOptions,
   ) => Promise<Result<AppendResult, SliceError>>;
 
-  readonly queryByTags: <TSchema extends z.ZodType, TState>(
+  readonly queryByTags: <TEvent, TSchema extends EventSchema<TEvent>, TState>(
     tags: ReadonlyArray<string>,
     schemas: ReadonlyArray<TSchema>,
-    fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+    fold: (events: ReadonlyArray<TEvent>) => TState,
   ) => Promise<TagQueryResult<TState>>;
 
   readonly onAfterInsert: (filter: EventFilter, handler: OnAfterInsertHandler) => void;

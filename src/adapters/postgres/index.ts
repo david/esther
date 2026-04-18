@@ -1,8 +1,9 @@
-import { err, ok } from "neverthrow";
-import type { z } from "zod";
+import { err, ok, type Result } from "neverthrow";
+import { z } from "zod";
 import type {
   AppendOptions,
   EventFilter,
+  EventSchema,
   EventStore,
   OnAfterCommitHandler,
   OnAfterInsertHandler,
@@ -13,9 +14,10 @@ import {
   ConstraintError,
   EventId,
   type ConcurrencyError as ConcurrencyErrorType,
+  type ConstraintError as ConstraintErrorType,
   type StoredEvent,
 } from "../../core/types.js";
-import type { PostgresClient, PostgresTransactionClient, SqlValueMap } from "./sql-types.js";
+import type { PostgresClient, PostgresTransactionClient } from "./sql-types.js";
 
 type HandlerRegistration<T> = {
   readonly filter: EventFilter;
@@ -23,11 +25,32 @@ type HandlerRegistration<T> = {
 };
 
 // ── SQL boundary ───────────────────────────────────────────────────────
-// Tagged template queries return unknown[]. This is the single place
-// where we assert the row shape.
+// Tagged template queries return unknown[]. Parse them immediately before
+// using the values anywhere else in the adapter.
 
-function queryRows<T>(raw: ReadonlyArray<unknown>): T[] {
-  return raw as T[];
+const EventRowSchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  tags: z.array(z.string()),
+  payload: z.unknown(),
+  position: z.string().regex(/^-?\d+$/),
+  timestamp: z.date(),
+});
+
+const MaxPositionRowSchema = z.object({
+  pos: z.string().regex(/^-?\d+$/).nullable(),
+});
+
+const NextPositionRowSchema = z.object({
+  pos: z.string().regex(/^-?\d+$/),
+});
+
+function parseRows<T>(schema: z.ZodType<T>, raw: ReadonlyArray<unknown>, label: string): T[] {
+  return z.array(schema).parse(raw, {
+    errorMap: (issue, ctx) => ({
+      message: `${label}: ${ctx.defaultError}`,
+    }),
+  });
 }
 
 // ── Constraint violation helpers ──────────────────────────────────────
@@ -54,7 +77,7 @@ export function isConstraintViolation(e: unknown): e is PgError {
 export function mapConstraintError(
   e: { code: string; constraint_name: string; table_name: string; message: string },
   metadata: Map<string, { columns: ReadonlyArray<string>; table: string }>,
-): import("../../core/types.js").ConstraintError {
+): ConstraintErrorType {
   const registered = metadata.get(e.constraint_name);
   if (registered) {
     return ConstraintError(e.constraint_name, registered.columns, registered.table, e.message);
@@ -64,14 +87,7 @@ export function mapConstraintError(
 
 // ── Event row fetching ────────────────────────────────────────────────
 
-type EventRow = {
-  readonly id: string;
-  readonly type: string;
-  readonly tags: readonly string[];
-  readonly payload: SqlValueMap;
-  readonly position: string;
-  readonly timestamp: Date;
-};
+type EventRow = z.infer<typeof EventRowSchema>;
 
 function buildTagsWhere(sql: PostgresTransactionClient, tags: ReadonlyArray<string>) {
   let where = sql`TRUE`;
@@ -87,13 +103,12 @@ async function fetchEventRows(
 ): Promise<EventRow[]> {
   const where = buildTagsWhere(sql, tags);
 
-  return queryRows<EventRow>(
-    await sql`
-      SELECT id, type, tags, payload, position, timestamp
-      FROM events
-      WHERE ${where}
-      ORDER BY position ASC`,
-  );
+  const rawRows = await sql`
+    SELECT id, type, tags, payload, position, timestamp
+    FROM events
+    WHERE ${where}
+    ORDER BY position ASC`;
+  return parseRows(EventRowSchema, rawRows, "postgres events query returned invalid rows");
 }
 
 async function fetchMaxPosition(
@@ -101,11 +116,14 @@ async function fetchMaxPosition(
   tags: ReadonlyArray<string>,
 ): Promise<bigint | undefined> {
   const where = buildTagsWhere(sql, tags);
-  const rows = queryRows<{ readonly pos: string | null }>(
-    await sql`
-      SELECT MAX(position) as pos
-      FROM events
-      WHERE ${where}`,
+  const rawRows = await sql`
+    SELECT MAX(position) as pos
+    FROM events
+    WHERE ${where}`;
+  const rows = parseRows(
+    MaxPositionRowSchema,
+    rawRows,
+    "postgres max-position query returned invalid rows",
   );
   const pos = rows[0]?.pos;
   return pos === null || pos === undefined ? undefined : BigInt(pos);
@@ -114,7 +132,7 @@ async function fetchMaxPosition(
 function validateAppendPrecondition(
   options: AppendOptions | undefined,
   actualPosition: bigint | undefined,
-): import("neverthrow").Result<void, ConcurrencyErrorType> {
+): Result<void, ConcurrencyErrorType> {
   if (!options || options.expectedPosition === undefined) {
     return ok(undefined);
   }
@@ -156,10 +174,12 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
           }
 
           // 1. Get next position (no FOR UPDATE)
-          const posResult = queryRows<{ pos: string }>(
+          const posRows = parseRows(
+            NextPositionRowSchema,
             await tx`SELECT COALESCE(MAX(position), -1) as pos FROM events`,
+            "postgres append position query returned invalid rows",
           );
-          let nextPos = BigInt(posResult[0]?.pos ?? "-1") + 1n;
+          let nextPos = BigInt(posRows[0]?.pos ?? "-1") + 1n;
 
           // 2. INSERT events
           const results: StoredEvent[] = [];
@@ -216,10 +236,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       }
     },
 
-    async queryByTags<TSchema extends z.ZodType, TState>(
+    async queryByTags<TEvent, TSchema extends EventSchema<TEvent>, TState>(
       tags: ReadonlyArray<string>,
       schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+      fold: (events: ReadonlyArray<TEvent>) => TState,
     ) {
       const rows = await fetchEventRows(sql, tags);
       const lastRow = rows[rows.length - 1];

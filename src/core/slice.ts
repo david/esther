@@ -9,7 +9,7 @@ import type {
   ReadModelQueryHandle,
   WhereEntry,
 } from "./read-model";
-import type { DomainEvent, StoredEvent, ValidationError } from "./types";
+import type { DomainEvent, ValidationError } from "./types";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ export type ProjectionStore = {
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
-    orderDirection?: OrderDirection | undefined,
+    orderDirection?: OrderDirection,
   ) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
 };
 
@@ -37,6 +37,36 @@ export type SliceDeps = {
   readonly eventStore: EventStore;
   readonly projectionStore: ProjectionStore;
 };
+
+function isReadModelQueryHandle<T, TArgs>(
+  model: ReadModelHandle<T> | ReadModelQueryHandle<T, TArgs>,
+): model is ReadModelQueryHandle<T, TArgs> {
+  return "buildQuery" in model && model._tag === "ReadModelQueryHandle";
+}
+
+function parseProjectionValue<T, TArgs>(
+  model: ReadModelHandle<T> | ReadModelQueryHandle<T, TArgs>,
+  value: unknown,
+): T {
+  const parsed = isReadModelQueryHandle(model)
+    ? model.source.schema.parse(value)
+    : model.schema.parse(value);
+  return parsed as T;
+}
+
+function isQueryProjectionStep<TKey extends string, TContext, TValue, TArgs, TRequired extends boolean>(
+  step:
+    | ProjectionStep<TKey, TContext, TValue, TRequired>
+    | QueryProjectionStep<TKey, TContext, TValue, TArgs, TRequired>,
+): step is QueryProjectionStep<TKey, TContext, TValue, TArgs, TRequired> {
+  return isReadModelQueryHandle(step.model);
+}
+
+function isCastDescriptorByArgs<TInput, TSubject, TCause>(
+  cast: CastDescriptor<TInput, TSubject, TCause>,
+): cast is CastDescriptorByArgs<TInput, TSubject, unknown, TCause> {
+  return isReadModelQueryHandle(cast.model);
+}
 
 // ── addField — the ONE computed-key cast in the codebase ───────────────
 // TypeScript cannot infer { ...obj, [key]: value } when key is a variable.
@@ -67,8 +97,8 @@ export type StateResolver<TInput, TContext> = {
   ) => Promise<Result<ResolveResult<TContext>, ReadModelNotFound>>;
 
   readonly pipe: {
-    <TKey extends string, TState>(
-      step: TagQueryStep<TKey, TContext, TState>,
+    <TKey extends string, TEvent, TState>(
+      step: TagQueryStep<TKey, TContext, TEvent, TState>,
     ): StateResolver<TInput, TContext & { readonly [K in TKey]: TState }>;
 
     <TKey extends string, T, TRequired extends boolean>(
@@ -104,7 +134,7 @@ function buildResolver<TInput, TContext>(
 ): StateResolver<TInput, TContext> {
   const pipe = ((
     step:
-      | TagQueryStep<string, TContext, unknown>
+      | TagQueryStep<string, TContext, unknown, unknown>
       | ProjectionStep<string, TContext, unknown, boolean>
       | QueryProjectionStep<string, TContext, unknown, unknown, boolean>
       | GenerateStep<string, TContext, unknown>,
@@ -133,39 +163,31 @@ function buildResolver<TInput, TContext>(
         });
       }
 
-      const isQueryModel = "buildQuery" in step.model && step.model._tag === "ReadModelQueryHandle";
-
-      const readResult = isQueryModel
+      const readResult = isQueryProjectionStep(step)
         ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
-            const queryStep = step as QueryProjectionStep<
-              string,
-              TContext,
-              unknown,
-              unknown,
-              boolean
-            >;
-            const args = queryStep.args(prev.context);
+            const args = step.args(prev.context);
             const { sourceName, entries, orderBy, orderDirection, limit } =
-              queryStep.model.buildQuery(args);
+              step.model.buildQuery(args);
             return projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
           })()
-        : await projectionStore.get(
-            step.model.name,
-            (step as ProjectionStep<string, TContext, unknown, boolean>).id(prev.context),
-          );
+        : await projectionStore.get(step.model.name, step.id(prev.context));
 
       if (step.required) {
         if (readResult.isErr()) {
           return err(readResult.error);
         }
         return ok({
-          context: addField(prev.context, step.key, readResult.value.value),
+          context: addField(prev.context, step.key, parseProjectionValue(step.model, readResult.value.value)),
         });
       }
 
       if (readResult.isOk()) {
         return ok({
-          context: addField(prev.context, step.key, ok(readResult.value.value)),
+          context: addField(
+            prev.context,
+            step.key,
+            ok(parseProjectionValue(step.model, readResult.value.value)),
+          ),
         });
       }
       return ok({
@@ -192,20 +214,20 @@ export function state<TInput>(): StateResolver<TInput, TInput> {
 
 // ── State step types ───────────────────────────────────────────────────
 
-export type TagQueryStep<TKey extends string, TInput, TState> = {
+export type TagQueryStep<TKey extends string, TInput, TEvent, TState> = {
   readonly _tag: "tagQuery";
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>) => TState;
+  readonly schemas: ReadonlyArray<z.ZodType<TEvent>>;
+  readonly fold: (events: ReadonlyArray<TEvent>) => TState;
 };
 
-export function tagQuery<TKey extends string, TInput, TState>(descriptor: {
+export function tagQuery<TKey extends string, TInput, TEvent, TState>(descriptor: {
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>) => TState;
-}): TagQueryStep<TKey, TInput, TState> {
+  readonly schemas: ReadonlyArray<z.ZodType<TEvent>>;
+  readonly fold: (events: ReadonlyArray<TEvent>) => TState;
+}): TagQueryStep<TKey, TInput, TEvent, TState> {
   return { _tag: "tagQuery", ...descriptor };
 }
 
@@ -232,13 +254,13 @@ export type CastDescriptor<TInput, TSubject, TCause> =
   | CastDescriptorById<TInput, TSubject, TCause>
   | CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
 
-export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> = {
+export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TEvent, TState, TCause> = {
   readonly _tag: "castTagQuery";
   readonly key: TKey;
   readonly cast: CastDescriptor<TInput, TSubject, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
+  readonly schemas: ReadonlyArray<z.ZodType<TEvent>>;
+  readonly fold: (events: ReadonlyArray<TEvent>, subject: TSubject) => TState;
   readonly toStep: (
     deps: SliceDeps,
   ) => Step<
@@ -249,13 +271,13 @@ export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState
 };
 
 // Overload: id-based lookup (ReadModelHandle)
-export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
+export function castTagQuery<TKey extends string, TInput, TSubject, TEvent, TState, TCause>(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptorById<TInput, TSubject, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause>;
+  readonly schemas: ReadonlyArray<z.ZodType<TEvent>>;
+  readonly fold: (events: ReadonlyArray<TEvent>, subject: TSubject) => TState;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TEvent, TState, TCause>;
 
 // Overload: args-based lookup (ReadModelQueryHandle)
 export function castTagQuery<
@@ -263,24 +285,25 @@ export function castTagQuery<
   TInput,
   TSubject,
   TArgs,
+  TEvent,
   TState,
   TCause,
 >(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptorByArgs<TInput, TSubject, TArgs, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause>;
+  readonly schemas: ReadonlyArray<z.ZodType<TEvent>>;
+  readonly fold: (events: ReadonlyArray<TEvent>, subject: TSubject) => TState;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TEvent, TState, TCause>;
 
 // Implementation
-export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
+export function castTagQuery<TKey extends string, TInput, TSubject, TEvent, TState, TCause>(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptor<TInput, TSubject, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause> {
+  readonly schemas: ReadonlyArray<z.ZodType<TEvent>>;
+  readonly fold: (events: ReadonlyArray<TEvent>, subject: TSubject) => TState;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TEvent, TState, TCause> {
   const toStep = (
     deps: SliceDeps,
   ): Step<
@@ -290,28 +313,23 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
   > => {
     return async (ctx) => {
       const cast = descriptor.cast;
-      const isQueryCast =
-        "args" in cast && "model" in cast && cast.model._tag === "ReadModelQueryHandle";
 
-      const lookup = isQueryCast
+      const lookup = isCastDescriptorByArgs(cast)
         ? await ((): Promise<Result<{ value: unknown }, ReadModelNotFound>> => {
-            const queryCast = cast as CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
-            const queryModel = queryCast.model;
-            const args = queryCast.args(ctx);
+            const args = cast.args(ctx);
             const { sourceName, entries, orderBy, orderDirection, limit } =
-              queryModel.buildQuery(args);
+              cast.model.buildQuery(args);
             return deps.projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
           })()
-        : await deps.projectionStore.get(
-            cast.model.name,
-            (cast as CastDescriptorById<TInput, TSubject, TCause>).id(ctx),
-          );
+        : await deps.projectionStore.get(cast.model.name, cast.id(ctx));
 
       if (lookup.isErr()) return err(descriptor.cast.absent);
-      const subject = lookup.value.value as TSubject;
+      const subject = parseProjectionValue(cast.model, lookup.value.value);
       const tags = descriptor.tags(subject);
-      const queryResult = await deps.eventStore.queryByTags(tags, descriptor.schemas, (events) =>
-        descriptor.fold(events, subject),
+      const queryResult = await deps.eventStore.queryByTags(
+        tags,
+        descriptor.schemas,
+        (events: ReadonlyArray<TEvent>) => descriptor.fold(events, subject),
       );
       const withState = addField({}, descriptor.key, queryResult.state);
       // as const required: without it TS widens the template literal to string,
@@ -586,9 +604,7 @@ export function defineCommandSlice<
     typeof defInput === "function" ? defInput : (ctx, deps) => defInput.execute(ctx, deps);
 
   const outputErrFn = definition.outputErr
-    ? normalizeOutputErrHandlers(
-        definition.outputErr as OutputErrHandlers<TError, TOutput, TCtx, TInput>,
-      )
+    ? normalizeOutputErrHandlers(definition.outputErr)
     : ([first]: readonly [TError, ...TError[]]) => err(first);
 
   const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {

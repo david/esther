@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { ReadModelNotFound } from "./read-model";
+import type { ProjectionResult, ReadModelNotFound } from "./read-model.js";
 
 // ── Branded types ──────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ export type EffectResult = {
   readonly [key: string]: unknown;
 };
 
-export type InlineResult = import("./read-model.js").ProjectionResult<unknown> | EffectResult;
+export type InlineResult = ProjectionResult<unknown> | EffectResult;
 
 // ── Append result ──────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@
 
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent, SliceDeps, StoredEvent } from "../index";
+import type { DomainEvent, SliceDeps } from "../index";
 import {
   defineCommandSlice,
   defineQuerySlice,
@@ -59,9 +59,11 @@ const BookingCreatedSchema = z.object({
   }),
 });
 
-const propertySchemas = [BookingCreatedSchema];
+type BookingCreatedEvent = z.infer<typeof BookingCreatedSchema>;
 
-const propertyReducer = (state: PropertyState, event: StoredEvent): PropertyState => {
+const propertySchemas = [BookingCreatedSchema] as const;
+
+const propertyReducer = (state: PropertyState, event: BookingCreatedEvent): PropertyState => {
   switch (event.type) {
     case "BookingCreated":
       return {
@@ -69,8 +71,8 @@ const propertyReducer = (state: PropertyState, event: StoredEvent): PropertyStat
         bookedRanges: [
           ...state.bookedRanges,
           {
-            checkIn: (event.payload as { checkIn: string }).checkIn,
-            checkOut: (event.payload as { checkOut: string }).checkOut,
+            checkIn: event.payload.checkIn,
+            checkOut: event.payload.checkOut,
           },
         ],
       };
@@ -137,7 +139,7 @@ const _createBookingSlice = defineCommandSlice<
     const propertyResult = await deps.eventStore.queryByTags(
       ["property", `property:${ctx.propertyId}`],
       propertySchemas,
-      (events): PropertyState =>
+      (events: ReadonlyArray<BookingCreatedEvent>): PropertyState =>
         events.reduce((acc: PropertyState, event) => {
           if (event.type === "BookingCreated") {
             return {
@@ -257,7 +259,8 @@ const _getPropertySlice = defineQuerySlice({
       key: "property" as const,
       tags: (ctx) => ["property", `property:${ctx.propertyId}`],
       schemas: [],
-      fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+      fold: (events: ReadonlyArray<BookingCreatedEvent>): PropertyState =>
+        events.reduce(propertyReducer, initialPropertyState),
     }),
   ),
 
@@ -285,7 +288,8 @@ const _generateFlowSlice = defineQuerySlice({
         key: "property" as const,
         tags: (ctx) => ["property", `property:${ctx.propertyId}`],
         schemas: [],
-        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+        fold: (events: ReadonlyArray<BookingCreatedEvent>): PropertyState =>
+        events.reduce(propertyReducer, initialPropertyState),
       }),
     )
     .pipe(

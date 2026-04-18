@@ -77,6 +77,25 @@ const AllocatorFileSchema = z.object({
   lastAllocatedPosition: z.string().regex(/^-?\d+$/),
 });
 
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { readonly [key: string]: JsonValue }
+  | ReadonlyArray<JsonValue>;
+
+const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.record(JsonValueSchema),
+    z.array(JsonValueSchema),
+  ]),
+);
+
 const CheckpointFileSchema = z.object({
   name: z.string().min(1),
   position: z.string().regex(/^-?\d+$/),
@@ -259,7 +278,8 @@ async function pathExists(path: string): Promise<boolean> {
 
 async function readJsonFile(path: string): Promise<unknown> {
   const raw = await readFile(path, "utf8");
-  return JSON.parse(raw);
+  const parsed = JSON.parse(raw) as unknown;
+  return JsonValueSchema.parse(parsed);
 }
 
 async function loadAllocatorPosition(root: string): Promise<bigint> {
@@ -272,9 +292,10 @@ async function loadAllocatorPosition(root: string): Promise<bigint> {
 }
 
 async function writeJsonAtomically(root: string, finalPath: string, value: unknown): Promise<void> {
+  const jsonValue = JsonValueSchema.parse(value);
   await mkdir(dirname(finalPath), { recursive: true });
   const tempPath = join(tmpDir(root), `${crypto.randomUUID()}.${basename(finalPath)}.tmp`);
-  await writeFile(tempPath, `${JSON.stringify(value, undefined, 2)}\n`, "utf8");
+  await writeFile(tempPath, `${JSON.stringify(jsonValue, undefined, 2)}\n`, "utf8");
   await rename(tempPath, finalPath);
 }
 
@@ -573,10 +594,10 @@ export function createFilesystemEventStore(config: FilesystemEventStoreConfig): 
       return ok({ events: stored });
     },
 
-    async queryByTags<TSchema extends z.ZodType, TState>(
+    async queryByTags<TEvent, TSchema extends z.ZodType<TEvent>, TState>(
       tags: ReadonlyArray<string>,
       schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+      fold: (events: ReadonlyArray<TEvent>) => TState,
     ): Promise<TagQueryResult<TState>> {
       await ensureLayout(config.root);
 

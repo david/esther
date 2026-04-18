@@ -1,8 +1,8 @@
 import { err, ok, type Result } from "neverthrow";
-import type { z } from "zod";
 import type {
   AppendOptions,
   EventFilter,
+  EventSchema,
   EventStore,
   OnAfterCommitHandler,
   OnAfterInsertHandler,
@@ -98,10 +98,10 @@ export function createInMemoryEventStore(): EventStore {
       return ok({ events: stored });
     },
 
-    async queryByTags<TSchema extends z.ZodType, TState>(
+    async queryByTags<TEvent, TSchema extends EventSchema<TEvent>, TState>(
       tags: ReadonlyArray<string>,
       schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+      fold: (events: ReadonlyArray<TEvent>) => TState,
     ) {
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
       const maxPosition = matching[matching.length - 1]?.position;

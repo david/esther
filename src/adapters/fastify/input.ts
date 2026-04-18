@@ -1,3 +1,4 @@
+import type * as FastifyModule from "fastify";
 import type { FastifyInstance } from "fastify";
 import type { DispatchFn, InputAdapter, InputAdapterBinding } from "../../core/input-adapter.js";
 
@@ -15,7 +16,7 @@ export function createFastifyInputAdapter(
 ): InputAdapterBinding<FastifyInputAdapter> {
   let boundDispatch: DispatchFn | undefined;
 
-  const Fastify = require("fastify") as typeof import("fastify");
+  const Fastify = require("fastify") as typeof FastifyModule;
   const app = Fastify.default();
   const hostname = config.hostname ?? "0.0.0.0";
 

@@ -20,8 +20,9 @@ import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.
 // ── App config ─────────────────────────────────────────────────────────
 
 type ErasedReadModelHandle = {
-  readonly events?: ReadonlyArray<ReadModelEventBinding<unknown, z.ZodType, unknown>> | undefined;
+  readonly events?: ReadonlyArray<ReadModelEventBinding<unknown, z.ZodType<unknown>, unknown>>;
   project(
+    this: void,
     value: unknown,
     operation?: "insert" | "update" | "upsert" | "delete",
   ): {
@@ -242,17 +243,18 @@ function wireReadModelEvents(
       const readEntries = binding.reads !== undefined ? iterateReadMap(binding.reads) : [];
 
       eventStore.onAfterInsert({ eventTypes: [eventType] }, async (event) => {
-        let resolvedReads: unknown;
-        if (readEntries.length === 0) {
-          resolvedReads = {};
-        } else {
-          const resolvedEntries: Array<readonly [string, unknown]> = [];
-          for (const [key, fn] of readEntries) {
-            const descriptor = fn(event);
-            resolvedEntries.push([key, await readInterpreter.resolve(descriptor)]);
-          }
-          resolvedReads = Object.fromEntries(resolvedEntries);
-        }
+        const parsedEvent = binding.schema.parse(event);
+        const resolvedReads =
+          readEntries.length === 0
+            ? {}
+            : await (async (): Promise<object> => {
+                const resolvedEntries: Array<readonly [string, unknown]> = [];
+                for (const [key, fn] of readEntries) {
+                  const descriptor = fn(parsedEvent);
+                  resolvedEntries.push([key, await readInterpreter.resolve(descriptor)]);
+                }
+                return Object.fromEntries(resolvedEntries);
+              })();
 
         const ctx = Object.assign(
           {
@@ -262,7 +264,7 @@ function wireReadModelEvents(
           resolvedReads,
         );
 
-        const result = binding.handler(event, ctx);
+        const result = binding.handler(parsedEvent, ctx);
         if (result !== undefined && result !== null) {
           await adapter.execute(result);
         }

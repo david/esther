@@ -1,7 +1,7 @@
 import type { Result } from "neverthrow";
-import type { z } from "zod";
-import type { StoredEvent } from "./types";
-import { getZodTypeName } from "./zod-internals";
+import { ZodFirstPartyTypeKind, type z } from "zod";
+import type { StoredEvent } from "./types.js";
+import { getZodTypeName } from "./zod-internals.js";
 
 // ── Read model not found ───────────────────────────────────────────────
 
@@ -33,6 +33,8 @@ export type Constraints = {
   readonly unique?: ReadonlyArray<ReadonlyArray<string>>;
 };
 
+type AnyEventSchema = z.ZodType<unknown>;
+
 export type ReadModelHandle<
   T,
   S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>,
@@ -42,8 +44,8 @@ export type ReadModelHandle<
   readonly key: K;
   readonly schema: S;
   readonly constraints: Constraints;
-  project(value: T, operation?: Operation): ProjectionResult<T>;
-  readonly events?: ReadonlyArray<ReadModelEventBinding<T, z.ZodType, unknown>> | undefined;
+  project(this: void, value: T, operation?: Operation): ProjectionResult<T>;
+  readonly events?: ReadonlyArray<ReadModelEventBinding<T, AnyEventSchema, unknown>>;
 };
 
 export type ProjectionAdapter<T> = {
@@ -53,7 +55,7 @@ export type ProjectionAdapter<T> = {
 
 // ── Read model event bindings ──────────────────────────────────────────
 
-export type ReadModelEventBinding<T, TEventSchema extends z.ZodType, TReads> = {
+export type ReadModelEventBinding<T, TEventSchema extends AnyEventSchema, TReads> = {
   readonly schema: TEventSchema;
   readonly reads?: {
     readonly [K in keyof TReads]: (event: z.infer<TEventSchema>) => ReadDescriptor<TReads[K]>;
@@ -61,11 +63,27 @@ export type ReadModelEventBinding<T, TEventSchema extends z.ZodType, TReads> = {
   handler(
     event: z.infer<TEventSchema>,
     ctx: {
-      project(value: T, operation?: Operation): ProjectionResult<T>;
-      get(id: string): Promise<Result<{ value: T }, ReadModelNotFound>>;
+      project(this: void, value: T, operation?: Operation): ProjectionResult<T>;
+      get(this: void, id: string): Promise<Result<{ value: T }, ReadModelNotFound>>;
     } & TReads,
   ): ProjectionResult<T> | undefined;
 };
+
+export function readModelEvent<TEventSchema extends AnyEventSchema, TReads, TProjected>(binding: {
+  readonly schema: TEventSchema;
+  readonly reads?: {
+    readonly [K in keyof TReads]: (event: z.infer<TEventSchema>) => ReadDescriptor<TReads[K]>;
+  };
+  readonly handler: (
+    event: z.infer<TEventSchema>,
+    ctx: {
+      project(this: void, value: TProjected, operation?: Operation): ProjectionResult<TProjected>;
+      get(this: void, id: string): Promise<Result<{ value: TProjected }, ReadModelNotFound>>;
+    } & TReads,
+  ) => ProjectionResult<TProjected> | undefined;
+}): ReadModelEventBinding<TProjected, TEventSchema, TReads> {
+  return binding;
+}
 
 // ── Validation ──────────────────────────────────────────────────────
 
@@ -73,12 +91,12 @@ const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
 // ZodString covers z.string(), z.string().uuid(), and z.string().datetime()
 // (datetime/uuid are ZodString with checks, not separate types)
-const SUPPORTED_ZOD_TYPES = new Set([
-  "ZodString",
-  "ZodNumber",
-  "ZodBoolean",
-  "ZodArray",
-  "ZodObject",
+const SUPPORTED_ZOD_TYPES = new Set<ZodFirstPartyTypeKind>([
+  ZodFirstPartyTypeKind.ZodString,
+  ZodFirstPartyTypeKind.ZodNumber,
+  ZodFirstPartyTypeKind.ZodBoolean,
+  ZodFirstPartyTypeKind.ZodArray,
+  ZodFirstPartyTypeKind.ZodObject,
 ]);
 
 function isSupportedZodType(zodType: z.ZodTypeAny): boolean {
@@ -241,24 +259,54 @@ export type ProjectionQueryAdapter = {
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
-    orderDirection?: OrderDirection | undefined,
+    orderDirection?: OrderDirection,
   ) => Promise<ReadonlyArray<unknown>>;
 };
 
 // ── defineReadModel ─────────────────────────────────────────────────
 
-type DefineReadModelInput<S extends z.ZodObject<z.ZodRawShape>> = {
+type DefineReadModelBaseInput<S extends z.ZodObject<z.ZodRawShape>> = {
   readonly name: string;
   readonly key: string & keyof z.infer<S>;
   readonly schema: S;
   readonly constraints?: Constraints;
-  readonly events?: ReadonlyArray<ReadModelEventBinding<z.infer<S>, z.ZodType, unknown>>;
 };
+
+type DefineReadModelInputWithEvents<
+  S extends z.ZodObject<z.ZodRawShape>,
+  TEvents extends ReadonlyArray<ReadModelEventBinding<z.infer<S>, AnyEventSchema, unknown>>,
+> = DefineReadModelBaseInput<S> & {
+  readonly events: TEvents;
+};
+
+type DefineReadModelInputWithoutEvents<S extends z.ZodObject<z.ZodRawShape>> =
+  DefineReadModelBaseInput<S> & {
+    readonly events?: undefined;
+  };
 
 export function defineReadModel<
   S extends z.ZodObject<z.ZodRawShape>,
   K extends string & keyof z.infer<S> = string & keyof z.infer<S>,
->(input: DefineReadModelInput<S> & { readonly key: K }): ReadModelHandle<z.infer<S>, S, K> {
+>(input: DefineReadModelInputWithoutEvents<S> & { readonly key: K }): ReadModelHandle<z.infer<S>, S, K>;
+
+export function defineReadModel<
+  S extends z.ZodObject<z.ZodRawShape>,
+  K extends string & keyof z.infer<S> = string & keyof z.infer<S>,
+  TEvents extends ReadonlyArray<ReadModelEventBinding<z.infer<S>, AnyEventSchema, unknown>> =
+    ReadonlyArray<ReadModelEventBinding<z.infer<S>, AnyEventSchema, unknown>>,
+>(input: DefineReadModelInputWithEvents<S, TEvents> & { readonly key: K }): ReadModelHandle<z.infer<S>, S, K>;
+
+export function defineReadModel<
+  S extends z.ZodObject<z.ZodRawShape>,
+  K extends string & keyof z.infer<S> = string & keyof z.infer<S>,
+>(
+  input:
+    | (DefineReadModelInputWithoutEvents<S> & { readonly key: K })
+    | (DefineReadModelInputWithEvents<
+        S,
+        ReadonlyArray<ReadModelEventBinding<z.infer<S>, AnyEventSchema, unknown>>
+      > & { readonly key: K }),
+): ReadModelHandle<z.infer<S>, S, K> {
   type T = z.infer<S>;
 
   const { name, key, schema, constraints = {}, events } = input;
@@ -308,13 +356,12 @@ export function defineReadModel<
     }
   }
 
-  const handle: ReadModelHandle<T, S, K> = {
+  const baseHandle = {
     name,
     key,
     schema,
     constraints,
-    events,
-    project(value: T, operation: Operation = "upsert"): ProjectionResult<T> {
+    project(this: void, value: T, operation: Operation = "upsert"): ProjectionResult<T> {
       const keyValue = String(value[key]);
       return {
         type: "projection",
@@ -324,9 +371,9 @@ export function defineReadModel<
         operation,
       };
     },
-  };
+  } satisfies Omit<ReadModelHandle<T, S, K>, "events">;
 
-  return handle;
+  return events === undefined ? baseHandle : { ...baseHandle, events };
 }
 
 // ── ReadModelQueryHandle ────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
   defineQuerySlice,
   defineReadModel,
   defineReadModelQuery,
+  readModelEvent,
   projection,
   ReadModelNotFound,
   type SliceDeps,
@@ -56,7 +57,7 @@ const CreditAppliedSchema = z.object({
   payload: accountPayload,
 });
 
-const accountSchemas = [DepositedSchema, WithdrawnSchema, CreditAppliedSchema];
+const accountSchemas = [DepositedSchema, WithdrawnSchema, CreditAppliedSchema] as const;
 
 type AccountEvent =
   | z.infer<typeof DepositedSchema>
@@ -68,8 +69,10 @@ type Balance = { balance: number };
 const balanceFold = (events: ReadonlyArray<AccountEvent>): Balance =>
   events.reduce(
     (acc: Balance, e) => {
-      if (e.type === "Deposited") return { balance: acc.balance + e.payload.amount };
-      if (e.type === "Withdrawn") return { balance: acc.balance - e.payload.amount };
+      if (e.type === "Deposited")
+        return { balance: acc.balance + e.payload.amount };
+      if (e.type === "Withdrawn")
+        return { balance: acc.balance - e.payload.amount };
       return acc;
     },
     { balance: 0 },
@@ -182,7 +185,10 @@ async function readBalance(
 
 // ── Credit slice ─────────────────────────────────────────────────────
 
-type CreditApplied = DomainEvent<"CreditApplied", { accountId: string; amount: number }>;
+type CreditApplied = DomainEvent<
+  "CreditApplied",
+  { accountId: string; amount: number }
+>;
 
 const creditInputSchema = z.object({
   accountId: z.string(),
@@ -226,7 +232,11 @@ const rejectInputSchema = z.object({ accountId: z.string() });
 
 const rejectOutputSchema = z.object({ rejected: z.boolean() });
 
-type RejectError = { readonly type: "AlwaysFails"; code: "ALWAYS_FAILS"; message: string };
+type RejectError = {
+  readonly type: "AlwaysFails";
+  code: "ALWAYS_FAILS";
+  message: string;
+};
 
 const rejectSlice = defineCommandSlice<
   z.output<typeof rejectInputSchema>,
@@ -241,7 +251,11 @@ const rejectSlice = defineCommandSlice<
   input: async (ctx) => ok(ctx),
   validate: [
     (_ctx) => [
-      { type: "AlwaysFails" as const, code: "ALWAYS_FAILS", message: "This always fails" } as const,
+      {
+        type: "AlwaysFails" as const,
+        code: "ALWAYS_FAILS",
+        message: "This always fails",
+      } as const,
     ],
   ],
   event: (_ctx) => {
@@ -283,7 +297,10 @@ describe("command pipeline", () => {
   test("output function receives event on success and shapes the output", async () => {
     const { app } = buildApp();
 
-    const result = await app.dispatch("credit", { accountId: "acc-1", amount: 100 });
+    const result = await app.dispatch("credit", {
+      accountId: "acc-1",
+      amount: 100,
+    });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value).toEqual({ accountId: "acc-1", newBalance: 100 });
@@ -307,7 +324,10 @@ describe("command pipeline", () => {
   test("deposit succeeds and returns post-append state", async () => {
     const { app, eventStore } = buildApp();
 
-    const result = await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
+    const result = await app.dispatch("deposit", {
+      accountId: "acc-1",
+      amount: 100,
+    });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value).toEqual({ account: { balance: 100 } });
@@ -321,7 +341,10 @@ describe("command pipeline", () => {
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 50 });
     await app.dispatch("deposit", { accountId: "acc-1", amount: 30 });
-    const result = await app.dispatch("deposit", { accountId: "acc-1", amount: 20 });
+    const result = await app.dispatch("deposit", {
+      accountId: "acc-1",
+      amount: 20,
+    });
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
@@ -333,7 +356,10 @@ describe("command pipeline", () => {
     const { app } = buildApp();
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 50 });
-    const result = await app.dispatch("withdraw", { accountId: "acc-1", amount: 100 });
+    const result = await app.dispatch("withdraw", {
+      accountId: "acc-1",
+      amount: 100,
+    });
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
@@ -349,7 +375,10 @@ describe("command pipeline", () => {
     const { app, eventStore } = buildApp();
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
-    const result = await app.dispatch("withdraw", { accountId: "acc-1", amount: 40 });
+    const result = await app.dispatch("withdraw", {
+      accountId: "acc-1",
+      amount: 40,
+    });
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
@@ -362,14 +391,19 @@ describe("command pipeline", () => {
   test("input schema rejects invalid input", async () => {
     const { app } = buildApp();
 
-    const result = await app.dispatch("deposit", { accountId: "acc-1", amount: -5 });
+    const result = await app.dispatch("deposit", {
+      accountId: "acc-1",
+      amount: -5,
+    });
     expect(result.isErr()).toBe(true);
   });
 
   test("unknown slice throws", async () => {
     const { app } = buildApp();
 
-    await expect(app.dispatch("nonexistent", {})).rejects.toThrow("Unknown slice: nonexistent");
+    await expect(app.dispatch("nonexistent", {})).rejects.toThrow(
+      "Unknown slice: nonexistent",
+    );
   });
 });
 
@@ -430,14 +464,20 @@ describe("event store hooks", () => {
 
 describe("constraint metadata registration", () => {
   test("createApp registers constraint metadata on event store", () => {
-    const registered: Record<string, { columns: ReadonlyArray<string>; table: string }>[] = [];
+    const registered: Record<
+      string,
+      { columns: ReadonlyArray<string>; table: string }
+    >[] = [];
 
     const eventStore = createInMemoryEventStore();
     // Patch in registerConstraintMetadata for testing
     const testStore = {
       ...eventStore,
       registerConstraintMetadata: (
-        metadata: Record<string, { columns: ReadonlyArray<string>; table: string }>,
+        metadata: Record<
+          string,
+          { columns: ReadonlyArray<string>; table: string }
+        >,
       ) => {
         registered.push(metadata);
       },
@@ -453,7 +493,8 @@ describe("constraint metadata registration", () => {
       constraints: { unique: [["accountId"]] },
     });
 
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter: projAdapter, get } =
+      createInMemoryProjectionAdapter(accountModel);
     const { adapter, bind } = createInMemoryAdapter();
 
     createApp({
@@ -472,7 +513,12 @@ describe("constraint metadata registration", () => {
     });
 
     expect(registered).toEqual([
-      { accounts_accountId_unique: { columns: ["accountId"], table: "accounts" } },
+      {
+        accounts_accountId_unique: {
+          columns: ["accountId"],
+          table: "accounts",
+        },
+      },
     ]);
   });
 
@@ -501,18 +547,19 @@ describe("read model event bindings via createApp", () => {
       }),
       key: "accountId",
       events: [
-        {
+        readModelEvent<typeof DepositedEventSchema, unknown, { accountId: string; balance: number }>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               accountId: event.payload.accountId,
               balance: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter: projAdapter, get } =
+      createInMemoryProjectionAdapter(accountModel);
 
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
@@ -561,14 +608,14 @@ describe("read model event bindings via createApp", () => {
       }),
       key: "accountId",
       events: [
-        {
+        readModelEvent<typeof DepositedEventSchema, unknown, { accountId: string; balance: number }>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               accountId: event.payload.accountId,
               balance: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
@@ -580,20 +627,21 @@ describe("read model event bindings via createApp", () => {
       }),
       key: "entryId",
       events: [
-        {
+        readModelEvent<typeof DepositedEventSchema, unknown, { entryId: string; amount: number }>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               entryId: `entry-${event.payload.accountId}`,
               amount: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
     const { adapter: accountAdapter, get: getAccount } =
       createInMemoryProjectionAdapter(accountModel);
-    const { adapter: ledgerAdapter, get: getLedger } = createInMemoryProjectionAdapter(ledgerModel);
+    const { adapter: ledgerAdapter, get: getLedger } =
+      createInMemoryProjectionAdapter(ledgerModel);
 
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
@@ -627,13 +675,19 @@ describe("read model event bindings via createApp", () => {
     const accountResult = await getAccount("acc-1");
     expect(accountResult.isOk()).toBe(true);
     if (accountResult.isOk()) {
-      expect(accountResult.value.value).toEqual({ accountId: "acc-1", balance: 100 });
+      expect(accountResult.value.value).toEqual({
+        accountId: "acc-1",
+        balance: 100,
+      });
     }
 
     const ledgerResult = await getLedger("entry-acc-1");
     expect(ledgerResult.isOk()).toBe(true);
     if (ledgerResult.isOk()) {
-      expect(ledgerResult.value.value).toEqual({ entryId: "entry-acc-1", amount: 100 });
+      expect(ledgerResult.value.value).toEqual({
+        entryId: "entry-acc-1",
+        amount: 100,
+      });
     }
   });
 });
@@ -696,14 +750,14 @@ describe("projection step in query slices", () => {
     }),
     key: "accountId",
     events: [
-      {
+      readModelEvent<typeof DepositedEventSchema, unknown, { accountId: string; balance: number }>({
         schema: DepositedEventSchema,
         handler: (event, { project }) =>
           project({
             accountId: event.payload.accountId,
             balance: event.payload.amount,
           }),
-      },
+      }),
     ],
   });
 
@@ -711,14 +765,16 @@ describe("projection step in query slices", () => {
 
   function buildProjectionApp() {
     const eventStore = createInMemoryEventStore();
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter: projAdapter, get } =
+      createInMemoryProjectionAdapter(accountModel);
     const { adapter, bind } = createInMemoryAdapter();
 
     // Query slice that reads via optional projection step
     const queryOptional = defineQuerySlice({
       name: "query-optional",
       inputSchema: z.object({ accountId: z.string() }),
-      outputSchema: lenientOutputSchema<Result<AccountRow, ReadModelNotFound>>(),
+      outputSchema:
+        lenientOutputSchema<Result<AccountRow, ReadModelNotFound>>(),
 
       state: state<{ accountId: string }>().pipe(
         projection({
@@ -785,10 +841,15 @@ describe("projection step in query slices", () => {
   test("optional projection, record missing — context has Err(ReadModelNotFound)", async () => {
     const { app } = buildProjectionApp();
 
-    const result = await app.dispatch("query-optional", { accountId: "nonexistent" });
+    const result = await app.dispatch("query-optional", {
+      accountId: "nonexistent",
+    });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      const inner = result.value as { isErr: () => boolean; error: { _tag: string } };
+      const inner = result.value as {
+        isErr: () => boolean;
+        error: { _tag: string };
+      };
       expect(inner.isErr()).toBe(true);
       expect(inner.error._tag).toBe("ReadModelNotFound");
     }
@@ -809,10 +870,14 @@ describe("projection step in query slices", () => {
   test("required projection, record missing — error result (ReadModelNotFound)", async () => {
     const { app } = buildProjectionApp();
 
-    const result = await app.dispatch("query-required", { accountId: "nonexistent" });
+    const result = await app.dispatch("query-required", {
+      accountId: "nonexistent",
+    });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error).toEqual(ReadModelNotFound("accounts", "nonexistent"));
+      expect(result.error).toEqual(
+        ReadModelNotFound("accounts", "nonexistent"),
+      );
     }
   });
 });
@@ -828,20 +893,21 @@ describe("replay", () => {
     }),
     key: "accountId",
     events: [
-      {
+      readModelEvent<typeof DepositedEventSchema, unknown, { accountId: string; balance: number }>({
         schema: DepositedEventSchema,
         handler: (event, { project }) =>
           project({
             accountId: event.payload.accountId,
             balance: event.payload.amount,
           }),
-      },
+      }),
     ],
   });
 
   function buildReplayApp() {
     const eventStore = createInMemoryEventStore();
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter: projAdapter, get } =
+      createInMemoryProjectionAdapter(accountModel);
     const { adapter, bind } = createInMemoryAdapter();
 
     const replayDepositSlice = defineCommandSlice<
@@ -895,9 +961,14 @@ describe("replay", () => {
     expect((await get("acc-1")).isOk()).toBe(true);
     expect((await get("acc-2")).isOk()).toBe(true);
 
-    const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter: freshAdapter, get: freshGet } =
+      createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags([], accountSchemas, (events) => events);
+    const queryResult = await eventStore.queryByTags(
+      [],
+      accountSchemas,
+      (events: ReadonlyArray<AccountEvent>) => events,
+    );
     const allEvents = queryResult.state;
 
     for (const event of allEvents) {
@@ -931,9 +1002,14 @@ describe("replay", () => {
     await app.dispatch("replay-deposit", { accountId: "acc-1", amount: 20 });
     await app.dispatch("replay-deposit", { accountId: "acc-2", amount: 30 });
 
-    const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
+    const { adapter: freshAdapter, get: freshGet } =
+      createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags([], accountSchemas, (events) => events);
+    const queryResult = await eventStore.queryByTags(
+      [],
+      accountSchemas,
+      (events: ReadonlyArray<AccountEvent>) => events,
+    );
     const allEvents = queryResult.state;
 
     for (const event of allEvents) {
@@ -973,18 +1049,19 @@ describe("end-to-end integration", () => {
       }),
       key: "accountId",
       events: [
-        {
+        readModelEvent<typeof DepositedEventSchema, unknown, { accountId: string; balance: number }>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               accountId: event.payload.accountId,
               balance: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
-    const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(balanceModel);
+    const { adapter: projAdapter, get } =
+      createInMemoryProjectionAdapter(balanceModel);
 
     const depositSliceE2E = defineCommandSlice<
       DepositInput,
@@ -1061,7 +1138,9 @@ describe("end-to-end integration", () => {
       expect(rawGet.value.value).toEqual({ accountId: "acc-1", balance: 250 });
     }
 
-    const queryResult = await app.dispatch("get-balance-e2e", { accountId: "acc-1" });
+    const queryResult = await app.dispatch("get-balance-e2e", {
+      accountId: "acc-1",
+    });
     expect(queryResult.isOk()).toBe(true);
     if (queryResult.isOk()) {
       expect(queryResult.value).toEqual({ accountId: "acc-1", balance: 250 });
@@ -1069,7 +1148,9 @@ describe("end-to-end integration", () => {
 
     await app.dispatch("deposit-e2e", { accountId: "acc-1", amount: 500 });
 
-    const queryResult2 = await app.dispatch("get-balance-e2e", { accountId: "acc-1" });
+    const queryResult2 = await app.dispatch("get-balance-e2e", {
+      accountId: "acc-1",
+    });
     expect(queryResult2.isOk()).toBe(true);
     if (queryResult2.isOk()) {
       expect(queryResult2.value).toEqual({ accountId: "acc-1", balance: 500 });
@@ -1088,14 +1169,14 @@ describe("projection step with ReadModelQueryHandle", () => {
     }),
     key: "accountId",
     events: [
-      {
+      readModelEvent<typeof DepositedEventSchema, unknown, { accountId: string; balance: number }>({
         schema: DepositedEventSchema,
         handler: (event, { project }) =>
           project({
             accountId: event.payload.accountId,
             balance: event.payload.amount,
           }),
-      },
+      }),
     ],
   });
 
@@ -1114,7 +1195,11 @@ describe("projection step with ReadModelQueryHandle", () => {
 
   function buildQueryProjectionApp() {
     const eventStore = createInMemoryEventStore();
-    const { adapter: projAdapter, get, query } = createInMemoryProjectionAdapter(accountModel);
+    const {
+      adapter: projAdapter,
+      get,
+      query,
+    } = createInMemoryProjectionAdapter(accountModel);
     const { adapter, bind } = createInMemoryAdapter();
 
     // Query slice using ReadModelQueryHandle with args — required
@@ -1127,7 +1212,9 @@ describe("projection step with ReadModelQueryHandle", () => {
         projection({
           key: "topAccount" as const,
           model: highBalanceQuery,
-          args: (ctx: { minBalance: number }) => ({ minBalance: ctx.minBalance }),
+          args: (ctx: { minBalance: number }) => ({
+            minBalance: ctx.minBalance,
+          }),
           required: true,
         }),
       ),
@@ -1139,13 +1226,16 @@ describe("projection step with ReadModelQueryHandle", () => {
     const queryOptional = defineQuerySlice({
       name: "query-by-balance-optional",
       inputSchema: z.object({ minBalance: z.number() }),
-      outputSchema: lenientOutputSchema<Result<AccountRow, ReadModelNotFound>>(),
+      outputSchema:
+        lenientOutputSchema<Result<AccountRow, ReadModelNotFound>>(),
 
       state: state<{ minBalance: number }>().pipe(
         projection({
           key: "topAccount" as const,
           model: highBalanceQuery,
-          args: (ctx: { minBalance: number }) => ({ minBalance: ctx.minBalance }),
+          args: (ctx: { minBalance: number }) => ({
+            minBalance: ctx.minBalance,
+          }),
         }),
       ),
 
@@ -1165,7 +1255,8 @@ describe("projection step with ReadModelQueryHandle", () => {
         },
       ],
       projectionQuery: {
-        query: async (_name, entries, orderBy, limit) => query(entries, orderBy, limit),
+        query: async (_name, entries, orderBy, limit) =>
+          query(entries, orderBy, limit),
       },
       inputAdapter: { adapter, bind },
       slices: [depositSlice, queryRequired, queryOptional],
@@ -1180,7 +1271,9 @@ describe("projection step with ReadModelQueryHandle", () => {
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
     await app.dispatch("deposit", { accountId: "acc-2", amount: 500 });
 
-    const result = await app.dispatch("query-by-balance-required", { minBalance: 50 });
+    const result = await app.dispatch("query-by-balance-required", {
+      minBalance: 50,
+    });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value).toEqual({ accountId: "acc-1", balance: 100 });
@@ -1190,7 +1283,9 @@ describe("projection step with ReadModelQueryHandle", () => {
   test("required query projection, no matching rows — ReadModelNotFound", async () => {
     const { app } = buildQueryProjectionApp();
 
-    const result = await app.dispatch("query-by-balance-required", { minBalance: 9999 });
+    const result = await app.dispatch("query-by-balance-required", {
+      minBalance: 9999,
+    });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       const error = result.error as { _tag: string };
@@ -1201,10 +1296,15 @@ describe("projection step with ReadModelQueryHandle", () => {
   test("optional query projection, no matching rows — Err(ReadModelNotFound) in context", async () => {
     const { app } = buildQueryProjectionApp();
 
-    const result = await app.dispatch("query-by-balance-optional", { minBalance: 9999 });
+    const result = await app.dispatch("query-by-balance-optional", {
+      minBalance: 9999,
+    });
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      const inner = result.value as { isErr: () => boolean; error: { _tag: string } };
+      const inner = result.value as {
+        isErr: () => boolean;
+        error: { _tag: string };
+      };
       expect(inner.isErr()).toBe(true);
       expect(inner.error._tag).toBe("ReadModelNotFound");
     }

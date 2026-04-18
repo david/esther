@@ -28,7 +28,7 @@ const ProbeSchema = z.object({
   payload: z.object({ a: z.number().optional(), marker: z.string().optional() }),
 });
 
-const probeSchemas = [ProbeSchema];
+const probeSchemas = [ProbeSchema] as const;
 
 const probeInputSchema = z.object({
   a: z.number(),
@@ -312,7 +312,7 @@ describe("command pipeline v2 — wiring", () => {
     const queried = await eventStore.queryByTags(
       ["probe:marker"],
       probeSchemas,
-      (events) => events,
+      (events: ReadonlyArray<z.infer<typeof ProbeSchema>>) => events,
     );
     expect(queried.state.length).toBe(1);
     expect(queried.state[0]?.payload.marker).toBe("unique-xyz");

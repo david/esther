@@ -1,4 +1,5 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import "./setup-dom.js";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createInMemoryReadModelStore } from "./notifying-adapter.js";
 import { EstherProvider, useDispatch, useProjection } from "./index.js";
@@ -34,7 +35,7 @@ describe("React adapter", () => {
   test("useProjection returns not-found for missing projection", async () => {
     const store = buildNotifyingStore();
 
-    render(
+    const view = render(
       <EstherProvider readModelStore={store}>
         <ProjectionDisplay name="accounts" id="acc-1" />
       </EstherProvider>,
@@ -43,7 +44,7 @@ describe("React adapter", () => {
     // Initially loading (sync), then not-found after async resolution
     await act(async () => {});
 
-    expect(screen.getByTestId("status").textContent).toBe("not-found");
+    expect(view.getByTestId("status").textContent).toBe("not-found");
   });
 
   test("useProjection returns found with data after set", async () => {
@@ -51,7 +52,7 @@ describe("React adapter", () => {
 
     await store.set("accounts", "acc-1", { balance: 100 });
 
-    render(
+    const view = render(
       <EstherProvider readModelStore={store}>
         <ProjectionDisplay name="accounts" id="acc-1" />
       </EstherProvider>,
@@ -59,47 +60,47 @@ describe("React adapter", () => {
 
     await act(async () => {});
 
-    expect(screen.getByTestId("status").textContent).toBe("found:100");
+    expect(view.getByTestId("status").textContent).toBe("found:100");
   });
 
   test("useProjection re-renders when projection data changes via set", async () => {
     const store = buildNotifyingStore();
 
-    render(
+    const view = render(
       <EstherProvider readModelStore={store}>
         <ProjectionDisplay name="accounts" id="acc-1" />
       </EstherProvider>,
     );
 
     await act(async () => {});
-    expect(screen.getByTestId("status").textContent).toBe("not-found");
+    expect(view.getByTestId("status").textContent).toBe("not-found");
 
     // Mutate the store
     await act(async () => {
       await store.set("accounts", "acc-1", { balance: 250 });
     });
 
-    expect(screen.getByTestId("status").textContent).toBe("found:250");
+    expect(view.getByTestId("status").textContent).toBe("found:250");
   });
 
   test("useProjection re-renders when projection data is deleted", async () => {
     const store = buildNotifyingStore();
     await store.set("accounts", "acc-1", { balance: 100 });
 
-    render(
+    const view = render(
       <EstherProvider readModelStore={store}>
         <ProjectionDisplay name="accounts" id="acc-1" />
       </EstherProvider>,
     );
 
     await act(async () => {});
-    expect(screen.getByTestId("status").textContent).toBe("found:100");
+    expect(view.getByTestId("status").textContent).toBe("found:100");
 
     await act(async () => {
       await store.delete("accounts", "acc-1");
     });
 
-    expect(screen.getByTestId("status").textContent).toBe("not-found");
+    expect(view.getByTestId("status").textContent).toBe("not-found");
   });
 
   test("useDispatch returns the dispatch function", async () => {
@@ -108,13 +109,13 @@ describe("React adapter", () => {
       throw new Error("not implemented");
     };
 
-    render(
+    const view = render(
       <EstherProvider readModelStore={store} dispatch={dispatch}>
         <DispatchDisplay />
       </EstherProvider>,
     );
 
-    expect(screen.getByTestId("dispatch").textContent).toBe("function");
+    expect(view.getByTestId("dispatch").textContent).toBe("function");
   });
 });
 

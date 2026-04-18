@@ -1,17 +1,25 @@
 import type { z } from "zod";
-import type { ReadInterpreter } from "./read-interpreter";
-import type { ReadDescriptor } from "./read-model";
-import type { EffectResult, StoredEvent } from "./types";
+import type { ReadInterpreter } from "./read-interpreter.js";
+import type { ReadDescriptor } from "./read-model.js";
+import type { EffectResult, StoredEvent } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-export type ProcessorEventBinding<TEventSchema extends z.ZodType, TReads> = {
+type AnyProcessorEventSchema = z.ZodType<unknown>;
+
+export type ProcessorEventBinding<TEventSchema extends AnyProcessorEventSchema, TReads> = {
   readonly schema: TEventSchema;
   readonly reads?: {
     readonly [K in keyof TReads]: (event: z.infer<TEventSchema>) => ReadDescriptor<TReads[K]>;
   };
   readonly handler: (event: z.infer<TEventSchema>, reads: TReads) => EffectResult | undefined;
 };
+
+export function processorEvent<TEventSchema extends AnyProcessorEventSchema, TReads>(
+  binding: ProcessorEventBinding<TEventSchema, TReads>,
+): ProcessorEventBinding<TEventSchema, TReads> {
+  return binding;
+}
 
 /**
  * Internal compiled binding used by the framework at runtime.
@@ -35,7 +43,7 @@ export type Processor = {
 
 // ── Read map iteration ──────────────────────────────────────────────────
 
-type ReadFn = (event: StoredEvent) => ReadDescriptor<unknown>;
+type ReadFn = (event: unknown) => ReadDescriptor<unknown>;
 
 function isReadFn(value: unknown): value is ReadFn {
   return typeof value === "function";
@@ -53,8 +61,8 @@ function iterateReadMap(reads: object): ReadonlyArray<readonly [string, ReadFn]>
 
 // ── Compile binding ─────────────────────────────────────────────────────
 
-function compileBinding(
-  binding: ProcessorEventBinding<z.ZodType, unknown>,
+function compileBinding<TEventSchema extends AnyProcessorEventSchema, TReads>(
+  binding: ProcessorEventBinding<TEventSchema, TReads>,
 ): CompiledProcessorBinding {
   const eventType = extractEventType(binding.schema);
 
@@ -64,20 +72,20 @@ function compileBinding(
   return {
     eventType,
     async run(event, interpreter) {
-      let resolvedReads: unknown;
+      const parsedEvent = binding.schema.parse(event);
+      const resolvedReads =
+        readEntries.length === 0
+          ? undefined
+          : await (async (): Promise<TReads> => {
+              const entries: Array<readonly [string, unknown]> = [];
+              for (const [key, fn] of readEntries) {
+                const descriptor = fn(parsedEvent);
+                entries.push([key, await interpreter.resolve(descriptor)]);
+              }
+              return Object.fromEntries(entries) as TReads;
+            })();
 
-      if (readEntries.length === 0) {
-        resolvedReads = undefined;
-      } else {
-        const entries: Array<readonly [string, unknown]> = [];
-        for (const [key, fn] of readEntries) {
-          const descriptor = fn(event);
-          entries.push([key, await interpreter.resolve(descriptor)]);
-        }
-        resolvedReads = Object.fromEntries(entries);
-      }
-
-      return binding.handler(event, resolvedReads);
+      return binding.handler(parsedEvent, resolvedReads as TReads);
     },
   };
 }
@@ -86,12 +94,14 @@ function compileBinding(
 
 export function defineProcessor(def: {
   readonly name: string;
-  readonly events: ReadonlyArray<ProcessorEventBinding<z.ZodType, unknown>>;
+  readonly events: ReadonlyArray<unknown>;
 }): Processor {
   return {
     _tag: "processor",
     name: def.name,
-    bindings: def.events.map((binding) => compileBinding(binding)),
+    bindings: def.events.map((binding) =>
+      compileBinding(binding as ProcessorEventBinding<AnyProcessorEventSchema, unknown>),
+    ),
   };
 }
 

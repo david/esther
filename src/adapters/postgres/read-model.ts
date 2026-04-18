@@ -1,5 +1,5 @@
 import { err, ok, type Result } from "neverthrow";
-import type { z } from "zod";
+import { ZodFirstPartyTypeKind, type z } from "zod";
 import type {
   ProjectionAdapter,
   ProjectionResult,
@@ -21,7 +21,7 @@ import type {
 function zodToColumnType(zodType: z.ZodTypeAny): string {
   const typeName = getZodTypeName(zodType);
 
-  if (typeName === "ZodString") {
+  if (typeName === ZodFirstPartyTypeKind.ZodString) {
     const checks = getZodStringChecks(zodType);
     for (const check of checks) {
       if (check.kind === "uuid") return "UUID";
@@ -30,9 +30,11 @@ function zodToColumnType(zodType: z.ZodTypeAny): string {
     return "TEXT";
   }
 
-  if (typeName === "ZodNumber") return "INTEGER";
-  if (typeName === "ZodBoolean") return "BOOLEAN";
-  if (typeName === "ZodArray" || typeName === "ZodObject") return "JSONB";
+  if (typeName === ZodFirstPartyTypeKind.ZodNumber) return "INTEGER";
+  if (typeName === ZodFirstPartyTypeKind.ZodBoolean) return "BOOLEAN";
+  if (typeName === ZodFirstPartyTypeKind.ZodArray || typeName === ZodFirstPartyTypeKind.ZodObject) {
+    return "JSONB";
+  }
 
   throw new Error(`Unsupported Zod type: ${typeName}`);
 }
@@ -50,7 +52,8 @@ export function generateCreateTableDDL<T>(handle: ReadModelHandle<T>): string {
     const colType = zodToColumnType(fieldType);
     const typeName = getZodTypeName(fieldType);
     if (colType === "JSONB") {
-      const defaultVal = typeName === "ZodArray" ? "'[]'::jsonb" : "'{}'::jsonb";
+      const defaultVal =
+        typeName === ZodFirstPartyTypeKind.ZodArray ? "'[]'::jsonb" : "'{}'::jsonb";
       clauses.push(`  "${fieldName}" ${colType} NOT NULL DEFAULT ${defaultVal}`);
     } else {
       clauses.push(`  "${fieldName}" ${colType} NOT NULL`);
@@ -151,7 +154,10 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
       const fieldType = schema.shape[column];
       if (fieldType === undefined) return false;
       const typeName = getZodTypeName(fieldType);
-      return typeName === "ZodArray" || typeName === "ZodObject";
+      return (
+        typeName === ZodFirstPartyTypeKind.ZodArray ||
+        typeName === ZodFirstPartyTypeKind.ZodObject
+      );
     }),
   );
 
