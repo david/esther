@@ -37,7 +37,7 @@ type AnyEventSchema = z.ZodType<unknown>;
 
 export type ReadModelHandle<
   T,
-  S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>,
+  S extends z.ZodType<T> = z.ZodType<T>,
   K extends string & keyof T = string & keyof T,
 > = {
   readonly name: string;
@@ -165,6 +165,15 @@ export type EventsByTagsDescriptor<T> = {
 };
 
 export type ReadDescriptor<T> = GetDescriptor<T> | QueryDescriptor<T> | EventsByTagsDescriptor<T>;
+
+export type ResolvedReadDescriptor<TDescriptor extends ReadDescriptor<unknown>> =
+  TDescriptor extends GetDescriptor<infer T>
+    ? T | undefined
+    : TDescriptor extends QueryDescriptor<infer T>
+      ? ReadonlyArray<T>
+      : TDescriptor extends EventsByTagsDescriptor<infer T>
+        ? T
+        : never;
 
 // ── Descriptor constructors ────────────────────────────────────────
 
@@ -423,10 +432,7 @@ export function defineReadModelQuery<T, TArgsSchema extends z.ZodObject<z.ZodRaw
     );
   }
 
-  // Also reject ReadModelQueryHandle which has _tag but also wouldn't have `project`
-  // However, ReadModelQueryHandle does not have `project`, so the above check already covers it.
-  // But if someone passes a handle with _tag: "ReadModelQueryHandle", double check:
-  if ("_tag" in source && (source as { _tag: string })._tag === "ReadModelQueryHandle") {
+  if ("_tag" in source && source._tag === "ReadModelQueryHandle") {
     throw new Error(
       `Source for read model query "${name}" must be a ReadModelHandle, not a ReadModelQueryHandle`,
     );

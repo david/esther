@@ -12,7 +12,9 @@ import type {
   ProjectionQueryAdapter,
   ReadDescriptor,
   ReadModelEventBinding,
+  ReadModelHandle,
   ReadModelNotFound,
+  ReadModelQueryHandle,
 } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
 import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.js";
@@ -20,6 +22,7 @@ import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.
 // ── App config ─────────────────────────────────────────────────────────
 
 type ErasedReadModelHandle = {
+  readonly schema: z.ZodType<unknown>;
   readonly events?: ReadonlyArray<ReadModelEventBinding<unknown, z.ZodType<unknown>, unknown>>;
   project(
     this: void,
@@ -101,23 +104,35 @@ export function createApp(config: AppConfig): App {
   }
 
   const projectionStore: ProjectionStore = {
-    get: async (name, id) => {
-      const getter = projectionGetters.get(name);
+    async get<T>(
+      model: ReadModelHandle<T>,
+      id: string,
+    ): Promise<Result<{ value: T }, ReadModelNotFound>> {
+      const getter = projectionGetters.get(model.name);
       if (!getter) {
-        return err(mkReadModelNotFound(name, id));
+        return err(mkReadModelNotFound(model.name, id));
       }
-      return await getter(id);
+      const result = await getter(id);
+      if (result.isErr()) {
+        return err(result.error);
+      }
+      return ok({ value: model.schema.parse(result.value.value) });
     },
-    query: async (sourceName, entries, orderBy, limit, orderDirection) => {
+    async query<T, TArgs>(
+      model: ReadModelQueryHandle<T, TArgs>,
+      args: TArgs,
+    ): Promise<Result<{ value: T }, ReadModelNotFound>> {
       const queryAdapter = config.projectionQuery;
+      const { sourceName, entries, orderBy, orderDirection, limit } = model.buildQuery(args);
       if (!queryAdapter) {
         return err(mkReadModelNotFound(sourceName, "query"));
       }
       const rows = await queryAdapter.query(sourceName, entries, orderBy, limit, orderDirection);
-      if (rows.length === 0) {
+      const first = rows[0];
+      if (first === undefined) {
         return err(mkReadModelNotFound(sourceName, "query"));
       }
-      return ok({ value: rows[0] });
+      return ok({ value: model.source.schema.parse(first) });
     },
   };
 
@@ -164,7 +179,7 @@ export function createApp(config: AppConfig): App {
       for (const binding of processor.bindings) {
         eventStore.onAfterCommit({ eventTypes: [binding.eventType] }, async (event) => {
           const result = await binding.run(event, readInterpreter);
-          if (result !== undefined && result !== null) {
+          if (result !== undefined) {
             await effectRegistry.execute(result);
           }
         });
@@ -235,8 +250,15 @@ function wireReadModelEvents(
     if (events === undefined) continue;
 
     const adapter = entry.adapter;
-    const boundProject = entry.handle.project;
-    const boundGet = entry.get;
+    const handle = entry.handle;
+    const boundProject = handle.project;
+    const boundGet = async (id: string) => {
+      const result = await entry.get(id);
+      if (result.isErr()) {
+        return err(result.error);
+      }
+      return ok({ value: handle.schema.parse(result.value.value) });
+    };
 
     for (const binding of events) {
       const eventType = extractEventType(binding.schema);

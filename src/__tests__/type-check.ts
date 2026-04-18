@@ -153,9 +153,9 @@ const _createBookingSlice = defineCommandSlice<
           return acc;
         }, initialPropertyState),
     );
-    const pricingResult = await deps.projectionStore.get(pricingModel.name, ctx.propertyId);
+    const pricingResult = await deps.projectionStore.get(pricingModel, ctx.propertyId);
     const pricing: Result<PricingRow, ReadModelNotFound> = pricingResult.isOk()
-      ? ok(pricingResult.value.value as PricingRow)
+      ? ok(pricingResult.value.value)
       : err(pricingResult.error);
     return ok({
       ...ctx,

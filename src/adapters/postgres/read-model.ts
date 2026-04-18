@@ -41,7 +41,9 @@ function zodToColumnType(zodType: z.ZodTypeAny): string {
 
 // ── generateCreateTableDDL ─────────────────────────────────────────────
 
-export function generateCreateTableDDL<T>(handle: ReadModelHandle<T>): string {
+export function generateCreateTableDDL<S extends z.ZodObject<z.ZodRawShape>>(
+  handle: ReadModelHandle<z.infer<S>, S>,
+): string {
   const { name, key, schema, constraints } = handle;
   const shape = schema.shape;
 

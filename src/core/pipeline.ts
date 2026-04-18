@@ -3,6 +3,10 @@ import type { EventStore } from "./event-store";
 import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice";
 import { type DomainEvent, SchemaError, type SliceError } from "./types";
 
+function isNonEmpty<T>(values: ReadonlyArray<T>): values is readonly [T, ...T[]] {
+  return values.length > 0;
+}
+
 // ── Command pipeline ───────────────────────────────────────────────────
 // Executes a CommandSlice in the order:
 //   1. parse input via inputSchema
@@ -45,8 +49,8 @@ export async function executeCommand<
   for (const predicate of slice.validate) {
     validationErrors.push(...predicate(ctx));
   }
-  if (validationErrors.length > 0) {
-    return finishCommand(slice, slice.outputErr(validationErrors as [TError, ...TError[]], ctx));
+  if (isNonEmpty(validationErrors)) {
+    return finishCommand(slice, slice.outputErr(validationErrors, ctx));
   }
 
   // 4. Construct event
