@@ -79,6 +79,13 @@ function buildDeps() {
       }
       return ok({ value: rows[0] });
     },
+    async queryMany(name, entries, orderBy, limit) {
+      if (name !== memberModel.name) {
+        throw new Error(`Unknown model ${name}`);
+      }
+      const rows = await query(entries, orderBy, limit);
+      return ok({ value: rows });
+    },
   };
 
   const projectionQuery: ProjectionQueryAdapter = {

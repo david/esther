@@ -9,7 +9,7 @@ import type {
   ReadModelQueryHandle,
   WhereEntry,
 } from "./read-model";
-import type { DomainEvent, StoredEvent, ValidationError } from "./types";
+import type { DomainEvent, StoredEvent } from "./types";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
 
@@ -25,6 +25,13 @@ export type ProjectionStore = {
     limit: number | undefined,
     orderDirection?: OrderDirection | undefined,
   ) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
+  readonly queryMany: (
+    sourceName: string,
+    entries: ReadonlyArray<WhereEntry>,
+    orderBy: string | undefined,
+    limit: number | undefined,
+    orderDirection?: OrderDirection | undefined,
+  ) => Promise<Result<{ value: ReadonlyArray<unknown> }, ReadModelNotFound>>;
 };
 
 // ── SliceDeps ─────────────────────────────────────────────────────────
@@ -89,6 +96,10 @@ export type StateResolver<TInput, TContext> = {
       }
     >;
 
+    <TKey extends string, T, TArgs>(
+      step: QueryProjectionManyStep<TKey, TContext, T, TArgs>,
+    ): StateResolver<TInput, TContext & { readonly [K in TKey]: ReadonlyArray<T> }>;
+
     <TKey extends string, TValue>(
       step: GenerateStep<TKey, TContext, TValue>,
     ): StateResolver<TInput, TContext & { readonly [K in TKey]: TValue }>;
@@ -107,6 +118,7 @@ function buildResolver<TInput, TContext>(
       | TagQueryStep<string, TContext, unknown>
       | ProjectionStep<string, TContext, unknown, boolean>
       | QueryProjectionStep<string, TContext, unknown, unknown, boolean>
+      | QueryProjectionManyStep<string, TContext, unknown, unknown>
       | GenerateStep<string, TContext, unknown>,
   ) => {
     const nextResolver = async (
@@ -130,6 +142,24 @@ function buildResolver<TInput, TContext>(
         const value = await step.fn(prev.context);
         return ok({
           context: addField(prev.context, step.key, value),
+        });
+      }
+
+      if (step._tag === "projectionMany") {
+        const args = step.args(prev.context);
+        const { sourceName, entries, orderBy, orderDirection, limit } = step.model.buildQuery(args);
+        const readManyResult = await projectionStore.queryMany(
+          sourceName,
+          entries,
+          orderBy,
+          limit,
+          orderDirection,
+        );
+        if (readManyResult.isErr()) {
+          return err(readManyResult.error);
+        }
+        return ok({
+          context: addField(prev.context, step.key, readManyResult.value.value),
         });
       }
 
@@ -360,7 +390,23 @@ export type QueryProjectionStep<
   readonly required: TRequired;
 };
 
+export type QueryProjectionManyStep<TKey extends string, TInput, TValue, TArgs> = {
+  readonly _tag: "projectionMany";
+  readonly key: TKey;
+  readonly model: ReadModelQueryHandle<TValue, TArgs>;
+  readonly args: (ctx: TInput) => TArgs;
+  readonly many: true;
+};
+
 // ── projection() overloads ──────────────────────────────────────────
+
+// Query handle + args + many
+export function projection<TKey extends string, TInput, TValue, TArgs>(descriptor: {
+  readonly key: TKey;
+  readonly model: ReadModelQueryHandle<TValue, TArgs>;
+  readonly args: (ctx: TInput) => TArgs;
+  readonly many: true;
+}): QueryProjectionManyStep<TKey, TInput, TValue, TArgs>;
 
 // Query handle + args + required
 export function projection<TKey extends string, TInput, TValue, TArgs>(descriptor: {
@@ -368,6 +414,7 @@ export function projection<TKey extends string, TInput, TValue, TArgs>(descripto
   readonly model: ReadModelQueryHandle<TValue, TArgs>;
   readonly args: (ctx: TInput) => TArgs;
   readonly required: true;
+  readonly many?: false | undefined;
 }): QueryProjectionStep<TKey, TInput, TValue, TArgs, true>;
 
 // Query handle + args + optional
@@ -376,6 +423,7 @@ export function projection<TKey extends string, TInput, TValue, TArgs>(descripto
   readonly model: ReadModelQueryHandle<TValue, TArgs>;
   readonly args: (ctx: TInput) => TArgs;
   readonly required?: false | undefined;
+  readonly many?: false | undefined;
 }): QueryProjectionStep<TKey, TInput, TValue, TArgs, false>;
 
 // Existing: id-based + required
@@ -401,10 +449,21 @@ export function projection<TKey extends string, TInput, TValue, TArgs>(descripto
   readonly id?: ((ctx: TInput) => string) | undefined;
   readonly args?: ((ctx: TInput) => TArgs) | undefined;
   readonly required?: boolean | undefined;
+  readonly many?: boolean | undefined;
 }):
   | ProjectionStep<TKey, TInput, TValue, boolean>
-  | QueryProjectionStep<TKey, TInput, TValue, TArgs, boolean> {
+  | QueryProjectionStep<TKey, TInput, TValue, TArgs, boolean>
+  | QueryProjectionManyStep<TKey, TInput, TValue, TArgs> {
   if ("args" in descriptor && descriptor.args !== undefined) {
+    if (descriptor.many === true) {
+      return {
+        _tag: "projectionMany",
+        key: descriptor.key,
+        model: descriptor.model as ReadModelQueryHandle<TValue, TArgs>,
+        args: descriptor.args,
+        many: true,
+      };
+    }
     return {
       _tag: "projection",
       key: descriptor.key,
@@ -530,12 +589,17 @@ export type CommandSlice<
 
 // ── Query slice (fully generic) ────────────────────────────────────────
 
-export type QuerySlice<TInput, TContext, TOutput> = RegisterableSlice & {
+export type QuerySlice<
+  TInput,
+  TContext,
+  TOutput,
+  TError extends { readonly type: string } = never,
+> = RegisterableSlice & {
   readonly _tag: "query";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
   readonly resolveState: StateResolver<TInput, TContext>;
-  readonly handle: (context: TContext) => Result<TOutput, ValidationError>;
+  readonly handle: (context: TContext) => Result<TOutput, TError>;
 };
 
 // ── defineCommandSlice ─────────────────────────────────────────────────
@@ -620,6 +684,7 @@ export function defineQuerySlice<
   TInput,
   TContext,
   TOutput,
+  TError extends { readonly type: string } = never,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(definition: {
@@ -627,9 +692,9 @@ export function defineQuerySlice<
   readonly inputSchema: TInputSchema;
   readonly outputSchema: TOutputSchema;
   readonly state: StateResolver<TInput, TContext>;
-  readonly handle: (ctx: TContext) => Result<TOutput, ValidationError>;
-}): QuerySlice<TInput, TContext, TOutput> {
-  const slice: QuerySlice<TInput, TContext, TOutput> = {
+  readonly handle: (ctx: TContext) => Result<TOutput, TError>;
+}): QuerySlice<TInput, TContext, TOutput, TError> {
+  const slice: QuerySlice<TInput, TContext, TOutput, TError> = {
     _tag: "query",
     name: definition.name ?? "anonymous-query",
     inputSchema: definition.inputSchema,

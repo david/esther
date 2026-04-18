@@ -118,6 +118,14 @@ export function createApp(config: AppConfig): App {
       }
       return ok({ value: rows[0] });
     },
+    queryMany: async (sourceName, entries, orderBy, limit, orderDirection) => {
+      const queryAdapter = config.projectionQuery;
+      if (!queryAdapter) {
+        return err(mkReadModelNotFound(sourceName, "query"));
+      }
+      const rows = await queryAdapter.query(sourceName, entries, orderBy, limit, orderDirection);
+      return ok({ value: rows });
+    },
   };
 
   // Register constraint metadata on event store

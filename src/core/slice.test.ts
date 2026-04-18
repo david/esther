@@ -48,6 +48,7 @@ describe("castTagQuery", () => {
         return err({ _tag: "ReadModelNotFound" as const, name, id });
       },
       query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      queryMany: async () => ok({ value: [] }),
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
@@ -99,6 +100,7 @@ describe("castTagQuery", () => {
     const projectionStore = {
       get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
       query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      queryMany: async () => ok({ value: [] }),
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({});
@@ -163,6 +165,7 @@ describe("castTagQuery", () => {
       get: async (_name: string, _id: string) =>
         err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
       query: querySpy,
+      queryMany: async () => ok({ value: [] }),
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({ email: "ada@test.com" });
@@ -221,6 +224,7 @@ describe("castTagQuery", () => {
     const projectionStore = {
       get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
       query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      queryMany: async () => ok({ value: [] }),
     };
     const step = descriptor.toStep({ eventStore, projectionStore });
     const result = await step({ email: "missing@test.com" });
@@ -342,6 +346,8 @@ describe("compose builder", () => {
   const eventStore = createInMemoryEventStore();
   const projectionStore = {
     get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    queryMany: async () => ok({ value: [] }),
   };
   const deps = { eventStore, projectionStore };
 
@@ -371,6 +377,8 @@ describe("compose builder", () => {
         if (name === "compose_users") return ok({ value: { id: "u1" } });
         return err({ _tag: "ReadModelNotFound" as const, name, id });
       },
+      query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+      queryMany: async () => ok({ value: [] }),
     };
     const composeDeps = { eventStore, projectionStore: composeProjectionStore };
 

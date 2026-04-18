@@ -85,12 +85,17 @@ function finishCommand<
 
 // ── Query pipeline ─────────────────────────────────────────────────────
 
-export async function executeQuery<TInput, TContext, TOutput>(
-  slice: QuerySlice<TInput, TContext, TOutput>,
+export async function executeQuery<
+  TInput,
+  TContext,
+  TOutput,
+  TError extends { readonly type: string } = never,
+>(
+  slice: QuerySlice<TInput, TContext, TOutput, TError>,
   rawInput: unknown,
   eventStore: EventStore,
   projectionStore: ProjectionStore,
-): Promise<Result<TOutput, SliceError>> {
+): Promise<Result<TOutput, SliceError | TError>> {
   // 1. Parse input
   const parseResult = slice.inputSchema.safeParse(rawInput);
   if (!parseResult.success) {
