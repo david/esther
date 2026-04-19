@@ -1,74 +1,29 @@
 # Esther
 
-Event sourcing framework built on Dynamic Consistency Boundaries (DCB).
+Esther is a TypeScript event-sourcing framework built around Dynamic Consistency Boundaries (DCB), with a strict typed DSL for slices, read models, processors, and adapters.
 
-## Type philosophy
+## Quick shortcuts
+- Repo layout and dependency boundaries: [doc/architecture.md](doc/architecture.md)
+- Daily commands, CI-parity checks, and formatting: [doc/commands.md](doc/commands.md)
+- Where tests live and what to add for changes: [doc/testing.md](doc/testing.md)
+- Type rules, cast policy, and app-module constraints: [doc/code-style.md](doc/code-style.md)
+- Terms like slice, DCB, projector, and processor: [doc/domain-language.md](doc/domain-language.md)
+- Scope, commits, and “ready to merge” expectations: [doc/project-management.md](doc/project-management.md)
 
-- **No `Record<string, unknown>`** as a value type. Ever.
-- **No bare `object`**. Use an explicit shape, `Record<never, never>` for intentionally empty object shapes, or a named internal patch/dictionary type when the framework genuinely needs keyed dynamic data.
-- **No `null`**, no optional properties, and no implicit `any`.
-- **Errors are values**, not exceptions. All user-provided functions such as handlers, validators, projectors, and processors return `Result` types via `neverthrow`. Framework-level errors such as I/O failures or bugs may throw.
-- Prefer **discriminated unions** and **branded types** where appropriate.
-- Types should flow end-to-end through the slice pipeline. `input`, `validate`, `event`, and `output` should receive fully typed contexts without casting in user code.
+## Gotchas
+- `bun run typecheck`, `bun run lint`, and `bun run test` must pass for the whole repo, not just changed files.
+- Broken windows principle: pre-existing lint, typecheck, test, warning, and quality issues are problems to fix, not noise to ignore.
+- Ask rather than guess when requirements, domain semantics, or acceptance criteria are ambiguous.
+- Core must not import adapters; adapters must not import each other; direct Node I/O belongs only in adapters.
+- Slices, read models, projectors, and processors do not perform direct I/O. Query logic belongs in named read model queries, not inline in slices.
+- Typecheck uses `tsgo`. Lint means ESLint plus dependency-cruiser. Biome is formatting only.
+- No `Record<string, unknown>` as a value type, and no bare `object`. Use explicit shapes, `Record<never, never>` for intentionally empty object shapes, or named internal patch/dictionary types when keyed dynamic data is genuinely required.
+- No special issue tracker workflow is documented yet; before broad refactors, merges, or direct pushes, confirm scope and success criteria.
 
-## No direct I/O in app modules
-
-Slices, read models, projectors, and processors must never talk to the outside world directly.
-
-- **Inputs** declare dependencies when they need external data; the framework resolves them.
-- **Processors and projectors** return effects; the framework executes them.
-
-Do not use `async` functions or direct adapter calls inside app module definitions. If a module needs external data, extend the framework's declarative DSL instead.
-
-## Query logic belongs in read model definitions
-
-When a slice needs a filtered, sorted, or parameterized lookup against a read model, that query logic must be encapsulated in a named read model definition rather than written inline in the consumer.
-
-- **Right:** define `latestOrderOfWorship` as a read model query that accepts `asOf` and encapsulates the `where` / `orderBy` / `limit` logic. The consumer calls `projection()` with args.
-- **Wrong:** use `generate()` with raw SQL or inline query logic in a slice to fetch “the latest order of worship”.
-
-This is the same principle as no direct I/O, applied to read model access patterns. If you find yourself writing query logic such as filtering, ordering, or SQL fragments inside a slice, extract it into `defineReadModelQuery`.
-
-## Cast policy
-
-Casts (`as`) are only permitted at these boundaries:
-
-1. **Branded type constructors** such as `EventId()`. By definition.
-2. **`addField()`** in `src/core/slice.ts`. TypeScript cannot infer `{ ...obj, [computedKey]: value }`. One function, one cast.
-3. **Storage/serialization boundaries** such as `queryRows<T>()` in the postgres adapter or `data.get(k) as T` in the notifying adapter. Deserialization and heterogeneous store retrieval are inherently untyped.
-4. **Zod internals** such as `_def.typeName` and `_def.checks` access in `src/core/zod-internals.ts`. Zod does not expose these in public types.
-5. **`compose()` accumulator** in `src/core/compose.ts`, where `acc as TCtx` is required because TypeScript cannot track progressive type accumulation across a dynamic loop over heterogeneous steps.
-6. **`normalizeOutputErrHandlers()`** in `src/core/slice.ts`, where `handlers as Record<string, any>` is used for dynamic dispatch.
-
-Nowhere else. If you think you need a cast, redesign first. If one is truly unavoidable, add it to this list with a justification.
-
-## Commands
-
-```bash
-bun run typecheck   # tsgo --noEmit
-bun run test        # bun test
-bun run lint        # eslint src --max-warnings=0
-bun run format      # biome format src/ --write
-```
-
-## File layout
-
-```text
-src/
-├── core/
-│   ├── types.ts          # Branded types, DomainEvent, StoredEvent, errors
-│   ├── event-store.ts    # EventStore interface, EventFilter, hooks
-│   ├── read-model.ts     # defineReadModel, defineReadModelQuery, handles, projection types
-│   ├── effect-adapter.ts # EffectAdapter + registry
-│   ├── slice.ts          # Slice DSL and execution helpers
-│   ├── compose.ts        # compose(), Step, StepError
-│   ├── pipeline.ts       # executeCommand, executeQuery
-│   └── app.ts            # createApp, ProjectionAdapterEntry
-├── adapters/
-│   ├── in-memory/        # In-memory event store, projection adapter, input adapter
-│   ├── fastify/          # Fastify input and effect adapters
-│   └── postgres/         # Postgres event store, projection adapter, DDL generation
-├── doc/
-│   └── domain-language.md # Glossary of framework terms
-└── index.ts              # Re-exports
-```
+## TOC
+- [doc/architecture.md](doc/architecture.md) — Open first when changing core DSL, app wiring, adapters, or dependency boundaries.
+- [doc/code-style.md](doc/code-style.md) — Read before editing types, adding schemas, introducing casts, or writing slice/read-model/processor logic.
+- [doc/commands.md](doc/commands.md) — Use for install, typecheck, lint, test, build, and CI-equivalent local verification.
+- [doc/domain-language.md](doc/domain-language.md) — Read when framework terms in code or discussions are unclear, especially slice/read-model/DCB vocabulary.
+- [doc/project-management.md](doc/project-management.md) — Use when planning work, deciding commit shape, or checking what “done” means for a change.
+- [doc/testing.md](doc/testing.md) — Read when adding or updating tests, choosing test placement, or preserving API/type-level guarantees.

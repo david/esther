@@ -1,14 +1,18 @@
 # Domain Language
 
-Glossary of terms used in the Esther framework.
+## Read this doc when
+
+- framework terms in the code or conversation are unfamiliar
+- you need the intended meaning of slice, read model, projector, processor, or DCB
+- you are deciding where a piece of logic belongs
 
 ## Event
 
-An immutable fact that happened. Has a `type`, `tags` (string array for query), and `payload`. Stored in append-only event store with a monotonic `position`.
+An immutable fact that happened. Esther stores events append-only, each with a `type`, `tags`, `payload`, monotonic `position`, and timestamp.
 
 ## Tag
 
-A plain string attached to events. Tags form the query model -- events are retrieved by tag intersection. Use prefixed patterns like `order:abc123`.
+A plain string attached to an event. Tags are Esther's event-query key, so use stable prefixes such as `order:123` or `issue:abc`.
 
 ## Command Slice
 
@@ -22,7 +26,7 @@ A slice that resolves typed context from raw input, validates it against event-d
 
 ## Query Slice
 
-A slice that resolves state and returns a read-only result without appending events. Defined with `defineQuerySlice`. Query slices use the `state(...)pipe(...)` resolver to chain `tagQuery`, `projection`, and `generate` steps.
+A slice that resolves state and returns a read-only result without appending events. Defined with `defineQuerySlice`. Query slices use the `state().pipe(...)` resolver to chain `tagQuery`, `projection`, and `generate` steps.
 
 ## State Resolver (query slices)
 
@@ -70,4 +74,4 @@ A named adapter that matches and executes effect descriptors emitted by processo
 
 ## Dynamic Consistency Boundary (DCB)
 
-The concurrency model. Instead of aggregates, consistency is defined by the set of tags queried during state resolution. The framework tracks the stream position and uses optimistic locking to detect conflicts at append time.
+Esther's concurrency model. Consistency is defined by the set of tags read during state resolution rather than by a single aggregate root. The framework tracks the observed position and uses optimistic concurrency at append time.
