@@ -17,7 +17,25 @@ export type SqlValueMap = {
   readonly [key: string]: SqlParameter;
 };
 
-export type SqlFragment = object;
+type SqlHelperFragment = {
+  readonly first: unknown;
+  readonly rest: ReadonlyArray<unknown>;
+};
+
+type SqlIdentifierFragment = {
+  readonly sql: string;
+};
+
+type SqlObjectHelperFragment = {
+  readonly obj: SqlValueMap;
+  readonly keys: ReadonlyArray<string>;
+};
+
+export type SqlFragment =
+  | PromiseLike<SqlQueryRows>
+  | SqlHelperFragment
+  | SqlIdentifierFragment
+  | SqlObjectHelperFragment;
 
 export type SqlQueryRows = ReadonlyArray<unknown>;
 

@@ -2,6 +2,7 @@ import { err, ok, type Result } from "neverthrow";
 import type {
   CastTagQueryDescriptor,
   CommandLookupDescriptor,
+  ContextPatch,
   DeriveStep,
   GenerateStep,
   SliceDeps,
@@ -32,7 +33,7 @@ export type StepError = { readonly type: string; readonly [k: string]: unknown }
 // (computed property keys).
 
 export function compose<TCtx, TError>(
-  steps: ReadonlyArray<Step<never, object, TError>>,
+  steps: ReadonlyArray<Step<never, ContextPatch, TError>>,
 ): (ctx: TCtx) => Promise<Result<TCtx, TError>>;
 
 // ── compose (builder form) ────────────────────────────────────────────
@@ -43,11 +44,11 @@ export function compose<TInput>(): InputPipeline<TInput, TInput, never>;
 // ── compose implementation ────────────────────────────────────────────
 
 export function compose<TCtx, TError>(
-  steps?: ReadonlyArray<Step<never, object, TError>>,
+  steps?: ReadonlyArray<Step<never, ContextPatch, TError>>,
 ): ((ctx: TCtx) => Promise<Result<TCtx, TError>>) | InputPipeline<unknown, unknown, unknown> {
   if (steps !== undefined) {
     return async (initialCtx: TCtx) => {
-      let acc: object = initialCtx as object;
+      let acc: ContextPatch = initialCtx as ContextPatch;
       for (const step of steps) {
         const result = await step(acc as never);
         if (result.isErr()) return err(result.error);
@@ -67,7 +68,7 @@ type CommandInputDescriptor =
   | TagQueryStep<string, never, unknown>
   | CastTagQueryDescriptor<string, never, unknown, unknown, unknown>
   | CommandLookupDescriptor<string, never, unknown, unknown, unknown>
-  | DeriveStep<never, object, unknown>
+  | DeriveStep<never, ContextPatch, unknown>
   | GenerateStep<string, never, unknown>;
 
 export type InputPipeline<TInput, TCtx, TError> = {
@@ -88,7 +89,7 @@ export type InputPipeline<TInput, TCtx, TError> = {
     <TKey extends string, TValue, TArgs, TCause>(
       descriptor: CommandLookupDescriptor<TKey, TCtx, TValue, TArgs, TCause>,
     ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TValue }, TError | TCause>;
-    <TPatch extends object, TErr>(
+    <TPatch extends ContextPatch, TErr>(
       descriptor: DeriveStep<TCtx, TPatch, TErr>,
     ): InputPipeline<TInput, TCtx & TPatch, TError | TErr>;
     <TKey extends string, TValue>(
@@ -127,7 +128,7 @@ function buildPipeline<TInput, TCtx, TError>(
     add,
 
     async execute(ctx, deps) {
-      let acc: object = ctx as object;
+      let acc: ContextPatch = ctx as ContextPatch;
       for (const entry of entries) {
         const result = await entry.descriptor.toStep(deps)(acc as never);
         if (result.isErr()) return result as Result<TCtx, TError | ReadModelSchemaError>;

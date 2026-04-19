@@ -15,6 +15,10 @@ type StoredEntry<T> = {
 
 type OrderDirection = "asc" | "desc";
 
+type ProjectionRow = {
+  readonly [key: string]: unknown;
+};
+
 type InMemoryProjectionAdapterResult<T> = {
   readonly adapter: ProjectionAdapter<T>;
   readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
@@ -28,7 +32,7 @@ type InMemoryProjectionAdapterResult<T> = {
 
 // ── Type-safe dynamic field access ────────────────────────────────
 
-function isKeyOf<T extends object>(obj: T, key: string): key is keyof T & string {
+function isKeyOf<T extends ProjectionRow>(obj: T, key: string): key is keyof T & string {
   return Object.hasOwn(obj, key);
 }
 
@@ -52,7 +56,7 @@ function includesValue(arr: ReadonlyArray<string | number | boolean>, v: unknown
   return false;
 }
 
-function matchesEntries<T extends object>(value: T, entries: ReadonlyArray<WhereEntry>): boolean {
+function matchesEntries<T extends ProjectionRow>(value: T, entries: ReadonlyArray<WhereEntry>): boolean {
   for (const entry of entries) {
     if (!isKeyOf(value, entry.field)) return false;
     const fieldValue = value[entry.field];
@@ -75,7 +79,7 @@ function matchesEntries<T extends object>(value: T, entries: ReadonlyArray<Where
   return true;
 }
 
-export function createInMemoryProjectionAdapter<T extends object>(
+export function createInMemoryProjectionAdapter<T extends ProjectionRow>(
   handle: ReadModelHandle<T>,
 ): InMemoryProjectionAdapterResult<T> {
   const store = new Map<string, StoredEntry<T>>();

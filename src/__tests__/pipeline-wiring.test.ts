@@ -155,7 +155,7 @@ describe("command pipeline v2 — wiring", () => {
       },
       tags: (_subject) => ["nope"],
       schemas: [],
-      fold: (_events, _subject) => ({}),
+      fold: (events, _subject) => ({ count: events.length }),
     });
 
     const eventStore = createInMemoryEventStore();
@@ -163,7 +163,11 @@ describe("command pipeline v2 — wiring", () => {
 
     const slice = defineCommandSlice<
       ProbeInput,
-      ProbeInput & { readonly thing: object; readonly thingSubject: { readonly id: string } },
+      ProbeInput &
+        {
+          readonly thing: { readonly count: number };
+          readonly thingSubject: { readonly id: string };
+        },
       { readonly status: string; readonly code: string },
       ProbeEvent,
       { readonly type: "NotFound" }
@@ -443,13 +447,13 @@ describe("command pipeline v2 — wiring", () => {
     const slice = defineCommandSlice<
       ProbeInput,
       ProbeInput,
-      object,
+      Record<never, never>,
       ProbeEvent,
       RateErr
     >({
       name: "probe-propagate-outputErr",
       inputSchema: probeInputSchema,
-      outputSchema: probeOutputSchema<object>(),
+      outputSchema: probeOutputSchema<Record<never, never>>(),
       input: compose<ProbeInput>().add(bindA),
       validate: [(_ctx) => [{ type: "rate" as const, code: "X" as const }]],
       event: (_ctx) => ({ type: "Probe" as const, tags: [], payload: {} }),

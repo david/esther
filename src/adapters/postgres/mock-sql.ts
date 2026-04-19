@@ -1,5 +1,6 @@
 import type {
   PostgresClient,
+  PostgresTransactionClient,
   SqlFragment,
   SqlJsonFn,
   SqlQueryRows,
@@ -120,11 +121,11 @@ function isSqlValueMap(
 }
 
 export function createMockSql(executeQuery: MockQueryExecutor): PostgresClient {
-  function sql(template: TemplateStringsArray, ...values: unknown[]): MockQuery;
   function sql(
     first: string | readonly string[] | SqlValueMap,
     ...rest: string[]
   ): MockIdent | MockHelper;
+  function sql(template: TemplateStringsArray, ...values: unknown[]): MockQuery;
   function sql(
     first: TemplateStringsArray | string | readonly string[] | SqlValueMap,
     ...rest: unknown[]
@@ -184,7 +185,7 @@ export function createMockSql(executeQuery: MockQueryExecutor): PostgresClient {
 
   const sqlWithBegin: PostgresClient = Object.assign(sql, {
     json,
-    async begin<T>(fn: (tx: PostgresClient) => Promise<T>): Promise<T> {
+    async begin<T>(fn: (tx: PostgresTransactionClient) => Promise<T>): Promise<T> {
       return fn(sqlWithBegin);
     },
   });

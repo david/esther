@@ -619,13 +619,17 @@ export function lookup<TKey extends string, TInput, TValue, TArgs, TCause>(descr
   };
 }
 
-export type DeriveStep<TContext, TPatch extends object, TError> = FrameworkStepBrand & {
+export type ContextPatch = {
+  readonly [key: string]: unknown;
+};
+
+export type DeriveStep<TContext, TPatch extends ContextPatch, TError> = FrameworkStepBrand & {
   readonly _tag: "derive";
   readonly fn: (ctx: TContext) => Result<TPatch, TError>;
   readonly toStep: (deps: SliceDeps) => Step<TContext, TPatch, TError>;
 };
 
-export function derive<TContext, TPatch extends object, TError>(descriptor: {
+export function derive<TContext, TPatch extends ContextPatch, TError>(descriptor: {
   readonly fn: (ctx: TContext) => Result<TPatch, TError>;
 }): DeriveStep<TContext, TPatch, TError> {
   const toStep = (_deps: SliceDeps): Step<TContext, TPatch, TError> => {

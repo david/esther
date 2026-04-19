@@ -41,7 +41,11 @@ function isReadFn(value: unknown): value is ReadFn {
   return typeof value === "function";
 }
 
-function iterateReadMap(reads: object): ReadonlyArray<readonly [string, ReadFn]> {
+type ReadMapShape = {
+  readonly [key: string]: unknown;
+};
+
+function iterateReadMap(reads: ReadMapShape): ReadonlyArray<readonly [string, ReadFn]> {
   const result: Array<readonly [string, ReadFn]> = [];
   for (const [key, value] of Object.entries(reads)) {
     if (isReadFn(value)) {

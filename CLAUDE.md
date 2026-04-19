@@ -5,6 +5,7 @@ Event sourcing framework built on Dynamic Consistency Boundaries (DCB).
 ## Type philosophy
 
 - **No `Record<string, unknown>`** as a value type. Ever.
+- **No bare `object`**. Use an explicit shape, `Record<never, never>` for intentionally empty object shapes, or a named internal patch/dictionary type when the framework genuinely needs keyed dynamic data.
 - **No `null`**, no optional properties, no implicit `any`.
 - **Errors are values**, not exceptions. All user-provided functions (handlers, validators, projectors, processors) return `Result` types via `neverthrow`. Framework-level errors (I/O failures, bugs) may throw.
 - **Discriminated unions** and **branded types** where appropriate.
