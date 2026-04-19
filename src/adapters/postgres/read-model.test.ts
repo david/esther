@@ -504,6 +504,82 @@ describe("createPostgresProjectionAdapter — JSONB sql.json wrapping", () => {
 
 // ── ZodNumber → INTEGER round-trip ────────────────────────────────
 
+describe("createPostgresProjectionAdapter — datetime round-trip", () => {
+  test("get() normalizes TIMESTAMPTZ columns from Date to ISO strings", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "session",
+      key: "sessionToken",
+      schema: z.object({
+        sessionToken: z.string().uuid(),
+        sessionExpiresAt: z.string().datetime(),
+      }),
+    });
+
+    const expiresAt = new Date("2026-04-19T21:10:02.000Z");
+    const sql = createMockSql(async (query: string, params: ReadonlyArray<unknown>): Promise<unknown[]> => {
+      if (query.trimStart().startsWith("INSERT")) return [];
+      if (query.trimStart().startsWith("SELECT")) {
+        return [{ sessionToken: params[0], sessionExpiresAt: expiresAt }];
+      }
+      return [];
+    });
+
+    const { adapter, get } = createPostgresProjectionAdapter(sql, handle);
+
+    await adapter.execute(
+      handle.project(
+        {
+          sessionToken: "550e8400-e29b-41d4-a716-446655440000",
+          sessionExpiresAt: expiresAt.toISOString(),
+        },
+        "insert",
+      ),
+    );
+
+    const result = await get("550e8400-e29b-41d4-a716-446655440000");
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().value.sessionExpiresAt).toBe(expiresAt.toISOString());
+  });
+
+  test("query() normalizes TIMESTAMPTZ columns from Date to ISO strings", async () => {
+    const { createPostgresProjectionAdapter } = await import("./read-model.js");
+
+    const handle = defineReadModel({
+      name: "session_query",
+      key: "sessionToken",
+      schema: z.object({
+        sessionToken: z.string().uuid(),
+        sessionExpiresAt: z.string().datetime(),
+      }),
+    });
+
+    const expiresAt = new Date("2026-04-19T21:10:02.000Z");
+    const sql = createMockSql(async (query: string): Promise<unknown[]> => {
+      if (query.trimStart().startsWith("SELECT")) {
+        return [
+          {
+            sessionToken: "550e8400-e29b-41d4-a716-446655440000",
+            sessionExpiresAt: expiresAt,
+          },
+        ];
+      }
+      return [];
+    });
+
+    const { query } = createPostgresProjectionAdapter(sql, handle);
+
+    const rows = await query([], undefined, undefined);
+    expect(rows).toEqual([
+      {
+        sessionToken: "550e8400-e29b-41d4-a716-446655440000",
+        sessionExpiresAt: expiresAt.toISOString(),
+      },
+    ]);
+  });
+});
+
 describe("createPostgresProjectionAdapter — numeric round-trip", () => {
   // postgres.js returns NUMERIC columns as strings. When the DDL maps
   // ZodNumber to INTEGER instead, the driver returns JS numbers, and
