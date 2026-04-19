@@ -130,12 +130,16 @@ export type WhereEntry =
       readonly values: ReadonlyArray<string | number | boolean>;
     };
 
-export type QueryDescriptor<T> = {
+type QueryRow<T extends ReadonlyArray<unknown>> = T extends ReadonlyArray<infer TRow>
+  ? TRow
+  : never;
+
+export type QueryDescriptor<T extends ReadonlyArray<unknown>> = {
   readonly _tag: "query";
-  readonly model: ReadModelHandle<T>;
-  readonly where: Where<T>;
+  readonly model: ReadModelHandle<QueryRow<T>>;
+  readonly where: Where<QueryRow<T>>;
   readonly entries: ReadonlyArray<WhereEntry>;
-  readonly orderBy?: keyof T & string;
+  readonly orderBy?: keyof QueryRow<T> & string;
   readonly limit?: number;
 };
 
@@ -146,7 +150,10 @@ export type EventsByTagsDescriptor<T> = {
   readonly fold: (events: ReadonlyArray<StoredEvent>) => T;
 };
 
-export type ReadDescriptor<T> = GetDescriptor<T> | QueryDescriptor<T> | EventsByTagsDescriptor<T>;
+export type ReadDescriptor<T> =
+  | GetDescriptor<T>
+  | (T extends ReadonlyArray<unknown> ? QueryDescriptor<T> : never)
+  | EventsByTagsDescriptor<T>;
 
 // ── Descriptor constructors ────────────────────────────────────────
 
@@ -202,12 +209,12 @@ function normalizeWhere<T>(where: Where<T>): ReadonlyArray<WhereEntry> {
   return entries;
 }
 
-export function queryDescriptor<T>(input: {
-  readonly model: ReadModelHandle<T>;
-  readonly where: Where<T>;
-  readonly orderBy?: keyof T & string;
+export function queryDescriptor<TRow>(input: {
+  readonly model: ReadModelHandle<TRow>;
+  readonly where: Where<TRow>;
+  readonly orderBy?: keyof TRow & string;
   readonly limit?: number;
-}): QueryDescriptor<T> {
+}): QueryDescriptor<ReadonlyArray<TRow>> {
   const entries = normalizeWhere(input.where);
   const tag: "query" = "query";
   const base = {

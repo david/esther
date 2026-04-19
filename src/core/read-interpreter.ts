@@ -50,7 +50,9 @@ export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterprete
     return result.value.value;
   }
 
-  async function resolveQuery<T>(descriptor: QueryDescriptor<T>): Promise<ReadonlyArray<unknown>> {
+  async function resolveQuery<T extends ReadonlyArray<unknown>>(
+    descriptor: QueryDescriptor<T>,
+  ): Promise<ReadonlyArray<unknown>> {
     return projectionQuery.query(
       descriptor.model.name,
       descriptor.entries,
