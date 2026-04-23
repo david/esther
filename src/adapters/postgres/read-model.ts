@@ -184,6 +184,30 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
       return typeName === "ZodArray" || typeName === "ZodObject";
     }),
   );
+  const datetimeColumns = new Set(
+    columns.filter((column) => {
+      const fieldType = schema.shape[column];
+      if (fieldType === undefined || getZodTypeName(fieldType) !== "ZodString") {
+        return false;
+      }
+      return getZodStringChecks(fieldType).some((check) => check.kind === "datetime");
+    }),
+  );
+
+  function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
+    if (datetimeColumns.size === 0) {
+      return row;
+    }
+
+    const normalized = { ...row };
+    for (const column of datetimeColumns) {
+      const value = normalized[column];
+      if (value instanceof Date) {
+        normalized[column] = value.toISOString();
+      }
+    }
+    return normalized;
+  }
 
   function asSqlValueMap(value: T): SqlValueMap {
     const raw = value as SqlValueMap;
@@ -272,7 +296,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     }
 
     return ok({
-      value: schema.parse(raw[0]),
+      value: schema.parse(normalizeRow(raw[0] as Record<string, unknown>)),
     });
   }
 
@@ -305,7 +329,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     if (limit !== undefined) q = sql`${q} LIMIT ${limit}`;
 
     const raw = await executeSqlQuery(q);
-    return raw.map((row) => schema.parse(row));
+    return raw.map((row) => schema.parse(normalizeRow(row as Record<string, unknown>)));
   }
 
   return { adapter, get, query };
