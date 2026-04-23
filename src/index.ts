@@ -7,6 +7,12 @@ export {
   type DispatchFn,
   type InMemoryInputAdapter,
 } from "./adapters/in-memory/index.js";
+// ── CLI adapter ────────────────────────────────────────────────────────
+export {
+  createCliInputAdapter,
+  type CliDispatchRequest,
+  type CliInputAdapter,
+} from "./adapters/cli/index.js";
 export {
   type DispatchFn as AppDispatchFn,
   type InputAdapter,

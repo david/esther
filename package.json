@@ -8,6 +8,7 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./cli": "./src/adapters/cli/index.ts",
     "./postgres": "./src/adapters/postgres/index.ts",
     "./filesystem": "./src/adapters/filesystem/index.ts",
     "./fastify": "./src/adapters/fastify/index.ts",
