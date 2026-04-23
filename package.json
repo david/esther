@@ -17,7 +17,9 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit -p tsconfig.json",
-    "lint": "eslint src --max-warnings=0",
+    "lint": "bun run lint:code && bun run lint:deps",
+    "lint:code": "eslint src --max-warnings=0",
+    "lint:deps": "depcruise src --config .dependency-cruiser.cjs --output-type err",
     "lint:fix": "eslint src --fix",
     "format": "biome format src/ --write",
     "test": "bun test",
