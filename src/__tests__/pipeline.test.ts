@@ -8,8 +8,8 @@ import {
   createInMemoryAdapter,
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
-  defineCommandSlice,
-  defineQuerySlice,
+  defineCommand,
+  defineQuery,
   defineReadModel,
   defineReadModelQuery,
   projection,
@@ -89,7 +89,7 @@ function accountState<TCtx extends { readonly accountId: string }>() {
 
 type DepositCtx = DepositInput & { readonly account: Balance };
 
-const depositSlice = defineCommandSlice<
+const depositSlice = defineCommand<
   DepositInput,
   DepositCtx,
   z.output<typeof depositOutputSchema>,
@@ -127,7 +127,7 @@ const withdrawOutputSchema = z.object({
 
 type WithdrawCtx = WithdrawInput & { readonly account: Balance };
 
-const withdrawSlice = defineCommandSlice<
+const withdrawSlice = defineCommand<
   WithdrawInput,
   WithdrawCtx,
   z.output<typeof withdrawOutputSchema>,
@@ -197,7 +197,7 @@ const creditOutputSchema = z.object({
 
 type CreditCtx = CreditInput & { readonly account: Balance };
 
-const creditSlice = defineCommandSlice<
+const creditSlice = defineCommand<
   CreditInput,
   CreditCtx,
   z.output<typeof creditOutputSchema>,
@@ -227,7 +227,7 @@ const rejectOutputSchema = z.object({ rejected: z.boolean() });
 
 type RejectError = { readonly type: "AlwaysFails"; code: "ALWAYS_FAILS"; message: string };
 
-const rejectSlice = defineCommandSlice<
+const rejectSlice = defineCommand<
   z.output<typeof rejectInputSchema>,
   z.output<typeof rejectInputSchema>,
   z.output<typeof rejectOutputSchema>,
@@ -714,7 +714,7 @@ describe("projection step in query slices", () => {
     const { adapter, bind } = createInMemoryAdapter();
 
     // Query slice that reads via optional projection step
-    const queryOptional = defineQuerySlice({
+    const queryOptional = defineQuery({
       name: "query-optional",
       inputSchema: z.object({ accountId: z.string() }),
       outputSchema: lenientOutputSchema<Result<AccountRow, ReadModelNotFound>>(),
@@ -731,7 +731,7 @@ describe("projection step in query slices", () => {
     });
 
     // Query slice that reads via required projection step
-    const queryRequired = defineQuerySlice({
+    const queryRequired = defineQuery({
       name: "query-required",
       inputSchema: z.object({ accountId: z.string() }),
       outputSchema: lenientOutputSchema<AccountRow>(),
@@ -843,7 +843,7 @@ describe("replay", () => {
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(accountModel);
     const { adapter, bind } = createInMemoryAdapter();
 
-    const replayDepositSlice = defineCommandSlice<
+    const replayDepositSlice = defineCommand<
       DepositInput,
       DepositCtx,
       z.output<typeof depositOutputSchema>,
@@ -993,7 +993,7 @@ describe("end-to-end integration", () => {
 
     const { adapter: projAdapter, get } = createInMemoryProjectionAdapter(balanceModel);
 
-    const depositSliceE2E = defineCommandSlice<
+    const depositSliceE2E = defineCommand<
       DepositInput,
       DepositCtx,
       z.output<typeof depositOutputSchema>,
@@ -1016,7 +1016,7 @@ describe("end-to-end integration", () => {
         }),
     });
 
-    const getBalanceE2E = defineQuerySlice({
+    const getBalanceE2E = defineQuery({
       name: "get-balance-e2e",
       inputSchema: z.object({ accountId: z.string() }),
       outputSchema: z.object({ accountId: z.string(), balance: z.number() }),
@@ -1125,7 +1125,7 @@ describe("projection step with ReadModelQueryHandle", () => {
     const { adapter, bind } = createInMemoryAdapter();
 
     // Query slice using ReadModelQueryHandle with args — required
-    const queryRequired = defineQuerySlice({
+    const queryRequired = defineQuery({
       name: "query-by-balance-required",
       inputSchema: z.object({ minBalance: z.number() }),
       outputSchema: lenientOutputSchema<AccountRow>(),
@@ -1143,7 +1143,7 @@ describe("projection step with ReadModelQueryHandle", () => {
     });
 
     // Query slice using ReadModelQueryHandle with args — optional
-    const queryOptional = defineQuerySlice({
+    const queryOptional = defineQuery({
       name: "query-by-balance-optional",
       inputSchema: z.object({ minBalance: z.number() }),
       outputSchema: lenientOutputSchema<Result<AccountRow, ReadModelNotFound>>(),

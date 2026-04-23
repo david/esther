@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { EventStore } from "./event-store";
-import type { CommandSlice, ProjectionStore, QuerySlice } from "./slice";
+import type { Command, ProjectionStore, Query } from "./slice";
 import { type DomainEvent, SchemaError, type SliceError } from "./types";
 
 function isFrameworkInputError(error: unknown): error is SliceError {
@@ -18,7 +18,7 @@ function isFrameworkInputError(error: unknown): error is SliceError {
 }
 
 // ── Command pipeline ───────────────────────────────────────────────────
-// Executes a CommandSlice in the order:
+// Executes a Command in the order:
 //   1. parse input via inputSchema
 //   2. run `input` step (composed Step chain). On err → outputErr branch.
 //   3. run `validate` predicates in order. First err → outputErr branch.
@@ -35,7 +35,7 @@ export async function executeCommand<
   TEvent extends DomainEvent,
   TError extends { readonly type: string },
 >(
-  slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError>,
+  slice: Command<TInput, TCtx, TOutput, TEvent, TError>,
   rawInput: unknown,
   eventStore: EventStore,
   projectionStore: ProjectionStore,
@@ -86,7 +86,7 @@ function finishCommand<
   TEvent extends DomainEvent,
   TError extends { readonly type: string },
 >(
-  slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError>,
+  slice: Command<TInput, TCtx, TOutput, TEvent, TError>,
   outputResult: Result<TOutput, TError>,
 ): Result<TOutput, SliceError | TError> {
   if (outputResult.isErr()) {
@@ -108,7 +108,7 @@ export async function executeQuery<
   TOutput,
   TError extends { readonly type: string } = never,
 >(
-  slice: QuerySlice<TInput, TContext, TOutput, TError>,
+  slice: Query<TInput, TContext, TOutput, TError>,
   rawInput: unknown,
   eventStore: EventStore,
   projectionStore: ProjectionStore,

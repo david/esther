@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { compose } from "./compose";
 import { defineReadModel, defineReadModelQuery } from "./read-model";
-import { castTagQuery, defineCommandSlice, derive, lookup, type ValidatePredicate } from "./slice";
+import { castTagQuery, defineCommand, derive, lookup, type ValidatePredicate } from "./slice";
 import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -312,7 +312,7 @@ describe("lookup", () => {
 
 // ── outputErr receives error array ───────────────────────────────────
 
-describe("defineCommandSlice outputErr", () => {
+describe("defineCommand outputErr", () => {
   type TestInput = { readonly email: string };
   type TestOutput = { readonly message: string };
   type TestEvent = DomainEvent & {
@@ -343,7 +343,7 @@ describe("defineCommandSlice outputErr", () => {
   };
 
   test("handler map dispatches to correct handler by error type", () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       ...baseDefinition,
       outputErr: {
         NoUser: (errors, _ctx) => ok({ message: `NoUser:${errors.length}` }),
@@ -360,7 +360,7 @@ describe("defineCommandSlice outputErr", () => {
   });
 
   test("errs win over oks when multiple error types present", () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       ...baseDefinition,
       outputErr: {
         NoUser: (_errors, _ctx) => ok({ message: "recovered" }),
@@ -377,7 +377,7 @@ describe("defineCommandSlice outputErr", () => {
   });
 
   test("all oks returns first ok", () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       ...baseDefinition,
       outputErr: {
         NoUser: (_errors, _ctx) => ok({ message: "first" }),
@@ -394,7 +394,7 @@ describe("defineCommandSlice outputErr", () => {
   });
 
   test("slices with TError = never don't need outputErr", () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       name: "test/no-errors",
       inputSchema,
       outputSchema,
@@ -499,8 +499,8 @@ describe("compose builder", () => {
     }
   });
 
-  test("defineCommandSlice accepts InputPipeline as input", async () => {
-    const slice = defineCommandSlice({
+  test("defineCommand accepts InputPipeline as input", async () => {
+    const slice = defineCommand({
       name: "probe-pipeline-input",
       inputSchema: z.object({ a: z.number() }),
       outputSchema: z.object({ b: z.string() }),

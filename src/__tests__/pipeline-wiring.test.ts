@@ -11,10 +11,10 @@ import {
   defineReadModelQuery,
   derive,
   type DomainEvent,
-  defineCommandSlice,
+  defineCommand,
   defineReadModel,
   lookup,
-  type RegisterableSlice,
+  type RegisterableOperation,
 } from "../index";
 
 // ── Probe domain ───────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ const bindA = derive<ProbeInput, { readonly a: number }, never>({
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function buildAppWith(slice: RegisterableSlice) {
+function buildAppWith(slice: RegisterableOperation) {
   const eventStore = createInMemoryEventStore();
   const { adapter, bind } = createInMemoryAdapter();
   const app = createApp({
@@ -65,7 +65,7 @@ function buildAppWith(slice: RegisterableSlice) {
 
 describe("command pipeline v2 — wiring", () => {
   test("happy path: compose → validate → event → append → output", async () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       name: "probe-happy",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ ok: z.boolean(), a: z.number() }),
@@ -102,7 +102,7 @@ describe("command pipeline v2 — wiring", () => {
 
   test("event not constructed on validate failure", async () => {
     let eventCalled = false;
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       ProbeInput,
       ProbeInput,
       { readonly failed: string },
@@ -161,7 +161,7 @@ describe("command pipeline v2 — wiring", () => {
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
 
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       ProbeInput,
       ProbeInput &
         {
@@ -221,7 +221,7 @@ describe("command pipeline v2 — wiring", () => {
 
   test("validate failure routes to outputErr, not output", async () => {
     let outputCalled = false;
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       ProbeInput,
       ProbeInput,
       { readonly failed: string },
@@ -257,7 +257,7 @@ describe("command pipeline v2 — wiring", () => {
     type ValErr = { type: "first" } | { type: "second" };
     let firstSeen = 0;
     let secondSeen = 0;
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       ProbeInput,
       ProbeInput,
       { readonly kind: string },
@@ -300,7 +300,7 @@ describe("command pipeline v2 — wiring", () => {
 
   test("validate sees post-input narrowed ctx", async () => {
     let observed: number | undefined;
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       name: "probe-validate-ctx",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema<{ ok: boolean }>(),
@@ -329,7 +329,7 @@ describe("command pipeline v2 — wiring", () => {
   });
 
   test("append receives exactly what event() returned", async () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       name: "probe-append-event",
       inputSchema: probeInputSchema,
       outputSchema: probeOutputSchema<{ ok: boolean }>(),
@@ -355,7 +355,7 @@ describe("command pipeline v2 — wiring", () => {
   });
 
   test("output receives plain TEvent (no Result wrapper)", async () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       name: "probe-output-event-shape",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ marker: z.string() }),
@@ -379,7 +379,7 @@ describe("command pipeline v2 — wiring", () => {
   });
 
   test("output receives final (post-validate) ctx", async () => {
-    const slice = defineCommandSlice({
+    const slice = defineCommand({
       name: "probe-output-ctx",
       inputSchema: probeInputSchema,
       outputSchema: z.object({ mark: z.string() }),
@@ -408,7 +408,7 @@ describe("command pipeline v2 — wiring", () => {
   test("outputErr typed error union — discriminates on e.type", async () => {
     type AB = { type: "A" } | { type: "B" };
     const makeSlice = (which: "A" | "B") =>
-      defineCommandSlice<
+      defineCommand<
         ProbeInput,
         ProbeInput,
         { readonly kind: string },
@@ -444,7 +444,7 @@ describe("command pipeline v2 — wiring", () => {
 
   test("outputErr handler propagates error", async () => {
     type RateErr = { type: "rate"; code: string };
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       ProbeInput,
       ProbeInput,
       Record<never, never>,
@@ -492,7 +492,7 @@ describe("command pipeline v2 — wiring", () => {
     let rows: ReadonlyArray<unknown> = [];
     let noUserCalls = 0;
 
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       LoginInput,
       LoginInput & { readonly user: { readonly userId: string; readonly email: string } },
       LoginOutput,
@@ -599,7 +599,7 @@ describe("command pipeline v2 — wiring", () => {
     let validateCalled = false;
     let noUserCalls = 0;
 
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       CastInput,
       CastInput & {
         readonly userState: { readonly active: boolean };
@@ -696,7 +696,7 @@ describe("command pipeline v2 — wiring", () => {
       fold: (_events, subject) => ({ found: subject.id }),
     });
 
-    const slice = defineCommandSlice<
+    const slice = defineCommand<
       LoginInput,
       LoginInput & { readonly user: { readonly found: string }; readonly userSubject: UserSubject },
       { readonly userId: string },
@@ -753,7 +753,7 @@ describe("command pipeline v2 — wiring", () => {
   test("outputSchema parses both success and error branches", async () => {
     // Case (a): output returns wrong shape on success path.
     {
-      const slice = defineCommandSlice({
+      const slice = defineCommand({
         name: "probe-bad-output-success",
         inputSchema: probeInputSchema,
         outputSchema: z.object({ must: z.string() }),
@@ -775,7 +775,7 @@ describe("command pipeline v2 — wiring", () => {
     // Case (b): outputErr returns wrong shape on error path.
     {
       type Bad = { type: "bad" };
-      const slice = defineCommandSlice<
+      const slice = defineCommand<
         ProbeInput,
         ProbeInput,
         { must: string },

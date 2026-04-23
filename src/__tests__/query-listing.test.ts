@@ -4,7 +4,7 @@ import {
   createInMemoryAdapter,
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
-  defineQuerySlice,
+  defineQuery,
   defineReadModel,
   defineReadModelQuery,
   projection,
@@ -40,7 +40,7 @@ describe("query slice list projections", () => {
     const input = createInMemoryAdapter();
     const songsProjection = createInMemoryProjectionAdapter(songs);
 
-    const listSongs = defineQuerySlice({
+    const listSongs = defineQuery({
       name: "songs/list-many",
       inputSchema: z.object({}),
       outputSchema: z.array(songs.schema),
@@ -98,7 +98,7 @@ describe("query slice list projections", () => {
     const eventStore = createInMemoryEventStore();
     const input = createInMemoryAdapter();
 
-    const getSong = defineQuerySlice({
+    const getSong = defineQuery({
       name: "songs/get-one",
       inputSchema: z.object({ songId: z.string() }),
       outputSchema: songs.schema,
@@ -145,7 +145,7 @@ describe("query slice list projections", () => {
     const input = createInMemoryAdapter();
     let handleCalled = false;
 
-    const getSong = defineQuerySlice({
+    const getSong = defineQuery({
       name: "songs/get-one-by-query",
       inputSchema: z.object({}),
       outputSchema: songs.schema,
@@ -191,7 +191,7 @@ describe("query slice list projections", () => {
     const eventStore = createInMemoryEventStore();
     const input = createInMemoryAdapter();
 
-    const listSongs = defineQuerySlice({
+    const listSongs = defineQuery({
       name: "songs/list-many-malformed",
       inputSchema: z.object({}),
       outputSchema: z.array(songs.schema),
@@ -240,7 +240,7 @@ describe("query slice list projections", () => {
     const authenticatedListInputSchema = z.object({ sessionToken: z.string().optional() });
     type AuthenticatedListInput = z.infer<typeof authenticatedListInputSchema>;
 
-    const authenticatedList = defineQuerySlice<
+    const authenticatedList = defineQuery<
       AuthenticatedListInput,
       AuthenticatedListInput,
       ReadonlyArray<SongRow>,

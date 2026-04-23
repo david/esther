@@ -788,9 +788,9 @@ export function generate<TKey extends string, TContext, TValue>(descriptor: {
   };
 }
 
-// ── Compiled slice ─────────────────────────────────────────────────────
+// ── Compiled operation ─────────────────────────────────────────────────
 
-export type CompiledSlice = {
+export type CompiledOperation = {
   readonly name: string;
   readonly execute: (rawInput: unknown) => Promise<Result<unknown, unknown>>;
 };
@@ -802,15 +802,15 @@ export type CompileDeps = {
   readonly projectionStore: ProjectionStore;
 };
 
-// ── Registerable slice ─────────────────────────────────────────────────
+// ── Registerable operation ─────────────────────────────────────────────
 
-export type RegisterableSlice = {
+export type RegisterableOperation = {
   readonly name: string;
   readonly _tag: "command" | "query";
-  readonly compile: (deps: CompileDeps) => CompiledSlice;
+  readonly compile: (deps: CompileDeps) => CompiledOperation;
 };
 
-// ── Command slice ──────────────────────────────────────────────────────
+// ── Command ────────────────────────────────────────────────────────────
 
 export type ValidatePredicate<TCtx, TError> = (ctx: TCtx) => ReadonlyArray<TError>;
 
@@ -861,13 +861,13 @@ function normalizeOutputErrHandlers<
   };
 }
 
-export type CommandSlice<
+export type Command<
   TInput,
   TCtx,
   TOutput,
   TEvent extends DomainEvent,
   TError extends { readonly type: string },
-> = RegisterableSlice & {
+> = RegisterableOperation & {
   readonly _tag: "command";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
@@ -884,14 +884,14 @@ export type CommandSlice<
   ) => Result<TOutput, TError>;
 };
 
-// ── Query slice (fully generic) ────────────────────────────────────────
+// ── Query (fully generic) ──────────────────────────────────────────────
 
-export type QuerySlice<
+export type Query<
   TInput,
   TContext,
   TOutput,
   TError extends { readonly type: string } = never,
-> = RegisterableSlice & {
+> = RegisterableOperation & {
   readonly _tag: "query";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
@@ -899,9 +899,9 @@ export type QuerySlice<
   readonly handle: (context: TContext) => Result<TOutput, TError>;
 };
 
-// ── defineCommandSlice ─────────────────────────────────────────────────
+// ── defineCommand ─────────────────────────────────────────────────
 
-export type CommandSliceDefinition<
+export type CommandDefinition<
   TInput,
   TCtx,
   TOutput,
@@ -922,7 +922,7 @@ export type CommandSliceDefinition<
   ? { readonly outputErr?: undefined }
   : { readonly outputErr: OutputErrHandlers<TError, TOutput, TCtx, TInput> });
 
-export function defineCommandSlice<
+export function defineCommand<
   TInput,
   TCtx,
   TOutput,
@@ -932,7 +932,7 @@ export function defineCommandSlice<
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(
-  definition: CommandSliceDefinition<
+  definition: CommandDefinition<
     TInput,
     TCtx,
     TOutput,
@@ -942,7 +942,7 @@ export function defineCommandSlice<
     TInputSchema,
     TOutputSchema
   >,
-): CommandSlice<TInput, TCtx, TOutput, TEvent, TError> {
+): Command<TInput, TCtx, TOutput, TEvent, TError> {
   const inputFn = (ctx: TInput, deps: SliceDeps) => definition.input.execute(ctx, deps);
 
   const outputErrFn = definition.outputErr
@@ -951,7 +951,7 @@ export function defineCommandSlice<
       )
     : ([first]: readonly [TError, ...TError[]]) => err(first);
 
-  const slice: CommandSlice<TInput, TCtx, TOutput, TEvent, TError> = {
+  const slice: Command<TInput, TCtx, TOutput, TEvent, TError> = {
     _tag: "command",
     name: definition.name ?? "anonymous-command",
     inputSchema: definition.inputSchema,
@@ -974,9 +974,9 @@ export function defineCommandSlice<
   return slice;
 }
 
-// ── defineQuerySlice ───────────────────────────────────────────────────
+// ── defineQuery ───────────────────────────────────────────────────
 
-export function defineQuerySlice<
+export function defineQuery<
   TInput,
   TContext,
   TOutput,
@@ -989,8 +989,8 @@ export function defineQuerySlice<
   readonly outputSchema: TOutputSchema;
   readonly state: StateResolver<TInput, TContext>;
   readonly handle: (ctx: TContext) => Result<TOutput, TError>;
-}): QuerySlice<TInput, TContext, TOutput, TError> {
-  const slice: QuerySlice<TInput, TContext, TOutput, TError> = {
+}): Query<TInput, TContext, TOutput, TError> {
+  const slice: Query<TInput, TContext, TOutput, TError> = {
     _tag: "query",
     name: definition.name ?? "anonymous-query",
     inputSchema: definition.inputSchema,

@@ -11,7 +11,7 @@ import {
   compose, castTagQuery, generate,
   state, tagQuery, projection,
   defineReadModel, defineReadModelQuery,
-  defineCommandSlice, defineQuerySlice,
+  defineCommand, defineQuery,
   createApp,
   createInMemoryEventStore, createInMemoryProjectionAdapter, createInMemoryAdapter,
 } from "esther";
@@ -115,12 +115,12 @@ projectors: [(event) => {
 
 The `operation` parameter defaults to `"upsert"`. Other options: `"insert"`, `"update"`, `"delete"`.
 
-## Command slice DSL
+## Command DSL
 
-A command slice defines `input`, `validate`, `event`, `output`, and `outputErr`:
+A command defines `input`, `validate`, `event`, `output`, and `outputErr`:
 
 ```typescript
-defineCommandSlice({
+defineCommand({
   name: "place-order",
   inputSchema: placeOrderInputSchema,
   outputSchema: placeOrderOutputSchema,
@@ -194,12 +194,12 @@ input: compose<Input>().add(subject),
 
 `castTagQuery` distinguishes absent and malformed rows: absent → descriptor `absent` error, malformed → `ReadModelSchemaError`, valid → typed subject.
 
-## Query slice state pipeline
+## Query state pipeline
 
-Query slices still use `state<T>().pipe(...)` with `tagQuery`, `projection`, and `generate` steps:
+Queries still use `state<T>().pipe(...)` with `tagQuery`, `projection`, and `generate` steps:
 
 ```typescript
-defineQuerySlice({
+defineQuery({
   name: "get-order",
   inputSchema,
   outputSchema,
@@ -339,15 +339,15 @@ The Fastify adapter maps `ConstraintError` to HTTP 409, `SchemaError` to 400, an
 1. All user functions return `Result` -- never throw.
 2. Define event types explicitly: `type MyEvent = DomainEvent<"MyEvent", { ... }>`.
 3. `event` returns a single domain event directly — no `ok()`, no array.
-4. For query slices: use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
-5. Query slices: start state with `state<z.output<typeof inputSchema>>()`.
+4. For queries: use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
+5. Queries: start state with `state<z.output<typeof inputSchema>>()`.
 6. Schemas (`inputSchema`/`outputSchema`) are shared contracts -- define externally for client reuse.
 7. Projectors/processors are pure -- side effects go in effect adapters.
 8. Tags are your query model -- design them for the queries you need.
 9. The `output(event, ctx)` function shapes the command result from the appended event and the final context. `outputErr(error, ctx)` maps `input`/`validate` errors.
 10. Define read models with `defineReadModel` and use the returned handle in both projectors and `projection()` steps.
-11. App modules (slices, projectors, processors) must not do I/O directly. Declare dependencies; return effects.
-12. Query logic belongs in read model definitions. Never write WHERE/ORDER BY/filtering inline in a slice — encapsulate it in a `defineReadModelQuery`.
+11. App modules (commands, queries, projectors, processors) must not do I/O directly. Declare dependencies; return effects.
+12. Query logic belongs in read model definitions. Never write WHERE/ORDER BY/filtering inline in a command or query — encapsulate it in a `defineReadModelQuery`.
 
 ## Full example
 
@@ -378,7 +378,7 @@ const balanceReducer = (bal: AccountBalance, event: StoredEvent): AccountBalance
 type TransferCtx = TransferInput & { readonly fromBalance: AccountBalance };
 type TransferError = { code: "INSUFFICIENT_FUNDS"; message: string };
 
-export const transferSlice = defineCommandSlice<
+export const transferSlice = defineCommand<
   TransferInput,
   TransferCtx,
   { transferId: string },

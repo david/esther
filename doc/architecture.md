@@ -29,7 +29,7 @@ Esther is a library repo, not an application. Most work falls into one of three 
 ## Core execution model
 
 ### Commands
-A command slice:
+A command:
 1. parses input with Zod
 2. resolves typed context via the input pipeline
 3. validates against event-derived or projection-derived state
@@ -39,7 +39,7 @@ A command slice:
 7. maps success or typed error to output
 
 ### Queries
-A query slice resolves read-only state through `state().pipe(...)` and returns validated output without appending events.
+A query resolves read-only state through `state().pipe(...)` and returns validated output without appending events.
 
 ### App wiring
 `createApp()` is the composition root. It wires together:

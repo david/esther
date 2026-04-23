@@ -14,9 +14,9 @@ An immutable fact that happened. Esther stores events append-only, each with a `
 
 A plain string attached to an event. Tags are Esther's event-query key, so use stable prefixes such as `order:123` or `issue:abc`.
 
-## Command Slice
+## Command
 
-A slice that resolves typed context from raw input, validates it against event-derived state, and appends a single event. Defined with `defineCommandSlice`. A command slice has the fields `input`, `validate`, `event`, `output`, and (optionally) `outputErr`.
+A command resolves typed context from raw input, validates it against event-derived state, and appends a single event. Defined with `defineCommand`. A command has the fields `input`, `validate`, `event`, `output`, and (optionally) `outputErr`.
 
 - `input`: a descriptor pipeline built with `compose().add(...)`. It resolves typed context declaratively through framework-owned helpers such as `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
 - `validate`: an array of pure predicates `(ctx) => Result<void, TError>`; they run in order and short-circuit on first error.
@@ -24,19 +24,19 @@ A slice that resolves typed context from raw input, validates it against event-d
 - `output(event, ctx)`: maps the appended event plus final context into the slice's output shape.
 - `outputErr(error, ctx)`: maps an `input`/`validate` error into the output shape. Defaults to `err(error)`.
 
-## Query Slice
+## Query
 
-A slice that resolves state and returns a read-only result without appending events. Defined with `defineQuerySlice`. Query slices use the `state().pipe(...)` resolver to chain `tagQuery`, `projection`, and `generate` steps.
+A query resolves state and returns a read-only result without appending events. Defined with `defineQuery`. Queries use the `state().pipe(...)` resolver to chain `tagQuery`, `projection`, and `generate` steps.
 
-## State Resolver (query slices)
+## State Resolver (queries)
 
-A composable pipeline (`state().pipe(...)`) that builds typed context for a query slice by chaining `tagQuery`, `projection`, and `generate` steps.
+A composable pipeline (`state().pipe(...)`) that builds typed context for a query by chaining `tagQuery`, `projection`, and `generate` steps.
 
 `projection()` steps schema-validate persisted rows before `handle()` runs. Required lookups still fail with `ReadModelNotFound` when no row exists; malformed rows fail fast with `ReadModelSchemaError`. `projection({ many: true })` validates every returned row and fails the whole query on the first malformed row.
 
 ## Command input pipeline / compose
 
-Command slices build their `input` pipeline with `compose().add(...)`. Only framework-owned descriptor helpers may be added there — not raw async `input` functions and not raw step functions. The main helpers are `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
+Commands build their `input` pipeline with `compose().add(...)`. Only framework-owned descriptor helpers may be added there — not raw async `input` functions and not raw step functions. The main helpers are `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
 
 Projection-backed command descriptors (`lookup` and `castTagQuery`) always schema-validate persisted rows before binding them into context. Missing rows map to `ReadModelNotFound` or the descriptor's `absent` domain error; malformed rows surface as framework `ReadModelSchemaError`.
 
@@ -62,11 +62,11 @@ An internal abstraction used by the state resolver to read from projection adapt
 
 ## Projector
 
-A pure function on a command slice that maps a stored event to a `ProjectionResult` via `model.project(value, operation?)`. Runs synchronously after event append.
+A pure function on a command that maps a stored event to a `ProjectionResult` via `model.project(value, operation?)`. Runs synchronously after event append.
 
 ## Processor
 
-A pure function on a command slice that maps a stored event to an effect descriptor. The effect is executed by a matching effect adapter.
+A pure function on a command that maps a stored event to an effect descriptor. The effect is executed by a matching effect adapter.
 
 ## Effect Adapter
 

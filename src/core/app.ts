@@ -15,7 +15,7 @@ import type {
   ReadModelNotFound,
 } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
-import type { CompiledSlice, ProjectionStore, RegisterableSlice } from "./slice.js";
+import type { CompiledOperation, ProjectionStore, RegisterableOperation } from "./slice.js";
 
 // ── App config ─────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ export type AppConfig = {
   readonly projectionAdapters?: ReadonlyArray<ProjectionAdapterEntry> | undefined;
   readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
   readonly inputAdapter: InputAdapterBinding;
-  readonly slices: ReadonlyArray<RegisterableSlice>;
+  readonly slices: ReadonlyArray<RegisterableOperation>;
   readonly processors?: ReadonlyArray<Processor> | undefined;
   readonly projectionQuery?: ProjectionQueryAdapter | undefined;
 };
@@ -183,8 +183,8 @@ export function createApp(config: AppConfig): App {
   wireReadModelEvents(config.projectionAdapters ?? [], eventStore, getReadInterpreter());
 
   // Compile each slice — the compile closure captured the generics
-  // at defineCommandSlice/defineQuerySlice time, so no casts here.
-  const compiled = new Map<string, CompiledSlice>();
+  // at defineCommand/defineQuery time, so no casts here.
+  const compiled = new Map<string, CompiledOperation>();
   const deps = { eventStore, projectionStore };
 
   for (const slice of slices) {

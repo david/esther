@@ -8,8 +8,8 @@ import { z } from "zod";
 import type { DomainEvent } from "../index";
 import {
   compose,
-  defineCommandSlice,
-  defineQuerySlice,
+  defineCommand,
+  defineQuery,
   defineReadModel,
   defineReadModelQuery,
   derive,
@@ -135,7 +135,7 @@ type CreateBookingError =
     }
   | PricingMissing;
 
-const _createBookingSlice = defineCommandSlice<
+const _createBookingSlice = defineCommand<
   CreateBookingInput,
   CreateBookingCtx,
   z.output<typeof createBookingOutputSchema>,
@@ -226,7 +226,7 @@ const _createBookingSlice = defineCommandSlice<
   },
 });
 
-const _rawAsyncInputSlice = defineCommandSlice({
+const _rawAsyncInputSlice = defineCommand({
   name: "raw-async-input",
   inputSchema: createBookingInputSchema,
   outputSchema: createBookingOutputSchema,
@@ -283,7 +283,7 @@ const getPricingInputSchema = z.object({ propertyId: z.string() });
 type GetPricingInput = z.output<typeof getPricingInputSchema>;
 const getPricingOutputSchema = z.object({ pricePerNight: z.number() });
 
-const _getPricingSlice = defineQuerySlice({
+const _getPricingSlice = defineQuery({
   name: "get-pricing",
   inputSchema: getPricingInputSchema,
   outputSchema: getPricingOutputSchema,
@@ -318,7 +318,7 @@ const getPropertyOutputSchema = z.object({
   pricePerNight: z.number(),
 });
 
-const _getPropertySlice = defineQuerySlice({
+const _getPropertySlice = defineQuery({
   name: "get-property",
   inputSchema: getPropertyInputSchema,
   outputSchema: getPropertyOutputSchema,
@@ -345,7 +345,7 @@ const _getPropertySlice = defineQuerySlice({
 // ── Generate step type flow ─────────────────────────────────────────────
 
 // tagQuery -> generate -> projection: full type flow
-const _generateFlowSlice = defineQuerySlice({
+const _generateFlowSlice = defineQuery({
   name: "generate-flow",
   inputSchema: createBookingInputSchema,
   outputSchema: z.object({ label: z.string() }),
@@ -415,7 +415,7 @@ const pricingByRange = defineReadModelQuery({
 });
 
 // Query handle with args + required — value is T directly
-const _queryProjectionSlice = defineQuerySlice({
+const _queryProjectionSlice = defineQuery({
   name: "get-cheapest-pricing",
   inputSchema: z.object({ minPrice: z.number() }),
   outputSchema: getPricingOutputSchema,
@@ -437,7 +437,7 @@ const _queryProjectionSlice = defineQuerySlice({
 });
 
 // Query handle with args + optional — value is Result<T, ReadModelNotFound>
-const _queryProjectionOptionalSlice = defineQuerySlice({
+const _queryProjectionOptionalSlice = defineQuery({
   name: "get-cheapest-pricing-optional",
   inputSchema: z.object({ minPrice: z.number() }),
   outputSchema: getPricingOutputSchema,
