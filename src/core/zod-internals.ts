@@ -1,11 +1,38 @@
-import type { ZodFirstPartyTypeKind, ZodStringCheck, z } from "zod";
+import { z } from "zod";
 
-/** Extract the `typeName` discriminant from a Zod schema's internal `_def`. */
-export function getZodTypeName(zodType: z.ZodTypeAny): ZodFirstPartyTypeKind {
-  return zodType._def.typeName as ZodFirstPartyTypeKind;
+export type SupportedZodTypeName =
+  | "ZodString"
+  | "ZodNumber"
+  | "ZodBoolean"
+  | "ZodArray"
+  | "ZodObject"
+  | "ZodLiteral"
+  | "ZodUnknown";
+
+export type ZodStringCheck = {
+  readonly kind: string;
+};
+
+/** Extract a stable, framework-local kind name from a Zod schema. */
+export function getZodTypeName(zodType: unknown): SupportedZodTypeName {
+  if (zodType instanceof z.ZodString) return "ZodString";
+  if (zodType instanceof z.ZodNumber) return "ZodNumber";
+  if (zodType instanceof z.ZodBoolean) return "ZodBoolean";
+  if (zodType instanceof z.ZodArray) return "ZodArray";
+  if (zodType instanceof z.ZodObject) return "ZodObject";
+  if (zodType instanceof z.ZodLiteral) return "ZodLiteral";
+  return "ZodUnknown";
 }
 
-/** Extract the string-validation checks from a Zod string schema's internal `_def`. */
-export function getZodStringChecks(zodType: z.ZodTypeAny): ReadonlyArray<ZodStringCheck> {
-  return (zodType._def.checks ?? []) as ZodStringCheck[];
+/**
+ * Reconstruct the subset of string checks Esther cares about from Zod v4's
+ * public string-format surface.
+ */
+export function getZodStringChecks(zodType: unknown): ReadonlyArray<ZodStringCheck> {
+  if (!(zodType instanceof z.ZodString)) {
+    return [];
+  }
+
+  const format = zodType.format;
+  return format === null ? [] : [{ kind: format }];
 }

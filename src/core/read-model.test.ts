@@ -7,6 +7,7 @@ import {
   defineReadModel,
   defineReadModelQuery,
   getDescriptor,
+  readModelEvent,
   type ReadModelEventBinding,
 } from "./read-model";
 
@@ -257,7 +258,7 @@ describe("read model events", () => {
       key: "id",
       schema: memberSchema,
       events: [
-        {
+        readModelEvent<z.infer<typeof memberSchema>, typeof MemberAddedSchema, unknown>({
           schema: MemberAddedSchema,
           handler: (event, ctx) =>
             ctx.project({
@@ -267,7 +268,7 @@ describe("read model events", () => {
               active: event.payload.active,
               createdAt: event.payload.createdAt,
             }),
-        },
+        }),
       ],
     });
 
@@ -449,13 +450,13 @@ describe("read model events", () => {
       key: "id",
       schema: memberSchema,
       events: [
-        {
+        readModelEvent<z.infer<typeof memberSchema>, typeof UnrelatedSchema, unknown>({
           schema: UnrelatedSchema,
           handler: () => {
             // intentionally returns undefined
             return undefined;
           },
-        },
+        }),
       ],
     });
 

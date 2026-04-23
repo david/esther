@@ -221,10 +221,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       }
     },
 
-    async queryByTags<TSchema extends z.ZodType, TState>(
+    async queryByTags<TSchema extends z.ZodType, TEvent, TState>(
       tags: ReadonlyArray<string>,
       schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+      fold: (events: ReadonlyArray<TEvent>) => TState,
     ) {
       const rows = await fetchEventRows(sql, tags);
       const lastRow = rows[rows.length - 1];
@@ -247,7 +247,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         );
       });
       return {
-        state: fold(parsed),
+        state: fold(parsed as ReadonlyArray<TEvent>),
         maxPosition: lastRow === undefined ? undefined : BigInt(lastRow.position),
       };
     },

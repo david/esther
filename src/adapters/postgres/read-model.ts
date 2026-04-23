@@ -48,7 +48,7 @@ function toSqlJsonInput(value: unknown, column: string): SqlJsonInput {
   return value;
 }
 
-function zodToColumnType(zodType: z.ZodTypeAny): string {
+function zodToColumnType(zodType: unknown): string {
   const typeName = getZodTypeName(zodType);
 
   if (typeName === "ZodString") {

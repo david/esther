@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import type { ReadInterpreter } from "./read-interpreter";
 import type { ReadDescriptor } from "./read-model";
 import type { EffectResult, StoredEvent } from "./types";
@@ -12,6 +12,12 @@ export type ProcessorEventBinding<TEventSchema extends z.ZodType, TReads> = {
   };
   readonly handler: (event: z.infer<TEventSchema>, reads: TReads) => EffectResult | undefined;
 };
+
+export function processorEvent<TEventSchema extends z.ZodType, TReads>(
+  binding: ProcessorEventBinding<TEventSchema, TReads>,
+): ProcessorEventBinding<TEventSchema, TReads> {
+  return binding;
+}
 
 /**
  * Internal compiled binding used by the framework at runtime.
@@ -35,7 +41,7 @@ export type Processor = {
 
 // ── Read map iteration ──────────────────────────────────────────────────
 
-type ReadFn = (event: StoredEvent) => ReadDescriptor<unknown>;
+type ReadFn = (event: unknown) => ReadDescriptor<unknown>;
 
 function isReadFn(value: unknown): value is ReadFn {
   return typeof value === "function";
@@ -57,17 +63,18 @@ function iterateReadMap(reads: ReadMapShape): ReadonlyArray<readonly [string, Re
 
 // ── Compile binding ─────────────────────────────────────────────────────
 
-function compileBinding(
-  binding: ProcessorEventBinding<z.ZodType, unknown>,
+function compileBinding<TEventSchema extends z.ZodType, TReads>(
+  binding: ProcessorEventBinding<TEventSchema, TReads>,
 ): CompiledProcessorBinding {
   const eventType = extractEventType(binding.schema);
 
   // Pre-extract read entries at definition time
-  const readEntries = binding.reads !== undefined ? iterateReadMap(binding.reads) : [];
+  const readEntries = binding.reads !== undefined ? iterateReadMap(binding.reads as ReadMapShape) : [];
 
   return {
     eventType,
     async run(event, interpreter) {
+      const parsedEvent = binding.schema.parse(event);
       let resolvedReads: unknown;
 
       if (readEntries.length === 0) {
@@ -75,13 +82,13 @@ function compileBinding(
       } else {
         const entries: Array<readonly [string, unknown]> = [];
         for (const [key, fn] of readEntries) {
-          const descriptor = fn(event);
+          const descriptor = fn(parsedEvent);
           entries.push([key, await interpreter.resolve(descriptor)]);
         }
         resolvedReads = Object.fromEntries(entries);
       }
 
-      return binding.handler(event, resolvedReads);
+      return binding.handler(parsedEvent, resolvedReads as TReads);
     },
   };
 }
@@ -90,12 +97,14 @@ function compileBinding(
 
 export function defineProcessor(def: {
   readonly name: string;
-  readonly events: ReadonlyArray<ProcessorEventBinding<z.ZodType, unknown>>;
+  readonly events: ReadonlyArray<unknown>;
 }): Processor {
   return {
     _tag: "processor",
     name: def.name,
-    bindings: def.events.map((binding) => compileBinding(binding)),
+    bindings: def.events.map((binding) =>
+      compileBinding(binding as ProcessorEventBinding<z.ZodType, unknown>),
+    ),
   };
 }
 
@@ -107,38 +116,26 @@ export function defineProcessor(def: {
  * Throws if the schema does not expose a literal type.
  */
 export function extractEventType(schema: z.ZodType): string {
-  if (!("shape" in schema) || typeof schema.shape !== "object" || schema.shape === null) {
+  if (!(schema instanceof z.ZodObject)) {
     throw new Error(
       "Processor event schema must be a z.object with a 'type' field containing a z.literal",
     );
   }
 
-  const shape = schema.shape;
-  if (!("type" in shape)) {
+  const { type: typeField } = schema.shape;
+  if (typeField === undefined) {
     throw new Error("Processor event schema must have a 'type' field");
   }
 
-  const typeField = shape.type;
-  if (
-    typeof typeField !== "object" ||
-    typeField === null ||
-    !("_def" in typeField) ||
-    typeof typeField._def !== "object" ||
-    typeField._def === null
-  ) {
-    throw new Error("Processor event schema 'type' field must be a z.literal");
-  }
-
-  const def = typeField._def;
-  if (!("typeName" in def) || def.typeName !== "ZodLiteral") {
+  if (!(typeField instanceof z.ZodLiteral)) {
     throw new Error(
       "Processor event schema 'type' field must be a z.literal, got a non-literal zod type",
     );
   }
 
-  if (!("value" in def) || typeof def.value !== "string") {
+  if (typeof typeField.value !== "string") {
     throw new Error("Processor event schema 'type' literal must be a string");
   }
 
-  return def.value;
+  return typeField.value;
 }

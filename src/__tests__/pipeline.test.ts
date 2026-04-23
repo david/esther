@@ -13,6 +13,7 @@ import {
   defineReadModel,
   defineReadModelQuery,
   projection,
+  readModelEvent,
   ReadModelNotFound,
   state,
   tagQuery,
@@ -499,14 +500,14 @@ describe("read model event bindings via createApp", () => {
       }),
       key: "accountId",
       events: [
-        {
+        readModelEvent<{ accountId: string; balance: number }, typeof DepositedEventSchema, unknown>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               accountId: event.payload.accountId,
               balance: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
@@ -559,14 +560,14 @@ describe("read model event bindings via createApp", () => {
       }),
       key: "accountId",
       events: [
-        {
+        readModelEvent<{ accountId: string; balance: number }, typeof DepositedEventSchema, unknown>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               accountId: event.payload.accountId,
               balance: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
@@ -578,14 +579,14 @@ describe("read model event bindings via createApp", () => {
       }),
       key: "entryId",
       events: [
-        {
+        readModelEvent<{ entryId: string; amount: number }, typeof DepositedEventSchema, unknown>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               entryId: `entry-${event.payload.accountId}`,
               amount: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
@@ -694,14 +695,14 @@ describe("projection step in query slices", () => {
     }),
     key: "accountId",
     events: [
-      {
+      readModelEvent<{ accountId: string; balance: number }, typeof DepositedEventSchema, unknown>({
         schema: DepositedEventSchema,
         handler: (event, { project }) =>
           project({
             accountId: event.payload.accountId,
             balance: event.payload.amount,
           }),
-      },
+      }),
     ],
   });
 
@@ -826,14 +827,14 @@ describe("replay", () => {
     }),
     key: "accountId",
     events: [
-      {
+      readModelEvent<{ accountId: string; balance: number }, typeof DepositedEventSchema, unknown>({
         schema: DepositedEventSchema,
         handler: (event, { project }) =>
           project({
             accountId: event.payload.accountId,
             balance: event.payload.amount,
           }),
-      },
+      }),
     ],
   });
 
@@ -895,7 +896,11 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags([], accountSchemas, (events) => events);
+    const queryResult = await eventStore.queryByTags(
+      [],
+      accountSchemas,
+      (events: ReadonlyArray<AccountEvent>) => events,
+    );
     const allEvents = queryResult.state;
 
     for (const event of allEvents) {
@@ -931,7 +936,11 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags([], accountSchemas, (events) => events);
+    const queryResult = await eventStore.queryByTags(
+      [],
+      accountSchemas,
+      (events: ReadonlyArray<AccountEvent>) => events,
+    );
     const allEvents = queryResult.state;
 
     for (const event of allEvents) {
@@ -971,14 +980,14 @@ describe("end-to-end integration", () => {
       }),
       key: "accountId",
       events: [
-        {
+        readModelEvent<{ accountId: string; balance: number }, typeof DepositedEventSchema, unknown>({
           schema: DepositedEventSchema,
           handler: (event, { project }) =>
             project({
               accountId: event.payload.accountId,
               balance: event.payload.amount,
             }),
-        },
+        }),
       ],
     });
 
@@ -1086,14 +1095,14 @@ describe("projection step with ReadModelQueryHandle", () => {
     }),
     key: "accountId",
     events: [
-      {
+      readModelEvent<{ accountId: string; balance: number }, typeof DepositedEventSchema, unknown>({
         schema: DepositedEventSchema,
         handler: (event, { project }) =>
           project({
             accountId: event.payload.accountId,
             balance: event.payload.amount,
           }),
-      },
+      }),
     ],
   });
 

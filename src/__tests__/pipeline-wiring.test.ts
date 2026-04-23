@@ -90,7 +90,7 @@ describe("command pipeline v2 — wiring", () => {
     const result = await app.dispatch("probe-happy", { a: 1 });
 
     // (a) event queryable by tag
-    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events) => events);
+    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events: ReadonlyArray<ProbeEvent>) => events);
     expect(queried.state.length).toBe(1);
     // (d) result is ok
     expect(result.isOk()).toBe(true);
@@ -130,7 +130,7 @@ describe("command pipeline v2 — wiring", () => {
     if (result.isOk()) {
       expect(result.value).toEqual({ failed: "rate" });
     }
-    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events) => events);
+    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events: ReadonlyArray<ProbeEvent>) => events);
     expect(queried.state.length).toBe(0);
   });
 
@@ -215,7 +215,7 @@ describe("command pipeline v2 — wiring", () => {
     expect(outputCalled).toBe(false);
     expect(validateCalled).toBe(false);
     expect(outputErrCalled).toBe(1);
-    const queried = await eventStore.queryByTags(["nope"], probeSchemas, (events) => events);
+    const queried = await eventStore.queryByTags(["nope"], probeSchemas, (events: ReadonlyArray<ProbeEvent>) => events);
     expect(queried.state.length).toBe(0);
   });
 
@@ -348,7 +348,7 @@ describe("command pipeline v2 — wiring", () => {
     const queried = await eventStore.queryByTags(
       ["probe:marker"],
       probeSchemas,
-      (events) => events,
+      (events: ReadonlyArray<ProbeEvent>) => events,
     );
     expect(queried.state.length).toBe(1);
     expect(queried.state[0]?.payload.marker).toBe("unique-xyz");
@@ -568,7 +568,7 @@ describe("command pipeline v2 — wiring", () => {
     const queried = await eventStore.queryByTags(
       ["probe:lookup-validated"],
       probeSchemas,
-      (events) => events,
+      (events: ReadonlyArray<ProbeEvent>) => events,
     );
     expect(queried.state).toHaveLength(1);
   });
@@ -658,7 +658,11 @@ describe("command pipeline v2 — wiring", () => {
     expect(validateCalled).toBe(false);
     expect(noUserCalls).toBe(0);
 
-    const queried = await eventStore.queryByTags(["probe:cast-malformed"], probeSchemas, (events) => events);
+    const queried = await eventStore.queryByTags(
+      ["probe:cast-malformed"],
+      probeSchemas,
+      (events: ReadonlyArray<ProbeEvent>) => events,
+    );
     expect(queried.state).toHaveLength(0);
   });
 

@@ -89,8 +89,10 @@ describe("filesystem event store", () => {
       makeEvent("IssueRetitled", ["issue:ab12", "kind:issue"], { title: "Gamma" }),
     ]);
 
-    const result = await store.queryByTags(["issue:ab12"], [StoredEventSchema], (events) =>
-      events.map((event) => event.type),
+    const result = await store.queryByTags(
+      ["issue:ab12"],
+      [StoredEventSchema],
+      (events: ReadonlyArray<z.infer<typeof StoredEventSchema>>) => events.map((event) => event.type),
     );
 
     expect(result.state).toEqual(["IssueCreated", "IssueRetitled"]);
@@ -156,8 +158,11 @@ describe("filesystem event store", () => {
       makeEvent("Third", ["issue:ab12", "kind:issue"]),
     ]);
 
-    const result = await store.queryByTags(["issue:ab12"], [StoredEventSchema], (events) =>
-      events.map((event) => `${event.position}:${event.type}`),
+    const result = await store.queryByTags(
+      ["issue:ab12"],
+      [StoredEventSchema],
+      (events: ReadonlyArray<z.infer<typeof StoredEventSchema>>) =>
+        events.map((event) => `${event.position}:${event.type}`),
     );
 
     expect(result.state).toEqual(["0:First", "1:Second", "2:Third"]);
@@ -167,7 +172,11 @@ describe("filesystem event store", () => {
     const store = createFilesystemEventStore({ root });
     await store.append([makeEvent("IssueCreated", ["issue:ab12", "kind:issue"])]);
 
-    const query = await store.queryByTags(["issue:ab12"], [StoredEventSchema], (events) => events);
+    const query = await store.queryByTags(
+      ["issue:ab12"],
+      [StoredEventSchema],
+      (events: ReadonlyArray<z.infer<typeof StoredEventSchema>>) => events,
+    );
     await store.append([makeEvent("IssueRetitled", ["issue:ab12", "kind:issue"])]);
 
     const stale = await store.append([makeEvent("IssueClosed", ["issue:ab12", "kind:issue"])], {

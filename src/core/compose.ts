@@ -1,4 +1,5 @@
 import { err, ok, type Result } from "neverthrow";
+import type { z } from "zod";
 import type {
   CastTagQueryDescriptor,
   CommandLookupDescriptor,
@@ -74,8 +75,8 @@ type CommandInputDescriptor =
 export type InputPipeline<TInput, TCtx, TError> = {
   readonly _tag: "inputPipeline";
   readonly add: {
-    <TKey extends string, TState>(
-      descriptor: TagQueryStep<TKey, TCtx, TState>,
+    <TKey extends string, TState, TSchema extends z.ZodType>(
+      descriptor: TagQueryStep<TKey, TCtx, TState, TSchema>,
     ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TState }, TError>;
     <TKey extends string, TState, TSubject, TCause>(
       descriptor: CastTagQueryDescriptor<TKey, TCtx, TSubject, TState, TCause>,

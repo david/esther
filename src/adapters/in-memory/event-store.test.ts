@@ -7,7 +7,7 @@ const AnyEventSchema = z
   .object({
     type: z.string(),
     tags: z.array(z.string()),
-    payload: z.record(z.unknown()),
+    payload: z.record(z.string(), z.unknown()),
   })
   .passthrough();
 

@@ -40,19 +40,19 @@ const memberModel = defineReadModel({
 });
 
 const alice: Member = {
-  id: "00000000-0000-0000-0000-000000000001",
+  id: "00000000-0000-4000-8000-000000000001",
   name: "Alice",
   age: 30,
   active: true,
 };
 const bob: Member = {
-  id: "00000000-0000-0000-0000-000000000002",
+  id: "00000000-0000-4000-8000-000000000002",
   name: "Bob",
   age: 40,
   active: false,
 };
 const carol: Member = {
-  id: "00000000-0000-0000-0000-000000000003",
+  id: "00000000-0000-4000-8000-000000000003",
   name: "Carol",
   age: 50,
   active: true,
@@ -238,10 +238,18 @@ describe("createReadInterpreter — eventsByTags", () => {
         }),
       ],
       (events) =>
-        events.reduce((sum, e) => {
-          const p = e.payload;
-          if (typeof p === "object" && p !== null && "n" in p && typeof p.n === "number") {
-            return sum + p.n;
+        events.reduce((sum: number, event) => {
+          if (typeof event !== "object" || event === null || !("payload" in event)) {
+            return sum;
+          }
+          const payload = event.payload;
+          if (
+            typeof payload === "object" &&
+            payload !== null &&
+            "n" in payload &&
+            typeof payload.n === "number"
+          ) {
+            return sum + payload.n;
           }
           return sum;
         }, 0),

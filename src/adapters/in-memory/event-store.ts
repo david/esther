@@ -98,10 +98,10 @@ export function createInMemoryEventStore(): EventStore {
       return ok({ events: stored });
     },
 
-    async queryByTags<TSchema extends z.ZodType, TState>(
+    async queryByTags<TSchema extends z.ZodType, TEvent, TState>(
       tags: ReadonlyArray<string>,
       schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+      fold: (events: ReadonlyArray<TEvent>) => TState,
     ) {
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
       const maxPosition = matching[matching.length - 1]?.position;
@@ -115,7 +115,7 @@ export function createInMemoryEventStore(): EventStore {
           `Event at position ${event.position} (type "${event.type}") does not match any provided schema`,
         );
       });
-      return { state: fold(parsed), maxPosition };
+      return { state: fold(parsed as ReadonlyArray<TEvent>), maxPosition };
     },
 
     onAfterInsert(filter, handler) {

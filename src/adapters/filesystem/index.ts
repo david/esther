@@ -573,10 +573,10 @@ export function createFilesystemEventStore(config: FilesystemEventStoreConfig): 
       return ok({ events: stored });
     },
 
-    async queryByTags<TSchema extends z.ZodType, TState>(
+    async queryByTags<TSchema extends z.ZodType, TEvent, TState>(
       tags: ReadonlyArray<string>,
       schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+      fold: (events: ReadonlyArray<TEvent>) => TState,
     ): Promise<TagQueryResult<TState>> {
       await ensureLayout(config.root);
 
@@ -599,7 +599,7 @@ export function createFilesystemEventStore(config: FilesystemEventStoreConfig): 
       });
 
       return {
-        state: fold(parsed),
+        state: fold(parsed as ReadonlyArray<TEvent>),
         maxPosition: getMaxPosition(matchingRecords.map((record) => record.event)),
       };
     },

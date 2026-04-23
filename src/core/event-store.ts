@@ -36,10 +36,10 @@ export type EventStore = {
     options?: AppendOptions,
   ) => Promise<Result<AppendResult, SliceError>>;
 
-  readonly queryByTags: <TSchema extends z.ZodType, TState>(
+  readonly queryByTags: <TSchema extends z.ZodType, TEvent, TState>(
     tags: ReadonlyArray<string>,
     schemas: ReadonlyArray<TSchema>,
-    fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState,
+    fold: (events: ReadonlyArray<TEvent>) => TState,
   ) => Promise<TagQueryResult<TState>>;
 
   readonly onAfterInsert: (filter: EventFilter, handler: OnAfterInsertHandler) => void;

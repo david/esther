@@ -75,7 +75,7 @@ function formatReadModelIssues(issues: ReadonlyArray<z.ZodIssue>): ReadonlyArray
 }
 
 function validateReadModelRow(input: {
-  readonly model: { readonly name: string; readonly schema: z.ZodTypeAny };
+  readonly model: { readonly name: string; readonly schema: z.ZodType };
   readonly row: unknown;
   readonly queryName?: string | undefined;
 }): Result<unknown, ReadModelSchemaError> {
@@ -93,7 +93,7 @@ function validateReadModelRow(input: {
 }
 
 function validateReadModelRows(input: {
-  readonly model: { readonly name: string; readonly schema: z.ZodTypeAny };
+  readonly model: { readonly name: string; readonly schema: z.ZodType };
   readonly rows: ReadonlyArray<unknown>;
   readonly queryName?: string | undefined;
 }): Result<ReadonlyArray<unknown>, ReadModelSchemaError> {
@@ -130,8 +130,8 @@ export type StateResolver<TInput, TContext> = {
   ) => Promise<Result<ResolveResult<TContext>, ProjectionReadError>>;
 
   readonly pipe: {
-    <TKey extends string, TState>(
-      step: TagQueryStep<TKey, TContext, TState>,
+    <TKey extends string, TState, TSchema extends z.ZodType>(
+      step: TagQueryStep<TKey, TContext, TState, TSchema>,
     ): StateResolver<TInput, TContext & { readonly [K in TKey]: TState }>;
 
     <TKey extends string, T, TRequired extends boolean>(
@@ -479,8 +479,10 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
       }
       const subject = subjectResult.value as TSubject;
       const tags = descriptor.tags(subject);
-      const queryResult = await deps.eventStore.queryByTags(tags, descriptor.schemas, (events) =>
-        descriptor.fold(events, subject),
+      const queryResult = await deps.eventStore.queryByTags(
+        tags,
+        descriptor.schemas,
+        (events: ReadonlyArray<StoredEvent>) => descriptor.fold(events, subject),
       );
       const withState = addField({}, descriptor.key, queryResult.state);
       // as const required: without it TS widens the template literal to string,

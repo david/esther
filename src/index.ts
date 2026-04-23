@@ -59,6 +59,7 @@ export { executeCommand, executeQuery } from "./core/pipeline.js";
 // ── Processor ──────────────────────────────────────────────────────────
 export {
   defineProcessor,
+  processorEvent,
   type Processor,
   type ProcessorEventBinding,
 } from "./core/processor.js";
@@ -85,6 +86,7 @@ export {
   type QueryDescriptor,
   queryDescriptor,
   type ReadDescriptor,
+  readModelEvent,
   type ReadModelEventBinding,
   type ReadModelHandle,
   ReadModelNotFound,

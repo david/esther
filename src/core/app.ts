@@ -254,13 +254,14 @@ function wireReadModelEvents(
       const readEntries = binding.reads !== undefined ? iterateReadMap(binding.reads) : [];
 
       eventStore.onAfterInsert({ eventTypes: [eventType] }, async (event) => {
+        const parsedEvent = binding.schema.parse(event);
         let resolvedReads: unknown;
         if (readEntries.length === 0) {
           resolvedReads = {};
         } else {
           const resolvedEntries: Array<readonly [string, unknown]> = [];
           for (const [key, fn] of readEntries) {
-            const descriptor = fn(event);
+            const descriptor = fn(parsedEvent);
             resolvedEntries.push([key, await readInterpreter.resolve(descriptor)]);
           }
           resolvedReads = Object.fromEntries(resolvedEntries);
@@ -274,7 +275,7 @@ function wireReadModelEvents(
           resolvedReads,
         );
 
-        const result = binding.handler(event, ctx);
+        const result = binding.handler(parsedEvent, ctx);
         if (result !== undefined && result !== null) {
           await adapter.execute(result);
         }

@@ -177,19 +177,19 @@ const memberModel = defineReadModel({
 });
 
 const alice: Member = {
-  id: "00000000-0000-0000-0000-000000000001",
+  id: "00000000-0000-4000-8000-000000000001",
   name: "Alice",
   age: 30,
   active: true,
 };
 const bob: Member = {
-  id: "00000000-0000-0000-0000-000000000002",
+  id: "00000000-0000-4000-8000-000000000002",
   name: "Bob",
   age: 40,
   active: false,
 };
 const carol: Member = {
-  id: "00000000-0000-0000-0000-000000000003",
+  id: "00000000-0000-4000-8000-000000000003",
   name: "Carol",
   age: 50,
   active: true,

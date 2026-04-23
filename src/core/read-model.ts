@@ -1,6 +1,5 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
-import type { StoredEvent } from "./types";
 import { getZodTypeName } from "./zod-internals";
 
 // ── Read model not found ───────────────────────────────────────────────
@@ -67,6 +66,12 @@ export type ReadModelEventBinding<T, TEventSchema extends z.ZodType, TReads> = {
   ): ProjectionResult<T> | undefined;
 };
 
+export function readModelEvent<T, TEventSchema extends z.ZodType, TReads>(
+  binding: ReadModelEventBinding<T, TEventSchema, TReads>,
+): ReadModelEventBinding<T, TEventSchema, TReads> {
+  return binding;
+}
+
 // ── Validation ──────────────────────────────────────────────────────
 
 const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
@@ -81,7 +86,7 @@ const SUPPORTED_ZOD_TYPES = new Set([
   "ZodObject",
 ]);
 
-function isSupportedZodType(zodType: z.ZodTypeAny): boolean {
+function isSupportedZodType(zodType: unknown): boolean {
   return SUPPORTED_ZOD_TYPES.has(getZodTypeName(zodType));
 }
 
@@ -147,7 +152,7 @@ export type EventsByTagsDescriptor<T> = {
   readonly _tag: "eventsByTags";
   readonly tags: ReadonlyArray<string>;
   readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>) => T;
+  readonly fold: (events: ReadonlyArray<unknown>) => T;
 };
 
 export type ReadDescriptor<T> =
@@ -230,7 +235,7 @@ export function queryDescriptor<TRow>(input: {
 export function eventsByTagsDescriptor<T>(
   tags: ReadonlyArray<string>,
   schemas: ReadonlyArray<z.ZodType>,
-  fold: (events: ReadonlyArray<StoredEvent>) => T,
+  fold: (events: ReadonlyArray<unknown>) => T,
 ): EventsByTagsDescriptor<T> {
   return { _tag: "eventsByTags", tags, schemas, fold };
 }
@@ -259,7 +264,7 @@ type DefineReadModelInput<S extends z.ZodObject<z.ZodRawShape>> = {
   readonly key: string & keyof z.infer<S>;
   readonly schema: S;
   readonly constraints?: Constraints;
-  readonly events?: ReadonlyArray<ReadModelEventBinding<z.infer<S>, z.ZodType, unknown>>;
+  readonly events?: ReadonlyArray<unknown>;
 };
 
 export function defineReadModel<
@@ -268,7 +273,8 @@ export function defineReadModel<
 >(input: DefineReadModelInput<S> & { readonly key: K }): ReadModelHandle<z.infer<S>, S, K> {
   type T = z.infer<S>;
 
-  const { name, key, schema, constraints = {}, events } = input;
+  const { name, key, schema, constraints = {} } = input;
+  const events = input.events as ReadonlyArray<ReadModelEventBinding<z.infer<S>, z.ZodType, unknown>> | undefined;
 
   // Validate model name
   if (!NAME_PATTERN.test(name)) {

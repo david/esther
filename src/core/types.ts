@@ -144,4 +144,4 @@ export type TagQueryResult<TState> = {
 
 // ── Zod schema inference helper ────────────────────────────────────────
 
-export type SchemaOutput<T extends z.ZodTypeAny> = z.output<T>;
+export type SchemaOutput<T extends z.ZodType> = z.output<T>;
