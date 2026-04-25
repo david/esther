@@ -69,6 +69,14 @@ export {
   type ReadInterpreter,
   type ReadInterpreterDeps,
 } from "./core/read-interpreter.js";
+// ── Read model registration ────────────────────────────────────────────
+export {
+  type ProjectionGetter,
+  type ProjectionQuery,
+  type ReadModelRegistration,
+  type ReadOnlyReadModelRegistration,
+  type WritableReadModelRegistration,
+} from "./core/read-model-registration.js";
 // ── Read model ─────────────────────────────────────────────────────────
 export {
   type Constraints,

@@ -680,7 +680,139 @@ describe("duplicate model names at createApp", () => {
         inputAdapter: { adapter, bind },
         slices: [],
       }),
-    ).toThrow('Duplicate projection adapter name: "accounts"');
+    ).toThrow('Duplicate read model registration name: "accounts"');
+  });
+
+  test("accepts minimal canonical writable and read-only registrations", () => {
+    const model = defineReadModel({
+      name: "canonicalAccounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+    const projectionAdapter = createInMemoryProjectionAdapter(model);
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    expect(() =>
+      createApp({
+        eventStore,
+        readModels: [
+          {
+            kind: "readModel",
+            handle: model,
+            adapter: projectionAdapter.adapter,
+            get: projectionAdapter.get,
+          },
+          {
+            kind: "view",
+            name: "canonicalAccountSummaries",
+            get: async (id) => err(ReadModelNotFound("canonicalAccountSummaries", id)),
+          },
+        ],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).not.toThrow();
+  });
+
+  test("throws when canonical read models and views share a name", () => {
+    const model = defineReadModel({
+      name: "canonicalDuplicateAccounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+    const projectionAdapter = createInMemoryProjectionAdapter(model);
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    expect(() =>
+      createApp({
+        eventStore,
+        readModels: [
+          {
+            kind: "readModel",
+            handle: model,
+            adapter: projectionAdapter.adapter,
+            get: projectionAdapter.get,
+          },
+          {
+            kind: "view",
+            name: "canonicalDuplicateAccounts",
+            get: async (id) => err(ReadModelNotFound("canonicalDuplicateAccounts", id)),
+          },
+        ],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).toThrow('Duplicate read model registration name: "canonicalDuplicateAccounts"');
+  });
+
+  test("throws when canonical and legacy registrations share a name", () => {
+    const model = defineReadModel({
+      name: "canonicalLegacyDuplicateAccounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+    const projectionAdapter = createInMemoryProjectionAdapter(model);
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    expect(() =>
+      createApp({
+        eventStore,
+        readModels: [
+          {
+            kind: "readModel",
+            handle: model,
+            adapter: projectionAdapter.adapter,
+            get: projectionAdapter.get,
+          },
+        ],
+        projectionAdapters: [
+          {
+            kind: "view",
+            name: "canonicalLegacyDuplicateAccounts",
+            get: async (id) => err(ReadModelNotFound("canonicalLegacyDuplicateAccounts", id)),
+          },
+        ],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).toThrow('Duplicate read model registration name: "canonicalLegacyDuplicateAccounts"');
+  });
+
+  test("throws when a canonical writable registration adapter name differs from its handle", () => {
+    const model = defineReadModel({
+      name: "canonicalMismatchAccounts",
+      schema: z.object({ accountId: z.string(), balance: z.number() }),
+      key: "accountId",
+    });
+    const projectionAdapter = createInMemoryProjectionAdapter(model);
+    const mismatchedAdapter = { ...projectionAdapter.adapter, name: "otherAccounts" };
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    expect(() =>
+      createApp({
+        eventStore,
+        readModels: [
+          {
+            kind: "readModel",
+            handle: model,
+            adapter: mismatchedAdapter,
+            get: projectionAdapter.get,
+          },
+        ],
+        inputAdapter: { adapter, bind },
+        slices: [],
+      }),
+    ).toThrow(
+      'Read model registration adapter/handle name mismatch: adapter "otherAccounts" does not match handle "canonicalMismatchAccounts"',
+    );
   });
 });
 
