@@ -8,6 +8,10 @@ import { z } from "zod";
 import {
   BoundaryObservationError,
   compose,
+  createApp,
+  createInMemoryAdapter,
+  createInMemoryEventStore,
+  createInMemoryProjectionAdapter,
   defineCommand,
   defineQuery,
   defineReadModel,
@@ -16,15 +20,23 @@ import {
   generate,
   lookup,
   projection,
+  type AppConfig,
   type BoundaryObservation,
   type BoundaryObservationError as BoundaryObservationErrorType,
   type DomainEvent,
+  type ProjectionAdapter,
+  type ProjectionGetter,
+  type ProjectionQuery,
   type ReadModelNotFound,
+  type ReadModelRegistration,
+  type ReadOnlyReadModelRegistration,
   type SliceDeps,
   type SliceError,
+  type WritableReadModelRegistration,
   state,
   tagQuery,
 } from "../index";
+import { createPostgresProjectionAdapter } from "../adapters/postgres/index";
 
 // ── Shared contracts ───────────────────────────────────────────────────
 
@@ -129,6 +141,75 @@ const pricingModel = defineReadModel({
 });
 
 type PricingRow = { propertyId: string; pricePerNight: number };
+
+// ── Public read-model registration API type flow ──────────────────────
+
+const inMemoryPricingRegistration = createInMemoryProjectionAdapter(pricingModel);
+const {
+  adapter: inMemoryPricingAdapter,
+  get: inMemoryPricingGet,
+  query: inMemoryPricingQuery,
+} = inMemoryPricingRegistration;
+
+const _inMemoryWritableRegistration: WritableReadModelRegistration<PricingRow> =
+  inMemoryPricingRegistration;
+const _inMemoryReadModelRegistration: ReadModelRegistration = inMemoryPricingRegistration;
+const _inMemoryAdapterCheck: ProjectionAdapter<PricingRow> = inMemoryPricingAdapter;
+const _inMemoryGetCheck: ProjectionGetter<PricingRow> = inMemoryPricingGet;
+const _inMemoryQueryCheck: ProjectionQuery<PricingRow> = inMemoryPricingQuery;
+const _inMemoryExecuteCheck: Promise<void> = inMemoryPricingAdapter.execute(
+  pricingModel.project({ propertyId: "property-1", pricePerNight: 100 }),
+);
+
+const _inMemoryReadModelsConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+  readModels: [inMemoryPricingRegistration],
+  inputAdapter: createInMemoryAdapter(),
+  slices: [],
+};
+const _inMemoryReadModelsApp = createApp(_inMemoryReadModelsConfig);
+
+declare const postgresClient: Parameters<typeof createPostgresProjectionAdapter>[0];
+const postgresPricingRegistration = createPostgresProjectionAdapter(postgresClient, pricingModel);
+const {
+  adapter: postgresPricingAdapter,
+  get: postgresPricingGet,
+  query: postgresPricingQuery,
+} = postgresPricingRegistration;
+
+const _postgresWritableRegistration: WritableReadModelRegistration<PricingRow> =
+  postgresPricingRegistration;
+const _postgresReadModelRegistration: ReadModelRegistration = postgresPricingRegistration;
+const _postgresAdapterCheck: ProjectionAdapter<PricingRow> = postgresPricingAdapter;
+const _postgresGetCheck: ProjectionGetter<PricingRow> = postgresPricingGet;
+const _postgresQueryCheck: ProjectionQuery<PricingRow> = postgresPricingQuery;
+
+const _postgresReadModelsConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+  readModels: [postgresPricingRegistration],
+  inputAdapter: createInMemoryAdapter(),
+  slices: [],
+};
+
+const readOnlyPricingRegistration: ReadOnlyReadModelRegistration<PricingRow> = {
+  kind: "view",
+  name: "pricing-view",
+  get: inMemoryPricingGet,
+  query: inMemoryPricingQuery,
+};
+const _readOnlyRegistration: ReadModelRegistration = readOnlyPricingRegistration;
+const _readOnlyGetCheck: ProjectionGetter<PricingRow> = readOnlyPricingRegistration.get;
+const _readOnlyQueryCheck: ProjectionQuery<PricingRow> | undefined =
+  readOnlyPricingRegistration.query;
+const _readOnlyReadModelsConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+  readModels: [readOnlyPricingRegistration],
+  inputAdapter: createInMemoryAdapter(),
+  slices: [],
+};
+
+// @ts-expect-error read-only registrations do not provide write adapters
+const _readOnlyAdapterCheck = readOnlyPricingRegistration.adapter;
 
 // ── Command slice — new DSL (input/validate/event/output) ────────────
 
