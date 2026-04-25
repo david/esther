@@ -475,6 +475,50 @@ describe("constraint metadata registration", () => {
     ]);
   });
 
+  test("canonical writable registrations derive constraint metadata from the handle", () => {
+    const registered: Record<string, { columns: ReadonlyArray<string>; table: string }>[] = [];
+
+    const eventStore = createInMemoryEventStore();
+    const testStore = {
+      ...eventStore,
+      registerConstraintMetadata: (
+        metadata: Record<string, { columns: ReadonlyArray<string>; table: string }>,
+      ) => {
+        registered.push(metadata);
+      },
+    };
+
+    const accountModel = defineReadModel({
+      name: "canonicalConstraintAccounts",
+      schema: z.object({
+        accountId: z.string(),
+        email: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+      constraints: { unique: [["email"]] },
+    });
+
+    const projectionAdapter = createInMemoryProjectionAdapter(accountModel);
+    const { adapter, bind } = createInMemoryAdapter();
+
+    createApp({
+      eventStore: testStore,
+      readModels: [projectionAdapter],
+      inputAdapter: { adapter, bind },
+      slices: [],
+    });
+
+    expect(registered).toEqual([
+      {
+        canonicalConstraintAccounts_email_unique: {
+          columns: ["email"],
+          table: "canonicalConstraintAccounts",
+        },
+      },
+    ]);
+  });
+
   test("createApp skips constraint registration when registerConstraintMetadata is absent", () => {
     const eventStore = createInMemoryEventStore();
     const { adapter, bind } = createInMemoryAdapter();
@@ -548,6 +592,70 @@ describe("read model event bindings via createApp", () => {
     expect(result2.isOk()).toBe(true);
     if (result2.isOk()) {
       expect(result2.value.value).toEqual({ accountId: "acc-1", balance: 200 });
+    }
+  });
+
+  test("canonical writable registration wires event bindings and projection lookups", async () => {
+    const accountModel = defineReadModel({
+      name: "canonicalEventAccounts",
+      schema: z.object({
+        accountId: z.string(),
+        balance: z.number(),
+      }),
+      key: "accountId",
+      events: [
+        readModelEvent<{ accountId: string; balance: number }, typeof DepositedEventSchema, unknown>({
+          schema: DepositedEventSchema,
+          handler: (event, { project }) =>
+            project({
+              accountId: event.payload.accountId,
+              balance: event.payload.amount,
+            }),
+        }),
+      ],
+    });
+
+    const projectionAdapter = createInMemoryProjectionAdapter(accountModel);
+
+    const getCanonicalAccount = defineQuery({
+      name: "get-canonical-event-account",
+      inputSchema: z.object({ accountId: z.string() }),
+      outputSchema: z.object({ accountId: z.string(), balance: z.number() }),
+      state: state<{ accountId: string }>().pipe(
+        projection({
+          key: "account" as const,
+          model: accountModel,
+          id: (ctx: { accountId: string }) => ctx.accountId,
+          required: true,
+        }),
+      ),
+      handle: (ctx) => ok(ctx.account),
+    });
+
+    const eventStore = createInMemoryEventStore();
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const app = createApp({
+      eventStore,
+      readModels: [projectionAdapter],
+      inputAdapter: { adapter, bind },
+      slices: [depositSlice, getCanonicalAccount],
+    });
+
+    await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
+
+    const rawResult = await projectionAdapter.get("acc-1");
+    expect(rawResult.isOk()).toBe(true);
+    if (rawResult.isOk()) {
+      expect(rawResult.value.value).toEqual({ accountId: "acc-1", balance: 100 });
+    }
+
+    const lookupResult = await app.dispatch("get-canonical-event-account", {
+      accountId: "acc-1",
+    });
+    expect(lookupResult.isOk()).toBe(true);
+    if (lookupResult.isOk()) {
+      expect(lookupResult.value).toEqual({ accountId: "acc-1", balance: 100 });
     }
   });
 
