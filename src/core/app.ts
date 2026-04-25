@@ -1,5 +1,4 @@
 import { err, ok, type Result } from "neverthrow";
-import type { z } from "zod";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
 import type { EventStore } from "./event-store.js";
@@ -7,56 +6,37 @@ import type { InputAdapterBinding } from "./input-adapter.js";
 import { extractEventType, type Processor } from "./processor.js";
 import { createReadInterpreter, type ReadInterpreter } from "./read-interpreter.js";
 import type {
-  Constraints,
   ProjectionAdapter,
   ProjectionQueryAdapter,
   ReadDescriptor,
-  ReadModelEventBinding,
   ReadModelNotFound,
 } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
+import {
+  normalizeReadModelRegistrations,
+  type ProjectionAdapterEntry,
+  type ReadModelRegistration,
+} from "./read-model-registration.js";
 import type { CompiledOperation, ProjectionStore, RegisterableOperation } from "./slice.js";
+
+export type {
+  ProjectionAdapterEntry,
+  ProjectionAdapterTableEntry,
+  ProjectionAdapterViewEntry,
+} from "./read-model-registration.js";
 
 // ── App config ─────────────────────────────────────────────────────────
 
-type ErasedReadModelHandle = {
-  readonly events?: ReadonlyArray<ReadModelEventBinding<unknown, z.ZodType, unknown>> | undefined;
-  project(
-    value: unknown,
-    operation?: "insert" | "update" | "upsert" | "delete",
-  ): {
-    readonly type: "projection";
-    readonly name: string;
-    readonly key: string;
-    readonly value: unknown;
-    readonly operation: "insert" | "update" | "upsert" | "delete";
-  };
-};
-
-export type ProjectionAdapterTableEntry = {
-  readonly kind: "table";
-  readonly adapter: ProjectionAdapter<unknown>;
-  readonly get: (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
-  readonly constraints: Constraints;
-  readonly tableName: string;
-  readonly handle?: ErasedReadModelHandle;
-};
-
-export type ProjectionAdapterViewEntry = {
-  readonly kind: "view";
-  readonly name: string;
-  readonly get: (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>;
-};
-
-export type ProjectionAdapterEntry = ProjectionAdapterTableEntry | ProjectionAdapterViewEntry;
-
 export type AppConfig = {
   readonly eventStore: EventStore;
+  readonly readModels?: ReadonlyArray<ReadModelRegistration> | undefined;
+  /** @deprecated Prefer `readModels`. */
   readonly projectionAdapters?: ReadonlyArray<ProjectionAdapterEntry> | undefined;
   readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
   readonly inputAdapter: InputAdapterBinding;
   readonly slices: ReadonlyArray<RegisterableOperation>;
   readonly processors?: ReadonlyArray<Processor> | undefined;
+  /** @deprecated Prefer per-model `query` on `readModels`. */
   readonly projectionQuery?: ProjectionQueryAdapter | undefined;
 };
 
@@ -73,24 +53,20 @@ export type App = {
 export function createApp(config: AppConfig): App {
   const { eventStore, inputAdapter, slices } = config;
 
+  const readModelRegistrations = normalizeReadModelRegistrations({
+    readModels: config.readModels,
+    projectionAdapters: config.projectionAdapters,
+  });
+  const projectionAdapters = readModelRegistrations.legacyProjectionAdapters;
+
   // Build projection adapter registry and projection store
   const projectionAdapterRegistry = new Map<string, ProjectionAdapter<unknown>>();
   const projectionGetters = new Map<
     string,
     (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>
   >();
-  // Cross-kind name collision detection
-  const allNames = new Set<string>();
-  for (const entry of config.projectionAdapters ?? []) {
-    const name = entry.kind === "table" ? entry.adapter.name : entry.name;
-    if (allNames.has(name)) {
-      throw new Error(`Duplicate projection adapter name: "${name}"`);
-    }
-    allNames.add(name);
-  }
-
   // Route by kind: table → both maps, view → read map only
-  for (const entry of config.projectionAdapters ?? []) {
+  for (const entry of projectionAdapters) {
     if (entry.kind === "table") {
       projectionAdapterRegistry.set(entry.adapter.name, entry.adapter);
       projectionGetters.set(entry.adapter.name, entry.get);
@@ -130,7 +106,7 @@ export function createApp(config: AppConfig): App {
 
   // Register constraint metadata on event store
   if (eventStore.registerConstraintMetadata) {
-    for (const entry of config.projectionAdapters ?? []) {
+    for (const entry of projectionAdapters) {
       if (entry.kind === "table") {
         for (const cols of entry.constraints.unique ?? []) {
           const name = `${entry.tableName}_${cols.join("_")}_unique`;
@@ -180,7 +156,7 @@ export function createApp(config: AppConfig): App {
   }
 
   // Wire read model event bindings via onAfterInsert
-  wireReadModelEvents(config.projectionAdapters ?? [], eventStore, getReadInterpreter());
+  wireReadModelEvents(projectionAdapters, eventStore, getReadInterpreter());
 
   // Compile each slice — the compile closure captured the generics
   // at defineCommand/defineQuery time, so no casts here.
