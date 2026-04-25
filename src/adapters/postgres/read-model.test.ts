@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { defineReadModel } from "../../core/read-model";
 import { createMockSql } from "./mock-sql";
-import { generateCreateTableDDL } from "./read-model";
+import { createPostgresProjectionAdapter, generateCreateTableDDL } from "./read-model";
 
 // ── generateCreateTableDDL ─────────────────────────────────────────
 
@@ -157,6 +157,33 @@ describe("generateCreateTableDDL — JSONB columns", () => {
     const ddl = generateCreateTableDDL(handle);
 
     expect(ddl).toContain(`"settings" JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  });
+});
+
+// ── Factory registration shape ───────────────────────────────────
+
+describe("createPostgresProjectionAdapter — registration shape", () => {
+  test("returns an app-ready registration while preserving direct adapter usage", async () => {
+    const handle = defineReadModel({
+      name: "member_registration",
+      key: "id",
+      schema: z.object({
+        id: z.string(),
+        name: z.string(),
+      }),
+    });
+
+    const sql = createMockSql(async (): Promise<unknown[]> => []);
+    const registration = createPostgresProjectionAdapter(sql, handle);
+    const { adapter, get, query } = registration;
+
+    expect(registration.kind).toBe("readModel");
+    expect(registration.handle).toBe(handle);
+    expect(registration.adapter).toBe(adapter);
+    expect(registration.get).toBe(get);
+    expect(registration.query).toBe(query);
+
+    await adapter.execute(handle.project({ id: "member-1", name: "Ada" }, "insert"));
   });
 });
 
