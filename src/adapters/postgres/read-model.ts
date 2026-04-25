@@ -1,12 +1,18 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type {
+  OrderDirection,
   ProjectionAdapter,
   ProjectionResult,
   ReadModelHandle,
   WhereEntry,
 } from "../../core/read-model.js";
 import { ReadModelNotFound } from "../../core/read-model.js";
+import type {
+  ProjectionGetter,
+  ProjectionQuery,
+  WritableReadModelRegistration,
+} from "../../core/read-model-registration.js";
 import { getZodStringChecks, getZodTypeName } from "../../core/zod-internals.js";
 import {
   executeSqlQuery,
@@ -115,14 +121,9 @@ type StoredEntry<T> = {
 
 // ── Postgres projection adapter ────────────────────────────────────────
 
-type PostgresProjectionAdapterResult<T> = {
-  readonly adapter: ProjectionAdapter<T>;
-  readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
-  readonly query: (
-    entries: ReadonlyArray<WhereEntry>,
-    orderBy: string | undefined,
-    limit: number | undefined,
-  ) => Promise<ReadonlyArray<T>>;
+type PostgresProjectionAdapterResult<T> = WritableReadModelRegistration<T> & {
+  readonly get: ProjectionGetter<T>;
+  readonly query: ProjectionQuery<T>;
 };
 
 // ── Where-clause SQL translation ───────────────────────────────────
@@ -306,7 +307,7 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
-    orderDirection: "asc" | "desc" = "asc",
+    orderDirection: OrderDirection = "asc",
   ): Promise<ReadonlyArray<T>> {
     if (orderBy !== undefined && !allowedColumns.has(orderBy)) {
       throw new Error(`query: unknown orderBy column "${orderBy}"`);
@@ -332,5 +333,5 @@ export function createPostgresProjectionAdapter<S extends z.ZodObject<z.ZodRawSh
     return raw.map((row) => schema.parse(normalizeRow(row as Record<string, unknown>)));
   }
 
-  return { adapter, get, query };
+  return { kind: "readModel", handle, adapter, get, query };
 }
