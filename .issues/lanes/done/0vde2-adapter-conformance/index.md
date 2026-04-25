@@ -1,8 +1,8 @@
 # 0vde2-adapter-conformance Index
 
 ## Current state
-Lane: in-progress
-Status: QA passed; ready for deploy
+Lane: done
+Status: shipped via direct push to origin/main
 
 ## Active artifacts
 Description:
@@ -28,5 +28,8 @@ QA:
 - qa/tasks/qa-full-repo-gates.md
 - qa/summary.md
 
+Deploy:
+- deploy/01-release.md
+
 ## Next suggested step
-- {{/skill:deploy 0vde2-adapter-conformance}}
+- Done
