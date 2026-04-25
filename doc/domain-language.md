@@ -54,7 +54,7 @@ A denormalized, query-optimized view built from events. Defined with `defineRead
 
 ## Projection Adapter
 
-A storage backend for a single read model. Receives `ProjectionResult<T>` values (insert, update, upsert, delete) and persists them. Created per model with `createInMemoryProjectionAdapter` or `createPostgresProjectionAdapter`. Each adapter entry provides an `adapter` (writes) and a `get` function (reads for state resolution).
+A storage backend for a single read model. Receives `ProjectionResult<T>` values (insert, update, upsert, delete) and persists them. Created per model with `createInMemoryProjectionAdapter` or `createPostgresProjectionAdapter`. The returned registration is app-ready via `readModels: [projection]` and remains destructurable as `{ adapter, get, query }` for low-level replay or adapter tests.
 
 ## Projection Store
 

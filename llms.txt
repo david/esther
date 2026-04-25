@@ -251,7 +251,7 @@ const emailAdapter: EffectAdapter = {
 
 ## Wiring
 
-Projection adapters are created per read model and passed to `createApp`:
+Projection adapters are created per read model and passed to `createApp` as canonical read-model registrations:
 
 ```typescript
 const eventStore = createInMemoryEventStore();
@@ -261,7 +261,7 @@ const orderSummaryProjection = createInMemoryProjectionAdapter(orderSummaryModel
 
 const app = createApp({
   eventStore,
-  projectionAdapters: [orderSummaryProjection],
+  readModels: [orderSummaryProjection],
   inputAdapter: { adapter, bind },
   effectAdapters: [emailAdapter],
   slices: [placeOrderSlice, getOrderSlice],
@@ -271,7 +271,7 @@ await app.start();
 const result = await app.dispatch("place-order", { ... });
 ```
 
-Each projection adapter entry has an `adapter` (receives projection results), a `get` function (reads rows for state resolution), `constraints` from the read model, and `tableName` for constraint metadata registration.
+The projection registration provides write, point-lookup, and query capability to app wiring. It also remains destructurable as `{ adapter, get, query }` for replay helpers and focused adapter tests. Legacy `projectionAdapters` table/view entries and `projectionQuery` remain available for compatibility.
 
 For HTTP: `import { createFastifyAdapter } from "esther/fastify"`.
 For Postgres:
