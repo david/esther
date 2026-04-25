@@ -130,12 +130,14 @@ export {
   type ValidatePredicate,
 } from "./core/slice.js";
 export {
+  BoundaryObservationError,
   ConstraintError,
   EventId,
   ReadModelSchemaError,
 } from "./core/types.js";
 export type {
   AppendResult,
+  BoundaryObservation,
   ConcurrencyError,
   DomainEvent,
   EffectResult,

@@ -56,6 +56,28 @@ export const ConcurrencyError = (
   boundaryTags,
 });
 
+export type BoundaryObservation = {
+  readonly tags: ReadonlyArray<string>;
+  readonly maxPosition: bigint | undefined;
+};
+
+export type BoundaryObservationError = {
+  readonly _tag: "BoundaryObservationError";
+  readonly message: string;
+  readonly observations: ReadonlyArray<BoundaryObservation>;
+};
+
+export const BoundaryObservationError = (
+  observations: ReadonlyArray<BoundaryObservation>,
+): BoundaryObservationError => ({
+  _tag: "BoundaryObservationError",
+  message: "Command input observed multiple event-history boundaries; append preconditions for multiple observations are not supported",
+  observations: observations.map((observation) => ({
+    tags: [...observation.tags],
+    maxPosition: observation.maxPosition,
+  })),
+});
+
 export type ConstraintError = {
   readonly _tag: "ConstraintError";
   readonly constraint: string;
@@ -115,6 +137,7 @@ export const ReadModelSchemaError = (
 export type SliceError =
   | ValidationError
   | ConcurrencyError
+  | BoundaryObservationError
   | ConstraintError
   | SchemaError
   | ReadModelNotFound

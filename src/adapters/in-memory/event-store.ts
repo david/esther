@@ -33,7 +33,7 @@ function validateAppendPrecondition(
   events: ReadonlyArray<StoredEvent>,
   options: AppendOptions | undefined,
 ): Result<void, ConcurrencyErrorType> {
-  if (!options || options.expectedPosition === undefined) {
+  if (options === undefined) {
     return ok(undefined);
   }
 

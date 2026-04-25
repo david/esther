@@ -120,7 +120,7 @@ function validateAppendPrecondition(
   options: AppendOptions | undefined,
   actualPosition: bigint | undefined,
 ): import("neverthrow").Result<void, ConcurrencyErrorType> {
-  if (!options || options.expectedPosition === undefined) {
+  if (options === undefined) {
     return ok(undefined);
   }
 
@@ -135,6 +135,17 @@ function validateAppendPrecondition(
       actualPosition,
       options.boundaryTags,
     ),
+  );
+}
+
+// Stable two-int advisory lock key for Esther postgres event appends.
+// Do not change without coordinating rollout across running writers.
+const APPEND_ADVISORY_LOCK_NAMESPACE = 1_705_383_044;
+const APPEND_ADVISORY_LOCK_ID = 1;
+
+async function acquireAppendLock(sql: PostgresTransactionClient): Promise<void> {
+  await executeSqlQuery(
+    sql`SELECT pg_advisory_xact_lock(${APPEND_ADVISORY_LOCK_NAMESPACE}, ${APPEND_ADVISORY_LOCK_ID})`,
   );
 }
 
@@ -154,13 +165,17 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     async append(eventsToAppend, options) {
       try {
         const stored = await sql.begin(async (tx) => {
-          const actualPosition = await fetchMaxPosition(tx, options?.boundaryTags ?? []);
-          const precondition = validateAppendPrecondition(options, actualPosition);
-          if (precondition.isErr()) {
-            throw precondition.error;
+          await acquireAppendLock(tx);
+
+          if (options !== undefined) {
+            const actualPosition = await fetchMaxPosition(tx, options.boundaryTags ?? []);
+            const precondition = validateAppendPrecondition(options, actualPosition);
+            if (precondition.isErr()) {
+              throw precondition.error;
+            }
           }
 
-          // 1. Get next position (no FOR UPDATE)
+          // 1. Get next position (serialized by the transaction-scoped append lock)
           const posResult = queryRows<{ pos: string }>(
             await executeSqlQuery(tx`SELECT COALESCE(MAX(position), -1) as pos FROM events`),
           );

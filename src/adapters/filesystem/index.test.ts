@@ -194,6 +194,84 @@ describe("filesystem event store", () => {
     }
   });
 
+  test("treats expectedPosition undefined as an empty tagged boundary precondition", async () => {
+    const store = createFilesystemEventStore({ root });
+
+    const emptyBoundary = await store.append([makeEvent("IssueCreated", ["issue:1"])], {
+      expectedPosition: undefined,
+      boundaryTags: ["issue:1"],
+    });
+    const staleEmptyBoundary = await store.append([makeEvent("IssueUpdated", ["issue:1"])], {
+      expectedPosition: undefined,
+      boundaryTags: ["issue:1"],
+    });
+
+    expect(emptyBoundary.isOk()).toBe(true);
+    expect(staleEmptyBoundary.isErr()).toBe(true);
+    if (staleEmptyBoundary.isErr()) {
+      expect(staleEmptyBoundary.error).toMatchObject({
+        _tag: "ConcurrencyError",
+        expectedPosition: undefined,
+        actualPosition: 0n,
+        boundaryTags: ["issue:1"],
+      });
+    }
+  });
+
+  test("treats undefined boundaryTags as a global empty-stream precondition", async () => {
+    const store = createFilesystemEventStore({ root });
+
+    const emptyGlobal = await store.append([makeEvent("FirstHappened", [])], {
+      expectedPosition: undefined,
+      boundaryTags: undefined,
+    });
+    const staleEmptyGlobal = await store.append([makeEvent("SecondHappened", [])], {
+      expectedPosition: undefined,
+      boundaryTags: undefined,
+    });
+
+    expect(emptyGlobal.isOk()).toBe(true);
+    expect(staleEmptyGlobal.isErr()).toBe(true);
+    if (staleEmptyGlobal.isErr()) {
+      expect(staleEmptyGlobal.error).toMatchObject({
+        _tag: "ConcurrencyError",
+        expectedPosition: undefined,
+        actualPosition: 0n,
+        boundaryTags: undefined,
+      });
+    }
+  });
+
+  test("treats undefined and empty boundaryTags as the global stream boundary", async () => {
+    const undefinedBoundaryStore = createFilesystemEventStore({ root: join(root, "undefined") });
+    await undefinedBoundaryStore.append([makeEvent("FirstHappened", [])], {
+      expectedPosition: undefined,
+      boundaryTags: undefined,
+    });
+
+    const undefinedBoundaryResult = await undefinedBoundaryStore.append(
+      [makeEvent("SecondHappened", [])],
+      {
+        expectedPosition: 0n,
+        boundaryTags: undefined,
+      },
+    );
+
+    const emptyBoundaryStore = createFilesystemEventStore({ root: join(root, "empty") });
+    await emptyBoundaryStore.append([makeEvent("FirstHappened", [])], {
+      expectedPosition: undefined,
+      boundaryTags: [],
+    });
+
+    const emptyBoundaryResult = await emptyBoundaryStore.append([makeEvent("SecondHappened", [])], {
+      expectedPosition: 0n,
+      boundaryTags: [],
+    });
+
+    expect(undefinedBoundaryResult.isOk()).toBe(true);
+    expect(emptyBoundaryResult.isOk()).toBe(true);
+  });
+
   test("append without preconditions still works", async () => {
     const store = createFilesystemEventStore({ root });
 

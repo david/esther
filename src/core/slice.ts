@@ -11,6 +11,7 @@ import type {
 } from "./read-model";
 import {
   ReadModelSchemaError as mkReadModelSchemaError,
+  type BoundaryObservation,
   type DomainEvent,
   type ReadModelSchemaError,
   type StoredEvent,
@@ -46,6 +47,7 @@ export type ProjectionStore = {
 export type SliceDeps = {
   readonly eventStore: EventStore;
   readonly projectionStore: ProjectionStore;
+  readonly recordBoundaryObservation?: (observation: BoundaryObservation) => void;
 };
 
 const frameworkStepBrand: unique symbol = Symbol("frameworkStepBrand");
@@ -337,13 +339,11 @@ export function tagQuery<TKey extends string, TInput, TState, TSchema extends z.
   readonly fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState;
 }): TagQueryStep<TKey, TInput, TState, TSchema> {
   const toStep =
-    (_deps: SliceDeps): Step<TInput, { readonly [K in TKey]: TState }, never> =>
+    (deps: SliceDeps): Step<TInput, { readonly [K in TKey]: TState }, never> =>
     async (ctx) => {
-      const result = await _deps.eventStore.queryByTags(
-        descriptor.tags(ctx),
-        descriptor.schemas,
-        descriptor.fold,
-      );
+      const tags = [...descriptor.tags(ctx)];
+      const result = await deps.eventStore.queryByTags(tags, descriptor.schemas, descriptor.fold);
+      deps.recordBoundaryObservation?.({ tags: [...tags], maxPosition: result.maxPosition });
       return ok(addField({}, descriptor.key, result.state));
     };
 
@@ -478,12 +478,13 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
         return err(subjectResult.error);
       }
       const subject = subjectResult.value as TSubject;
-      const tags = descriptor.tags(subject);
+      const tags = [...descriptor.tags(subject)];
       const queryResult = await deps.eventStore.queryByTags(
         tags,
         descriptor.schemas,
         (events: ReadonlyArray<StoredEvent>) => descriptor.fold(events, subject),
       );
+      deps.recordBoundaryObservation?.({ tags: [...tags], maxPosition: queryResult.maxPosition });
       const withState = addField({}, descriptor.key, queryResult.state);
       // as const required: without it TS widens the template literal to string,
       // losing the `${TKey}Subject` mapped type needed by addField's return type

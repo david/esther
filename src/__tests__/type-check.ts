@@ -5,8 +5,8 @@
 
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent } from "../index";
 import {
+  BoundaryObservationError,
   compose,
   defineCommand,
   defineQuery,
@@ -16,7 +16,12 @@ import {
   generate,
   lookup,
   projection,
+  type BoundaryObservation,
+  type BoundaryObservationError as BoundaryObservationErrorType,
+  type DomainEvent,
   type ReadModelNotFound,
+  type SliceDeps,
+  type SliceError,
   state,
   tagQuery,
 } from "../index";
@@ -63,6 +68,19 @@ const BookingCreatedSchema = z.object({
 });
 
 const propertySchemas = [BookingCreatedSchema];
+
+const _boundaryObservation: BoundaryObservation = {
+  tags: ["property"],
+  maxPosition: undefined,
+};
+const _boundaryObservationError: BoundaryObservationErrorType = BoundaryObservationError([
+  _boundaryObservation,
+]);
+const _boundaryObservationSliceError: SliceError = _boundaryObservationError;
+const _boundaryObservationErrorTag: "BoundaryObservationError" = _boundaryObservationError._tag;
+
+declare const _sliceDepsWithObservationSink: SliceDeps;
+_sliceDepsWithObservationSink.recordBoundaryObservation?.(_boundaryObservation);
 
 const propertyReducer = (
   state: PropertyState,

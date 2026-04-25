@@ -63,7 +63,7 @@ export function compose<TCtx, TError>(
 
 // ── InputPipeline — command-slice descriptor builder ──────────────────
 
-type PipelineDeps = Pick<SliceDeps, "eventStore" | "projectionStore">;
+type PipelineDeps = Pick<SliceDeps, "eventStore" | "projectionStore" | "recordBoundaryObservation">;
 
 type CommandInputDescriptor =
   | TagQueryStep<string, never, unknown>

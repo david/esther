@@ -336,7 +336,7 @@ function validateAppendPrecondition(
   options: AppendOptions | undefined,
   actualPosition: bigint | undefined,
 ): Result<void, ConcurrencyErrorType> {
-  if (!options || options.expectedPosition === undefined) {
+  if (options === undefined) {
     return ok(undefined);
   }
 

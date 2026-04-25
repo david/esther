@@ -1,7 +1,13 @@
 import { err, ok, type Result } from "neverthrow";
 import type { EventStore } from "./event-store";
 import type { Command, ProjectionStore, Query } from "./slice";
-import { type DomainEvent, SchemaError, type SliceError } from "./types";
+import {
+  BoundaryObservationError,
+  type BoundaryObservation,
+  type DomainEvent,
+  SchemaError,
+  type SliceError,
+} from "./types";
 
 function isFrameworkInputError(error: unknown): error is SliceError {
   if (typeof error !== "object" || error === null || !("_tag" in error)) {
@@ -12,6 +18,7 @@ function isFrameworkInputError(error: unknown): error is SliceError {
     tag === "SchemaError" ||
     tag === "ConstraintError" ||
     tag === "ConcurrencyError" ||
+    tag === "BoundaryObservationError" ||
     tag === "ReadModelNotFound" ||
     tag === "ReadModelSchemaError"
   );
@@ -48,7 +55,18 @@ export async function executeCommand<
   const input: TInput = parseResult.data;
 
   // 2. Run input step chain — threads framework deps into user's `input` fn
-  const inputResult = await slice.input(input, { eventStore, projectionStore });
+  const boundaryObservations: BoundaryObservation[] = [];
+  const recordBoundaryObservation = (observation: BoundaryObservation): void => {
+    boundaryObservations.push({
+      tags: [...observation.tags],
+      maxPosition: observation.maxPosition,
+    });
+  };
+  const inputResult = await slice.input(input, {
+    eventStore,
+    projectionStore,
+    recordBoundaryObservation,
+  });
   if (inputResult.isErr()) {
     if (isFrameworkInputError(inputResult.error)) {
       return err(inputResult.error);
@@ -56,6 +74,10 @@ export async function executeCommand<
     return finishCommand(slice, slice.outputErr([inputResult.error], input));
   }
   const ctx: TCtx = inputResult.value;
+
+  if (boundaryObservations.length > 1) {
+    return err(BoundaryObservationError(boundaryObservations));
+  }
 
   // 3. Run all validate predicates, collect errors
   const validationErrors: TError[] = [];
@@ -70,7 +92,12 @@ export async function executeCommand<
   const event = slice.event(ctx);
 
   // 5. Append event — projectors fire via onAfterInsert, processors via onAfterCommit
-  const appendResult = await eventStore.append([event]);
+  const observation = boundaryObservations[0];
+  const appendOptions =
+    observation === undefined
+      ? undefined
+      : { boundaryTags: [...observation.tags], expectedPosition: observation.maxPosition };
+  const appendResult = await eventStore.append([event], appendOptions);
   if (appendResult.isErr()) {
     return err(appendResult.error);
   }

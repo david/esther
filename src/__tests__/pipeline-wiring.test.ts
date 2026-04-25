@@ -8,13 +8,24 @@ import {
   createInMemoryAdapter,
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
+  defineProcessor,
+  defineQuery,
   defineReadModelQuery,
   derive,
+  type AppendOptions,
   type DomainEvent,
+  type EffectAdapter,
+  type EventStore,
   defineCommand,
   defineReadModel,
+  generate,
   lookup,
+  processorEvent,
+  readModelEvent,
   type RegisterableOperation,
+  type StoredEvent,
+  state,
+  tagQuery,
 } from "../index";
 
 // ── Probe domain ───────────────────────────────────────────────────────
@@ -22,7 +33,10 @@ import {
 // minimum scaffolding needed: a unique input schema, a single event type,
 // and an output schema flexible enough for the various assertion shapes.
 
-type ProbeEvent = DomainEvent<"Probe", { a?: number; marker?: string }>;
+type ProbeEvent = DomainEvent<
+  "Probe",
+  { readonly a?: number | undefined; readonly marker?: string | undefined }
+>;
 
 const ProbeSchema = z.object({
   type: z.literal("Probe"),
@@ -59,6 +73,49 @@ function buildAppWith(slice: RegisterableOperation) {
     slices: [slice],
   });
   return { app, eventStore };
+}
+
+function wrapWithConcurrentAppend(
+  base: EventStore,
+  concurrentEvent: ProbeEvent,
+): EventStore {
+  let inserted = false;
+  return {
+    ...base,
+    async queryByTags(tags, schemas, fold) {
+      const result = await base.queryByTags(tags, schemas, fold);
+      if (!inserted) {
+        inserted = true;
+        await base.append([concurrentEvent]);
+      }
+      return result;
+    },
+  };
+}
+
+function wrapWithAppendOptionCapture(
+  base: EventStore,
+  capture: (options: AppendOptions | undefined) => void,
+): EventStore {
+  return {
+    ...base,
+    async append(events, options) {
+      capture(options);
+      return base.append(events, options);
+    },
+  };
+}
+
+async function readProbeEvents(
+  eventStore: EventStore,
+  tags: ReadonlyArray<string>,
+): Promise<ReadonlyArray<ProbeEvent>> {
+  const queried = await eventStore.queryByTags(
+    tags,
+    probeSchemas,
+    (events: ReadonlyArray<ProbeEvent>) => events,
+  );
+  return queried.state;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -748,6 +805,572 @@ describe("command pipeline v2 — wiring", () => {
     if (miss.isOk()) {
       expect(miss.value).toEqual({ userId: "none" });
     }
+  });
+
+  test("tagQuery-derived append precondition rejects stale non-empty boundaries", async () => {
+    const baseEventStore = createInMemoryEventStore();
+    await baseEventStore.append([
+      { type: "Probe", tags: ["probe:stale"], payload: { marker: "initial" } },
+    ]);
+
+    const eventStore = wrapWithConcurrentAppend(baseEventStore, {
+      type: "Probe",
+      tags: ["probe:stale"],
+      payload: { marker: "concurrent" },
+    });
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const slice = defineCommand({
+      name: "probe-stale-tag-query",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ ok: boolean }>(),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: () => ["probe:stale"],
+          schemas: probeSchemas,
+          fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+        }),
+      ),
+      validate: [],
+      event: () => ({
+        type: "Probe" as const,
+        tags: ["probe:stale"],
+        payload: { marker: "command" },
+      }),
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, slices: [slice] });
+    const result = await app.dispatch("probe-stale-tag-query", { a: 1 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as {
+        readonly _tag: string;
+        readonly expectedPosition: bigint | undefined;
+        readonly actualPosition: bigint | undefined;
+        readonly boundaryTags: ReadonlyArray<string> | undefined;
+        readonly message: string;
+      };
+      expect(error).toEqual({
+        _tag: "ConcurrencyError",
+        message: "Append precondition failed: queried tag boundary changed before append",
+        expectedPosition: 0n,
+        actualPosition: 1n,
+        boundaryTags: ["probe:stale"],
+      });
+    }
+
+    const events = await readProbeEvents(baseEventStore, ["probe:stale"]);
+    expect(events.map((event) => event.payload.marker)).toEqual(["initial", "concurrent"]);
+  });
+
+  test("tagQuery-derived append precondition rejects stale empty boundaries", async () => {
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore = wrapWithConcurrentAppend(baseEventStore, {
+      type: "Probe",
+      tags: ["probe:empty"],
+      payload: { marker: "concurrent" },
+    });
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const slice = defineCommand({
+      name: "probe-empty-stale-tag-query",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ ok: boolean }>(),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: () => ["probe:empty"],
+          schemas: probeSchemas,
+          fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+        }),
+      ),
+      validate: [],
+      event: () => ({
+        type: "Probe" as const,
+        tags: ["probe:empty"],
+        payload: { marker: "command" },
+      }),
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, slices: [slice] });
+    const result = await app.dispatch("probe-empty-stale-tag-query", { a: 1 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as {
+        readonly _tag: string;
+        readonly expectedPosition: bigint | undefined;
+        readonly actualPosition: bigint | undefined;
+        readonly boundaryTags: ReadonlyArray<string> | undefined;
+        readonly message: string;
+      };
+      expect(error).toEqual({
+        _tag: "ConcurrencyError",
+        message: "Append precondition failed: queried tag boundary changed before append",
+        expectedPosition: undefined,
+        actualPosition: 0n,
+        boundaryTags: ["probe:empty"],
+      });
+    }
+
+    const events = await readProbeEvents(baseEventStore, ["probe:empty"]);
+    expect(events.map((event) => event.payload.marker)).toEqual(["concurrent"]);
+  });
+
+  test("castTagQuery-derived append precondition rejects stale boundaries and skips command side effects", async () => {
+    const userModel = defineReadModel({
+      name: "cast_observation_users",
+      schema: z.object({ userId: z.string(), name: z.string() }),
+      key: "userId",
+    });
+    const { adapter: userAdapter, get: getUser } = createInMemoryProjectionAdapter(userModel);
+    await userAdapter.execute(userModel.project({ userId: "u-1", name: "Ada" }));
+
+    let outputCalled = false;
+    let projectorCalled = 0;
+    let processorCalled = 0;
+    let effectCalled = 0;
+
+    const baseEventStore = createInMemoryEventStore();
+    await baseEventStore.append([
+      { type: "Probe", tags: ["user:u-1"], payload: { marker: "initial" } },
+    ]);
+    const eventStore = wrapWithConcurrentAppend(baseEventStore, {
+      type: "Probe",
+      tags: ["user:u-1"],
+      payload: { marker: "concurrent" },
+    });
+
+    type CastInput = { readonly userId: string };
+    type UserSubject = { readonly userId: string; readonly name: string };
+    type CastContext = CastInput & {
+      readonly userHistory: { readonly count: number };
+      readonly userHistorySubject: UserSubject;
+    };
+
+    const cast = castTagQuery({
+      key: "userHistory" as const,
+      cast: {
+        model: userModel,
+        id: (ctx: CastInput) => ctx.userId,
+        absent: { type: "NoUser" as const },
+      },
+      tags: (subject) => [`user:${subject.userId}`],
+      schemas: probeSchemas,
+      fold: (events: ReadonlyArray<StoredEvent>, _subject) => ({ count: events.length }),
+    });
+
+    const slice = defineCommand<
+      CastInput,
+      CastContext,
+      { readonly ok: boolean },
+      ProbeEvent,
+      { readonly type: "NoUser" }
+    >({
+      name: "probe-stale-cast-tag-query",
+      inputSchema: z.object({ userId: z.string() }),
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<CastInput>().add(cast),
+      validate: [],
+      event: (ctx) => ({
+        type: "Probe" as const,
+        tags: [`user:${ctx.userHistorySubject.userId}`],
+        payload: { marker: "command" },
+      }),
+      output: () => {
+        outputCalled = true;
+        return ok({ ok: true });
+      },
+      outputErr: {
+        NoUser: () => ok({ ok: false }),
+      },
+    });
+
+    const guardProjection = defineReadModel({
+      name: "cast_observation_guard",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+      events: [
+        readModelEvent<{ readonly id: string }, typeof ProbeSchema, unknown>({
+          schema: ProbeSchema,
+          handler: (event, ctx) => {
+            if (event.payload.marker !== "command") return undefined;
+            projectorCalled += 1;
+            return ctx.project({ id: "command" });
+          },
+        }),
+      ],
+    });
+    const { adapter: guardAdapter, get: getGuard } =
+      createInMemoryProjectionAdapter(guardProjection);
+
+    const processor = defineProcessor({
+      name: "cast_observation_processor",
+      events: [
+        processorEvent({
+          schema: ProbeSchema,
+          handler: (event) => {
+            if (event.payload.marker !== "command") return undefined;
+            processorCalled += 1;
+            return { type: "effect", kind: "cast-observation-command" };
+          },
+        }),
+      ],
+    });
+    const effectAdapter: EffectAdapter = {
+      name: "cast_observation_effect",
+      match: (effect) => effect["kind"] === "cast-observation-command",
+      execute: async (effect) => {
+        effectCalled += 1;
+        return effect;
+      },
+    };
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: userAdapter,
+          get: getUser,
+          constraints: {},
+          tableName: "cast_observation_users",
+          handle: userModel,
+        },
+        {
+          kind: "table",
+          adapter: guardAdapter,
+          get: getGuard,
+          constraints: {},
+          tableName: "cast_observation_guard",
+          handle: guardProjection,
+        },
+      ],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+
+    const result = await app.dispatch("probe-stale-cast-tag-query", { userId: "u-1" });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as {
+        readonly _tag: string;
+        readonly expectedPosition: bigint | undefined;
+        readonly actualPosition: bigint | undefined;
+        readonly boundaryTags: ReadonlyArray<string> | undefined;
+        readonly message: string;
+      };
+      expect(error).toEqual({
+        _tag: "ConcurrencyError",
+        message: "Append precondition failed: queried tag boundary changed before append",
+        expectedPosition: 0n,
+        actualPosition: 1n,
+        boundaryTags: ["user:u-1"],
+      });
+    }
+
+    const events = await readProbeEvents(baseEventStore, ["user:u-1"]);
+    expect(events.map((event) => event.payload.marker)).toEqual(["initial", "concurrent"]);
+    expect(outputCalled).toBe(false);
+    expect(projectorCalled).toBe(0);
+    expect(processorCalled).toBe(0);
+    expect(effectCalled).toBe(0);
+  });
+
+  test("lookup derive and generate commands append without observation preconditions", async () => {
+    const baseEventStore = createInMemoryEventStore();
+    const appendOptions: Array<AppendOptions | undefined> = [];
+    const eventStore = wrapWithAppendOptionCapture(baseEventStore, (options) => {
+      appendOptions.push(options);
+    });
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const accountModel = defineReadModel({
+      name: "non_observing_accounts",
+      schema: z.object({ accountId: z.string() }),
+      key: "accountId",
+    });
+
+    const lookupSlice = defineCommand<
+      ProbeInput,
+      ProbeInput & { readonly account: { readonly accountId: string } },
+      { readonly ok: boolean },
+      ProbeEvent,
+      { readonly type: "MissingAccount" }
+    >({
+      name: "probe-non-observing-lookup",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>().add(
+        lookup({
+          key: "account" as const,
+          model: accountModel,
+          id: () => "acc-1",
+          absent: { type: "MissingAccount" as const },
+        }),
+      ),
+      validate: [],
+      event: () => ({
+        type: "Probe" as const,
+        tags: ["probe:non-observing:lookup"],
+        payload: { marker: "lookup" },
+      }),
+      output: () => ok({ ok: true }),
+      outputErr: {
+        MissingAccount: () => ok({ ok: false }),
+      },
+    });
+
+    const deriveSlice = defineCommand({
+      name: "probe-non-observing-derive",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>().add(
+        derive({
+          fn: (ctx: ProbeInput) => ok({ doubled: ctx.a * 2 }),
+        }),
+      ),
+      validate: [],
+      event: () => ({
+        type: "Probe" as const,
+        tags: ["probe:non-observing:derive"],
+        payload: { marker: "derive" },
+      }),
+      output: () => ok({ ok: true }),
+    });
+
+    const generateSlice = defineCommand({
+      name: "probe-non-observing-generate",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>().add(
+        generate({
+          key: "generated" as const,
+          fn: (ctx: ProbeInput) => `generated-${ctx.a}`,
+        }),
+      ),
+      validate: [],
+      event: () => ({
+        type: "Probe" as const,
+        tags: ["probe:non-observing:generate"],
+        payload: { marker: "generate" },
+      }),
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [lookupSlice, deriveSlice, generateSlice],
+      projectionAdapters: [
+        {
+          kind: "view",
+          name: accountModel.name,
+          get: async () => ok({ value: { accountId: "acc-1" } }),
+        },
+      ],
+    });
+
+    const lookupResult = await app.dispatch("probe-non-observing-lookup", { a: 1 });
+    const deriveResult = await app.dispatch("probe-non-observing-derive", { a: 1 });
+    const generateResult = await app.dispatch("probe-non-observing-generate", { a: 1 });
+
+    expect(lookupResult.isOk()).toBe(true);
+    expect(deriveResult.isOk()).toBe(true);
+    expect(generateResult.isOk()).toBe(true);
+    expect(appendOptions).toEqual([undefined, undefined, undefined]);
+  });
+
+  test("multiple command-side event-history observations fail before downstream work", async () => {
+    let validationCalled = false;
+    let eventCalled = false;
+    let outputCalled = false;
+    let appendCalls = 0;
+    let projectorCalled = 0;
+    let processorCalled = 0;
+    let effectCalled = 0;
+    const firstTags = ["probe:multi-1"];
+    const secondTags = ["probe:multi-2"];
+
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    const projectionModel = defineReadModel({
+      name: "probe_guard_projection",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+      events: [
+        readModelEvent<{ readonly id: string }, typeof ProbeSchema, unknown>({
+          schema: ProbeSchema,
+          handler: (event, ctx) => {
+            projectorCalled += 1;
+            return ctx.project({ id: event.payload.marker ?? "missing" });
+          },
+        }),
+      ],
+    });
+    const { adapter: projectionAdapter, get } = createInMemoryProjectionAdapter(projectionModel);
+
+    const processor = defineProcessor({
+      name: "probe_guard_processor",
+      events: [
+        processorEvent({
+          schema: ProbeSchema,
+          handler: () => {
+            processorCalled += 1;
+            return { type: "effect", kind: "probe-guard" };
+          },
+        }),
+      ],
+    });
+    const effectAdapter: EffectAdapter = {
+      name: "probe_guard_effect",
+      match: (effect) => effect["kind"] === "probe-guard",
+      execute: async (effect) => {
+        effectCalled += 1;
+        return effect;
+      },
+    };
+
+    const slice = defineCommand({
+      name: "probe-multiple-observations",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ ok: boolean }>(),
+      input: compose<ProbeInput>()
+        .add(
+          tagQuery({
+            key: "one" as const,
+            tags: () => firstTags,
+            schemas: probeSchemas,
+            fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+          }),
+        )
+        .add(
+          tagQuery({
+            key: "two" as const,
+            tags: () => secondTags,
+            schemas: probeSchemas,
+            fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+          }),
+        ),
+      validate: [
+        () => {
+          validationCalled = true;
+          return [];
+        },
+      ],
+      event: () => {
+        eventCalled = true;
+        return { type: "Probe" as const, tags: ["probe:multi"], payload: { marker: "command" } };
+      },
+      output: () => {
+        outputCalled = true;
+        return ok({ ok: true });
+      },
+    });
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projectionAdapter,
+          get,
+          constraints: {},
+          tableName: "probe_guard_projection",
+          handle: projectionModel,
+        },
+      ],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+
+    const result = await app.dispatch("probe-multiple-observations", { a: 1 });
+    firstTags.push("mutated");
+    secondTags.push("mutated");
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      const error = result.error as {
+        readonly _tag: string;
+        readonly observations: ReadonlyArray<{
+          readonly tags: ReadonlyArray<string>;
+          readonly maxPosition: bigint | undefined;
+        }>;
+      };
+      expect(error._tag).toBe("BoundaryObservationError");
+      expect(error.observations).toEqual([
+        { tags: ["probe:multi-1"], maxPosition: undefined },
+        { tags: ["probe:multi-2"], maxPosition: undefined },
+      ]);
+      expect(error.observations[0]?.tags).not.toBe(firstTags);
+      expect(error.observations[1]?.tags).not.toBe(secondTags);
+    }
+
+    expect(validationCalled).toBe(false);
+    expect(eventCalled).toBe(false);
+    expect(appendCalls).toBe(0);
+    expect(outputCalled).toBe(false);
+    expect(projectorCalled).toBe(0);
+    expect(processorCalled).toBe(0);
+    expect(effectCalled).toBe(0);
+  });
+
+  test("query-side tagQuery remains read-only and does not append", async () => {
+    const baseEventStore = createInMemoryEventStore();
+    await baseEventStore.append([
+      { type: "Probe", tags: ["probe:query"], payload: { marker: "existing" } },
+    ]);
+    let appendCalls = 0;
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    const query = defineQuery({
+      name: "probe-query-tag-query-read-only",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ count: z.number() }),
+      state: state<ProbeInput>().pipe(
+        tagQuery({
+          key: "history" as const,
+          tags: () => ["probe:query"],
+          schemas: probeSchemas,
+          fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+        }),
+      ),
+      handle: (ctx) => ok({ count: ctx.history.count }),
+    });
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, slices: [query] });
+    const result = await app.dispatch("probe-query-tag-query-read-only", { a: 1 });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ count: 1 });
+    }
+    expect(appendCalls).toBe(0);
   });
 
   test("outputSchema parses both success and error branches", async () => {

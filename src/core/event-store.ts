@@ -26,7 +26,12 @@ export type ConstraintMetadata = {
 // ── Event store interface ──────────────────────────────────────────────
 
 export type AppendOptions = {
+  /**
+   * Expected latest position for the selected boundary. When options are present,
+   * `undefined` means the boundary must currently be empty.
+   */
   readonly expectedPosition: bigint | undefined;
+  /** `undefined` and `[]` both select the global stream boundary. */
   readonly boundaryTags: ReadonlyArray<string> | undefined;
 };
 
