@@ -14,7 +14,9 @@ import type {
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
 import {
   normalizeReadModelRegistrations,
+  type NormalizedReadModelRegistration,
   type ProjectionAdapterEntry,
+  type ProjectionQuery,
   type ReadModelRegistration,
 } from "./read-model-registration.js";
 import type { CompiledOperation, ProjectionStore, RegisterableOperation } from "./slice.js";
@@ -65,13 +67,19 @@ export function createApp(config: AppConfig): App {
     string,
     (id: string) => Promise<Result<{ value: unknown }, ReadModelNotFound>>
   >();
-  // Route by kind: table → both maps, view → read map only
+  const projectionQueries = new Map<string, ProjectionQuery<unknown>>();
+  // Route by kind: table → write/read maps, view → read map only.
+  // Query-capable table and view registrations also populate the per-model query map.
   for (const entry of projectionAdapters) {
     if (entry.kind === "table") {
       projectionAdapterRegistry.set(entry.adapter.name, entry.adapter);
       projectionGetters.set(entry.adapter.name, entry.get);
     } else {
       projectionGetters.set(entry.name, entry.get);
+    }
+
+    if (entry.query !== undefined) {
+      projectionQueries.set(entry.name, entry.query);
     }
   }
 
@@ -84,22 +92,25 @@ export function createApp(config: AppConfig): App {
       return await getter(id);
     },
     query: async (sourceName, entries, orderBy, limit, orderDirection) => {
-      const queryAdapter = config.projectionQuery;
-      if (!queryAdapter) {
-        return err(mkReadModelNotFound(sourceName, "query"));
-      }
-      const rows = await queryAdapter.query(sourceName, entries, orderBy, limit, orderDirection);
-      if (rows.length === 0) {
+      const query = projectionQueries.get(sourceName);
+      const rows =
+        query !== undefined
+          ? await query(entries, orderBy, limit, orderDirection)
+          : await config.projectionQuery?.query(sourceName, entries, orderBy, limit, orderDirection);
+      if (rows === undefined || rows.length === 0) {
         return err(mkReadModelNotFound(sourceName, "query"));
       }
       return ok({ value: rows[0] });
     },
     queryMany: async (sourceName, entries, orderBy, limit, orderDirection) => {
-      const queryAdapter = config.projectionQuery;
-      if (!queryAdapter) {
+      const query = projectionQueries.get(sourceName);
+      const rows =
+        query !== undefined
+          ? await query(entries, orderBy, limit, orderDirection)
+          : await config.projectionQuery?.query(sourceName, entries, orderBy, limit, orderDirection);
+      if (rows === undefined) {
         return err(mkReadModelNotFound(sourceName, "query"));
       }
-      const rows = await queryAdapter.query(sourceName, entries, orderBy, limit, orderDirection);
       return ok({ value: rows });
     },
   };
@@ -126,16 +137,20 @@ export function createApp(config: AppConfig): App {
 
   // Shared read interpreter — created lazily if processors or read model events need it
   function getReadInterpreter(): ReadInterpreter {
-    const noopProjectionQuery: ProjectionQueryAdapter = {
-      async query() {
-        return [];
+    const projectionQuery: ProjectionQueryAdapter = {
+      async query(sourceName, entries, orderBy, limit, orderDirection) {
+        const query = projectionQueries.get(sourceName);
+        if (query !== undefined) {
+          return query(entries, orderBy, limit, orderDirection);
+        }
+        return config.projectionQuery?.query(sourceName, entries, orderBy, limit, orderDirection) ?? [];
       },
     };
 
     return createReadInterpreter({
       eventStore,
       projectionStore,
-      projectionQuery: config.projectionQuery ?? noopProjectionQuery,
+      projectionQuery,
     });
   }
 
@@ -211,7 +226,7 @@ function iterateReadMap(reads: ReadMapShape): ReadonlyArray<readonly [string, Re
 }
 
 function wireReadModelEvents(
-  projectionAdapters: ReadonlyArray<ProjectionAdapterEntry>,
+  projectionAdapters: ReadonlyArray<NormalizedReadModelRegistration>,
   eventStore: EventStore,
   readInterpreter: ReadInterpreter,
 ): void {

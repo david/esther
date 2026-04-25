@@ -4,10 +4,14 @@ import {
   createInMemoryAdapter,
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
+  defineProcessor,
   defineQuery,
   defineReadModel,
   defineReadModelQuery,
+  type EffectAdapter,
+  processorEvent,
   projection,
+  queryDescriptor,
   state,
 } from "../index";
 import { err, ok } from "neverthrow";
@@ -35,7 +39,202 @@ const allSongs = defineReadModelQuery({
 });
 
 describe("query slice list projections", () => {
-  test("projection({ many: true }) returns all matching rows", async () => {
+  test("projection({ many: true }) returns all matching rows from canonical readModels query", async () => {
+    const eventStore = createInMemoryEventStore();
+    const input = createInMemoryAdapter();
+    const songsProjection = createInMemoryProjectionAdapter(songs);
+    let legacyQueryCalled = false;
+
+    const listSongs = defineQuery({
+      name: "songs/list-many-canonical",
+      inputSchema: z.object({}),
+      outputSchema: z.array(songs.schema),
+      state: state<Record<string, never>>().pipe(
+        projection({
+          key: "rows" as const,
+          model: allSongs,
+          args: () => ({}),
+          many: true,
+        }),
+      ),
+      handle: (ctx) => ok(ctx.rows),
+    });
+
+    const app = createApp({
+      eventStore,
+      readModels: [songsProjection],
+      projectionQuery: {
+        query: async () => {
+          legacyQueryCalled = true;
+          return [{ songId: "legacy-song", title: "Legacy" }];
+        },
+      },
+      inputAdapter: input,
+      slices: [listSongs],
+    });
+
+    await songsProjection.adapter.execute(
+      songs.project({ songId: "song-2", title: "Vem" }, "insert"),
+    );
+    await songsProjection.adapter.execute(
+      songs.project({ songId: "song-1", title: "Aclame" }, "insert"),
+    );
+
+    const result = await app.dispatch("songs/list-many-canonical", {});
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual([
+      { songId: "song-1", title: "Aclame" },
+      { songId: "song-2", title: "Vem" },
+    ] satisfies ReadonlyArray<SongRow>);
+    expect(legacyQueryCalled).toBe(false);
+  });
+
+  test("read-only registrations can provide query capability", async () => {
+    const eventStore = createInMemoryEventStore();
+    const input = createInMemoryAdapter();
+
+    const listSongs = defineQuery({
+      name: "songs/list-many-readonly",
+      inputSchema: z.object({}),
+      outputSchema: z.array(songs.schema),
+      state: state<Record<string, never>>().pipe(
+        projection({
+          key: "rows" as const,
+          model: allSongs,
+          args: () => ({}),
+          many: true,
+        }),
+      ),
+      handle: (ctx) => ok(ctx.rows),
+    });
+
+    const app = createApp({
+      eventStore,
+      readModels: [
+        {
+          kind: "view",
+          name: songs.name,
+          get: async (id) => err({ _tag: "ReadModelNotFound", name: songs.name, id }),
+          query: async () => [{ songId: "song-1", title: "Aclame" }],
+        },
+      ],
+      inputAdapter: input,
+      slices: [listSongs],
+    });
+
+    const result = await app.dispatch("songs/list-many-readonly", {});
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual([{ songId: "song-1", title: "Aclame" }]);
+  });
+
+  test("query projections without per-model or legacy query return ReadModelNotFound", async () => {
+    const eventStore = createInMemoryEventStore();
+    const input = createInMemoryAdapter();
+
+    const listSongs = defineQuery({
+      name: "songs/list-missing-query",
+      inputSchema: z.object({}),
+      outputSchema: z.array(songs.schema),
+      state: state<Record<string, never>>().pipe(
+        projection({
+          key: "rows" as const,
+          model: allSongs,
+          args: () => ({}),
+          many: true,
+        }),
+      ),
+      handle: (ctx) => ok(ctx.rows),
+    });
+
+    const app = createApp({
+      eventStore,
+      readModels: [
+        {
+          kind: "view",
+          name: songs.name,
+          get: async (id) => err({ _tag: "ReadModelNotFound", name: songs.name, id }),
+        },
+      ],
+      inputAdapter: input,
+      slices: [listSongs],
+    });
+
+    const result = await app.dispatch("songs/list-missing-query", {});
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr()).toEqual({
+      _tag: "ReadModelNotFound",
+      name: songs.name,
+      id: "query",
+    });
+  });
+
+  test("read-interpreter query reads use per-model queries and default to empty rows", async () => {
+    const eventStore = createInMemoryEventStore();
+    const input = createInMemoryAdapter();
+    const songsProjection = createInMemoryProjectionAdapter(songs);
+    const capturedCounts: number[] = [];
+    const QuerySongsSchema = z.object({
+      type: z.literal("QuerySongs"),
+      tags: z.array(z.string()),
+      payload: z.object({}),
+    });
+
+    const processor = defineProcessor({
+      name: "songs-query-processor",
+      events: [
+        processorEvent({
+          schema: QuerySongsSchema,
+          reads: {
+            rows: () => queryDescriptor({ model: songs, where: {} }),
+          },
+          handler: (_event, reads: { readonly rows: ReadonlyArray<SongRow> }) => ({
+            type: "effect",
+            kind: "song-query-count",
+            count: reads.rows.length,
+          }),
+        }),
+      ],
+    });
+
+    const effectAdapter: EffectAdapter = {
+      name: "song-query-count-capture",
+      match: (effect) => effect["kind"] === "song-query-count",
+      execute: async (effect) => {
+        if (typeof effect["count"] === "number") {
+          capturedCounts.push(effect["count"]);
+        }
+        return effect;
+      },
+    };
+
+    createApp({
+      eventStore,
+      readModels: [songsProjection],
+      inputAdapter: input,
+      slices: [],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+
+    await songsProjection.adapter.execute(
+      songs.project({ songId: "song-1", title: "Aclame" }, "insert"),
+    );
+    await eventStore.append([{ type: "QuerySongs", tags: [], payload: {} }]);
+
+    const eventStoreWithoutQuery = createInMemoryEventStore();
+    createApp({
+      eventStore: eventStoreWithoutQuery,
+      inputAdapter: createInMemoryAdapter(),
+      slices: [],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+    await eventStoreWithoutQuery.append([{ type: "QuerySongs", tags: [], payload: {} }]);
+
+    expect(capturedCounts).toEqual([1, 0]);
+  });
+
+  test("legacy projectionQuery keeps projection({ many: true }) compatibility", async () => {
     const eventStore = createInMemoryEventStore();
     const input = createInMemoryAdapter();
     const songsProjection = createInMemoryProjectionAdapter(songs);
