@@ -29,6 +29,25 @@ function makeResult(value: Member, operation: "insert" | "update" | "upsert" | "
   return handle.project(value, operation);
 }
 
+// ── registration shape ──────────────────────────────────────────────
+
+describe("factory result", () => {
+  test("exposes an app-ready registration while preserving low-level handles", async () => {
+    const registration = createInMemoryProjectionAdapter(handle);
+    const { adapter, get, query } = registration;
+
+    await adapter.execute(makeResult(member, "insert"));
+
+    expect(registration.kind).toBe("readModel");
+    expect(registration.handle).toBe(handle);
+    expect(registration.adapter).toBe(adapter);
+    expect(registration.get).toBe(get);
+    expect(registration.query).toBe(query);
+    expect((await get(member.id))._unsafeUnwrap().value).toEqual(member);
+    expect(await query([], undefined, undefined)).toEqual([member]);
+  });
+});
+
 // ── insert ──────────────────────────────────────────────────────────
 
 describe("insert", () => {

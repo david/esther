@@ -57,7 +57,7 @@ export function createApp(config: AppConfig): App {
     readModels: config.readModels,
     projectionAdapters: config.projectionAdapters,
   });
-  const projectionAdapters = readModelRegistrations.legacyProjectionAdapters;
+  const projectionAdapters = readModelRegistrations.entries;
 
   // Build projection adapter registry and projection store
   const projectionAdapterRegistry = new Map<string, ProjectionAdapter<unknown>>();

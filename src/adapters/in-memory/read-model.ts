@@ -6,6 +6,11 @@ import type {
   WhereEntry,
 } from "../../core/read-model";
 import { ReadModelNotFound } from "../../core/read-model";
+import type {
+  ProjectionGetter,
+  ProjectionQuery,
+  WritableReadModelRegistration,
+} from "../../core/read-model-registration";
 
 // ── In-memory projection adapter ────────────────────────────────────
 
@@ -13,21 +18,13 @@ type StoredEntry<T> = {
   readonly value: T;
 };
 
-type OrderDirection = "asc" | "desc";
-
 type ProjectionRow = {
   readonly [key: string]: unknown;
 };
 
-type InMemoryProjectionAdapterResult<T> = {
-  readonly adapter: ProjectionAdapter<T>;
-  readonly get: (id: string) => Promise<Result<StoredEntry<T>, ReadModelNotFound>>;
-  readonly query: (
-    entries: ReadonlyArray<WhereEntry>,
-    orderBy: string | undefined,
-    limit: number | undefined,
-    orderDirection?: OrderDirection | undefined,
-  ) => Promise<ReadonlyArray<T>>;
+type InMemoryProjectionAdapterResult<T> = WritableReadModelRegistration<T> & {
+  readonly get: ProjectionGetter<T>;
+  readonly query: ProjectionQuery<T>;
 };
 
 // ── Type-safe dynamic field access ────────────────────────────────
@@ -136,7 +133,7 @@ export function createInMemoryProjectionAdapter<T extends ProjectionRow>(
     entries: ReadonlyArray<WhereEntry>,
     orderBy: string | undefined,
     limit: number | undefined,
-    orderDirection: OrderDirection = "asc",
+    orderDirection = "asc",
   ): Promise<ReadonlyArray<T>> {
     const values: T[] = [];
     for (const entry of store.values()) {
@@ -161,5 +158,5 @@ export function createInMemoryProjectionAdapter<T extends ProjectionRow>(
     return values;
   }
 
-  return { adapter, get, query };
+  return { kind: "readModel", handle, adapter, get, query };
 }
