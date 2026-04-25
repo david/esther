@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
+import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
 import type { DomainEvent } from "../../core/types";
 import { createInMemoryEventStore } from "./event-store";
 
@@ -114,99 +115,4 @@ describe("queryByTags", () => {
   });
 });
 
-describe("append preconditions", () => {
-  test("fails when expectedPosition is stale for the requested boundary", async () => {
-    const store = createInMemoryEventStore();
-    await store.append([makeEvent("TestHappened", ["issue:ab12"])]);
-    const query = await store.queryByTags(["issue:ab12"], [AnyEventSchema], (events) => events);
-    await store.append([makeEvent("OtherHappened", ["issue:ab12"])]);
-
-    const stale = await store.append([makeEvent("ThirdHappened", ["issue:ab12"])], {
-      expectedPosition: query.maxPosition,
-      boundaryTags: ["issue:ab12"],
-    });
-
-    expect(stale.isErr()).toBe(true);
-    if (stale.isErr()) {
-      expect("_tag" in stale.error && stale.error._tag).toBe("ConcurrencyError");
-    }
-  });
-
-  test("treats expectedPosition undefined as an empty tagged boundary precondition", async () => {
-    const store = createInMemoryEventStore();
-
-    const emptyBoundary = await store.append([makeEvent("IssueCreated", ["issue:1"])], {
-      expectedPosition: undefined,
-      boundaryTags: ["issue:1"],
-    });
-    const staleEmptyBoundary = await store.append([makeEvent("IssueUpdated", ["issue:1"])], {
-      expectedPosition: undefined,
-      boundaryTags: ["issue:1"],
-    });
-
-    expect(emptyBoundary.isOk()).toBe(true);
-    expect(staleEmptyBoundary.isErr()).toBe(true);
-    if (staleEmptyBoundary.isErr()) {
-      expect(staleEmptyBoundary.error).toMatchObject({
-        _tag: "ConcurrencyError",
-        expectedPosition: undefined,
-        actualPosition: 0n,
-        boundaryTags: ["issue:1"],
-      });
-    }
-  });
-
-  test("treats undefined boundaryTags as a global empty-stream precondition", async () => {
-    const store = createInMemoryEventStore();
-
-    const emptyGlobal = await store.append([makeEvent("FirstHappened")], {
-      expectedPosition: undefined,
-      boundaryTags: undefined,
-    });
-    const staleEmptyGlobal = await store.append([makeEvent("SecondHappened")], {
-      expectedPosition: undefined,
-      boundaryTags: undefined,
-    });
-
-    expect(emptyGlobal.isOk()).toBe(true);
-    expect(staleEmptyGlobal.isErr()).toBe(true);
-    if (staleEmptyGlobal.isErr()) {
-      expect(staleEmptyGlobal.error).toMatchObject({
-        _tag: "ConcurrencyError",
-        expectedPosition: undefined,
-        actualPosition: 0n,
-        boundaryTags: undefined,
-      });
-    }
-  });
-
-  test("treats undefined and empty boundaryTags as the global stream boundary", async () => {
-    const undefinedBoundaryStore = createInMemoryEventStore();
-    await undefinedBoundaryStore.append([makeEvent("FirstHappened")], {
-      expectedPosition: undefined,
-      boundaryTags: undefined,
-    });
-
-    const undefinedBoundaryResult = await undefinedBoundaryStore.append(
-      [makeEvent("SecondHappened")],
-      {
-        expectedPosition: 0n,
-        boundaryTags: undefined,
-      },
-    );
-
-    const emptyBoundaryStore = createInMemoryEventStore();
-    await emptyBoundaryStore.append([makeEvent("FirstHappened")], {
-      expectedPosition: undefined,
-      boundaryTags: [],
-    });
-
-    const emptyBoundaryResult = await emptyBoundaryStore.append([makeEvent("SecondHappened")], {
-      expectedPosition: 0n,
-      boundaryTags: [],
-    });
-
-    expect(undefinedBoundaryResult.isOk()).toBe(true);
-    expect(emptyBoundaryResult.isOk()).toBe(true);
-  });
-});
+defineEventStoreAppendConformanceTests("in-memory", () => createInMemoryEventStore());

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
 import type { DomainEvent } from "../../core/types";
 import { ConstraintError } from "../../core/types";
 import { createMockSql } from "./mock-sql";
@@ -126,8 +127,12 @@ type QueryLogEntry =
   | { readonly kind: "afterInsert" };
 
 type EventTableRow = {
+  readonly id: string;
+  readonly type: string;
   readonly tags: ReadonlyArray<string>;
+  readonly payload: unknown;
   readonly position: bigint;
+  readonly timestamp: Date;
 };
 
 function event(type: string, tags: ReadonlyArray<string>): DomainEvent {
@@ -185,16 +190,40 @@ function createEventStoreHarness(): {
       return [{ pos: pos === undefined ? "-1" : pos.toString() }];
     }
 
+    if (query.includes("SELECT id, type, tags, payload, position, timestamp")) {
+      const tags = boundaryTagsFromParams(params);
+      return rows
+        .filter((row) => tags.every((tag) => row.tags.includes(tag)))
+        .sort((left, right) => (left.position < right.position ? -1 : left.position > right.position ? 1 : 0))
+        .map((row) => ({
+          id: row.id,
+          type: row.type,
+          tags: row.tags,
+          payload: row.payload,
+          position: row.position.toString(),
+          timestamp: row.timestamp,
+        }));
+    }
+
     if (query.includes("INSERT INTO events")) {
+      const id = params[0];
+      const type = params[1];
       const tags = params[2];
+      const payload = params[3];
       const position = params[4];
+      if (typeof id !== "string") {
+        throw new Error("postgres event-store test harness: expected inserted id string");
+      }
+      if (typeof type !== "string") {
+        throw new Error("postgres event-store test harness: expected inserted type string");
+      }
       if (!Array.isArray(tags) || !tags.every((tag) => typeof tag === "string")) {
         throw new Error("postgres event-store test harness: expected inserted tags array");
       }
       if (typeof position !== "string") {
         throw new Error("postgres event-store test harness: expected inserted position string");
       }
-      rows.push({ tags, position: BigInt(position) });
+      rows.push({ id, type, tags, payload, position: BigInt(position), timestamp: new Date() });
       return [];
     }
 
@@ -215,91 +244,12 @@ function queryKinds(log: ReadonlyArray<QueryLogEntry>): ReadonlyArray<string> {
   });
 }
 
+defineEventStoreAppendConformanceTests("postgres", () => {
+  const { sql } = createEventStoreHarness();
+  return createPostgresEventStore({ sql });
+});
+
 describe("createPostgresEventStore — append preconditions", () => {
-  test("present options with expectedPosition undefined protect an empty tag boundary", async () => {
-    const { sql } = createEventStoreHarness();
-    const store = createPostgresEventStore({ sql });
-
-    const first = await store.append([event("ThingCreated", ["thing:1"])], {
-      boundaryTags: ["thing:1"],
-      expectedPosition: undefined,
-    });
-    expect(first.isOk()).toBe(true);
-
-    const stale = await store.append([event("ThingCreatedAgain", ["thing:1"])], {
-      boundaryTags: ["thing:1"],
-      expectedPosition: undefined,
-    });
-
-    expect(stale.isErr()).toBe(true);
-    if (stale.isErr()) {
-      expect(stale.error).toEqual({
-        _tag: "ConcurrencyError",
-        message: "Append precondition failed: queried tag boundary changed before append",
-        expectedPosition: undefined,
-        actualPosition: 0n,
-        boundaryTags: ["thing:1"],
-      });
-    }
-  });
-
-  test("present options with boundaryTags undefined protect the empty global stream", async () => {
-    const { sql } = createEventStoreHarness();
-    const store = createPostgresEventStore({ sql });
-
-    const first = await store.append([event("ThingCreated", ["thing:1"])], {
-      boundaryTags: undefined,
-      expectedPosition: undefined,
-    });
-    expect(first.isOk()).toBe(true);
-
-    const stale = await store.append([event("OtherThingCreated", ["thing:2"])], {
-      boundaryTags: undefined,
-      expectedPosition: undefined,
-    });
-
-    expect(stale.isErr()).toBe(true);
-    if (stale.isErr()) {
-      expect(stale.error).toEqual({
-        _tag: "ConcurrencyError",
-        message: "Append precondition failed: queried tag boundary changed before append",
-        expectedPosition: undefined,
-        actualPosition: 0n,
-        boundaryTags: undefined,
-      });
-    }
-  });
-
-  test("present options with boundaryTags undefined and expectedPosition 0 require global latest position 0", async () => {
-    const { sql } = createEventStoreHarness();
-    const store = createPostgresEventStore({ sql });
-
-    const seed = await store.append([event("ThingCreated", ["thing:1"])]);
-    expect(seed.isOk()).toBe(true);
-
-    const next = await store.append([event("OtherThingCreated", ["thing:2"])], {
-      boundaryTags: undefined,
-      expectedPosition: 0n,
-    });
-    expect(next.isOk()).toBe(true);
-
-    const stale = await store.append([event("ThirdThingCreated", ["thing:3"])], {
-      boundaryTags: undefined,
-      expectedPosition: 0n,
-    });
-
-    expect(stale.isErr()).toBe(true);
-    if (stale.isErr()) {
-      expect(stale.error).toEqual({
-        _tag: "ConcurrencyError",
-        message: "Append precondition failed: queried tag boundary changed before append",
-        expectedPosition: 0n,
-        actualPosition: 1n,
-        boundaryTags: undefined,
-      });
-    }
-  });
-
   test("acquires transaction-scoped advisory append lock before precondition read, allocation, insert, and in-transaction handlers", async () => {
     const { sql, log } = createEventStoreHarness();
     const store = createPostgresEventStore({ sql });
