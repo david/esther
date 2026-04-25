@@ -68,6 +68,24 @@ Current approved cast categories are limited to boundary cases such as:
 
 Do not add new cast sites casually. If a new one is truly unavoidable, keep it local, document why, and prefer `unknown` over a wider unsound type.
 
+## Module size and cohesion
+
+Avoid letting files grow into mixed-responsibility catchalls. When adding or changing code, check whether the file still has one clear purpose.
+
+Prefer extracting cohesive abstractions when a file starts accumulating multiple concepts, such as:
+- reusable parsing, normalization, or validation helpers
+- adapter-specific serialization or persistence details
+- focused DSL builder utilities
+- named error/result mapping helpers
+- test fixtures or scenario builders
+
+Extraction rules:
+- split by domain responsibility, not by arbitrary line-count chunks
+- keep extracted modules small, named after the concept they own, and colocated with their callers unless they are truly shared
+- preserve dependency boundaries from `doc/architecture.md`; do not introduce cross-adapter imports or adapter imports from core
+- avoid extracting tiny one-off helpers that make call sites harder to read
+- update public entrypoints only when the extracted concept is intentionally part of the public API
+
 ## Module and import conventions
 
 - Follow the existing ESM import style used in the repo.

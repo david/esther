@@ -19,6 +19,7 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 - Slices, read models, projectors, and processors do not perform direct I/O. Query logic belongs in named read model queries, not inline in slices.
 - Typecheck uses `tsgo`. Lint means ESLint plus dependency-cruiser. Biome is formatting only.
 - No `Record<string, unknown>` as a value type, and no bare `object`. Use explicit shapes, `Record<never, never>` for intentionally empty object shapes, or named internal patch/dictionary types when keyed dynamic data is genuinely required.
+- Avoid files becoming mixed-responsibility catchalls; extract cohesive abstractions into colocated modules while preserving architecture boundaries.
 - Issues use nested lanes under `.issues/lanes/`: `backlog`, `in-progress`, and `done`. Do not create top-level `.issues/backlog` or separate local `ready`/`qa` lanes.
 
 ## TOC
