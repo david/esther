@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: automated checks passed; ready for QA
+Status: QA passed; ready for deploy
 
 ## Active artifacts
 Description:
@@ -23,5 +23,10 @@ Review:
 Check results:
 - review/findings/01-gate-results.md
 
+QA:
+- qa/tasks/qa-focused-adapter-conformance.md
+- qa/tasks/qa-full-repo-gates.md
+- qa/summary.md
+
 ## Next suggested step
-- {{/skill:qa 0vde2-adapter-conformance}}
+- {{/skill:deploy 0vde2-adapter-conformance}}
