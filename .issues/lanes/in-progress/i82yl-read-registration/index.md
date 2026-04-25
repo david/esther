@@ -24,6 +24,10 @@ Research artifacts written:
 4. [04 — Make postgres factory registrations app-ready](impl/04.md)
 5. [05 — Finish public API coverage and migration examples](impl/05.md)
 
+## Latest review
+
+1. [Review Diff Digest — i82yl-read-registration](review/diff/01-review-diff.md) — no actionable findings; recommended next step is full gates
+
 ## Current status
 
 Current-state evidence shows read-side registration is split across:
@@ -40,4 +44,4 @@ Plan sanity check approved the plan for breakdown. Breakdown created implementat
 
 ## Suggested next step
 
-Use {{/skill:impl i82yl-read-registration}}.
+Use {{/skill:check i82yl-read-registration}}.
