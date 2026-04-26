@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation task 01 complete
+Status: semantic diff review complete
 
 ## Active artifacts
 Description:
@@ -17,6 +17,12 @@ Implementation plan:
 Plan check:
 - plan/checks/01-plan-sanity.md — approved
 
+Implementation checkpoints:
+- impl/checkpoints/01.md through impl/checkpoints/05.md — aligned
+
+Review:
+- review/diff/01-review-diff.md — no actionable code findings; branch-scope items noted
+
 ## Key decision
 - No compatibility. Public event-history query surfaces require `defineReducer(...)` output. Raw `schemas + fold` forms removed.
 
@@ -24,4 +30,4 @@ Implementation tasks:
 - impl/01.md through impl/05.md
 
 ## Next suggested step
-- Run {{/skill:impl heqik-define-reducer}}
+- Run {{/skill:gates heqik-define-reducer}}
