@@ -1,8 +1,8 @@
 # heqik-define-reducer Index
 
 ## Current state
-Lane: in-progress
-Status: PR opened, CI passed — https://github.com/david/esther/pull/6
+Lane: done
+Status: merged to main — https://github.com/david/esther/pull/6
 
 ## Active artifacts
 Description:
@@ -27,7 +27,8 @@ QA:
 - qa/summary.md — passed; 3 passed, 0 failed, 0 skipped
 
 Deploy:
-- deploy/01-pr.md — PR opened; lane not moved until merge
+- deploy/01-pr.md — PR opened
+- deploy/02-release.md — PR merged to `main`; lane moved to done
 
 ## Key decision
 - No compatibility. Public event-history query surfaces require `defineReducer(...)` output. Raw `schemas + fold` forms removed.
@@ -35,6 +36,10 @@ Deploy:
 Implementation tasks:
 - impl/01.md through impl/05.md
 
+## Closure evidence
+- PR 6 merged to `main`: https://github.com/david/esther/pull/6
+- Merge commit / resulting main HEAD: `f9d4bb80c7bdb7e955a136f5ac7872e9f6cb7563`
+- External issue closure: not applicable / left open; no external issue closure requested or documented
+
 ## Next suggested step
-- Review and merge PR 6: https://github.com/david/esther/pull/6
-- After merge to `main`, run {{/skill:deploy heqik-define-reducer --move-done}}
+- None. Repo-local workflow complete.
