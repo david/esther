@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
 import { defineReducer } from "./reducer";
+import type { EventStore } from "./event-store";
 import { createReadInterpreter } from "./read-interpreter";
 import {
   defineReadModel,
@@ -247,5 +248,43 @@ describe("createReadInterpreter — eventsByTags", () => {
     const result = await interpreter.resolve(descriptor);
 
     expect(result).toBe(3);
+  });
+
+  test("forwards descriptor tags and reducer to eventStore.queryByTags", async () => {
+    const deps = await seed([]);
+
+    const thingReducer = defineReducer({
+      name: "thing-forward",
+      schemas: [
+        z.object({
+          type: z.literal("ThingForwarded"),
+          tags: z.array(z.string()),
+          payload: z.object({ n: z.number() }),
+          position: z.bigint(),
+        }),
+      ] as const,
+      initial: { total: 0 },
+      reduce: (state, event): { readonly total: number } => ({
+        total: state.total + event.payload.n,
+      }),
+    });
+
+    let observedTags: ReadonlyArray<string> | undefined;
+    let observedReducer: unknown;
+    const eventStore: EventStore = {
+      ...deps.eventStore,
+      async queryByTags(tags, reducer) {
+        observedTags = tags;
+        observedReducer = reducer;
+        return { state: reducer.fold([]), maxPosition: undefined };
+      },
+    };
+    const interpreter = createReadInterpreter({ ...deps, eventStore });
+
+    const result = await interpreter.resolve(eventsByTagsDescriptor(["thing:forward"], thingReducer));
+
+    expect(result).toEqual({ total: 0 });
+    expect(observedTags).toEqual(["thing:forward"]);
+    expect(observedReducer).toBe(thingReducer);
   });
 });

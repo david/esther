@@ -6,10 +6,12 @@ import { createApp } from "./app";
 import {
   defineReadModel,
   defineReadModelQuery,
+  eventsByTagsDescriptor,
   getDescriptor,
   readModelEvent,
   type ReadModelEventBinding,
 } from "./read-model";
+import { defineReducer } from "./reducer";
 
 // ── Valid schema for testing ────────────────────────────────────────
 
@@ -22,6 +24,30 @@ const memberSchema = z.object({
 });
 
 // ── defineReadModel ─────────────────────────────────────────────────
+
+describe("eventsByTagsDescriptor", () => {
+  test("stores tags and reducer definition", () => {
+    const eventSchema = z.object({
+      type: z.literal("MemberCounted"),
+      tags: z.array(z.string()),
+      payload: z.object({ value: z.number() }),
+      position: z.bigint(),
+    });
+    const reducer = defineReducer({
+      name: "member-count",
+      schemas: [eventSchema] as const,
+      initial: { total: 0 },
+      reduce: (state, event): { readonly total: number } => ({
+        total: state.total + event.payload.value,
+      }),
+    });
+    const tags = ["member:1"] as const;
+
+    const descriptor = eventsByTagsDescriptor(tags, reducer);
+
+    expect(descriptor).toEqual({ _tag: "eventsByTags", tags, reducer });
+  });
+});
 
 describe("defineReadModel", () => {
   test("returns handle with correct name, key, and schema", () => {

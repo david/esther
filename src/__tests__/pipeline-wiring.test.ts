@@ -945,6 +945,8 @@ describe("command pipeline v2 — wiring", () => {
     await userAdapter.execute(userModel.project({ userId: "u-1", name: "Ada" }));
 
     let outputCalled = false;
+    let observedCastCount: number | undefined;
+    let observedCastSubject: string | undefined;
     let projectorCalled = 0;
     let processorCalled = 0;
     let effectCalled = 0;
@@ -988,7 +990,13 @@ describe("command pipeline v2 — wiring", () => {
       inputSchema: z.object({ userId: z.string() }),
       outputSchema: z.object({ ok: z.boolean() }),
       input: compose<CastInput>().add(cast),
-      validate: [],
+      validate: [
+        (ctx) => {
+          observedCastCount = ctx.userHistory.count;
+          observedCastSubject = ctx.userHistorySubject.userId;
+          return [];
+        },
+      ],
       event: (ctx) => ({
         type: "Probe" as const,
         tags: [`user:${ctx.userHistorySubject.userId}`],
@@ -1092,6 +1100,8 @@ describe("command pipeline v2 — wiring", () => {
 
     const events = await readProbeEvents(baseEventStore, ["user:u-1"]);
     expect(events.map((event) => event.payload.marker)).toEqual(["initial", "concurrent"]);
+    expect(observedCastCount).toBe(1);
+    expect(observedCastSubject).toBe("u-1");
     expect(outputCalled).toBe(false);
     expect(projectorCalled).toBe(0);
     expect(processorCalled).toBe(0);
