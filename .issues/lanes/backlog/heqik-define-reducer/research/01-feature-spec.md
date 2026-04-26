@@ -1,30 +1,24 @@
-# Feature Spec — defineReducer shared event-state helper
+# Feature Spec — Strict defineReducer event-state API
 
 ## At a Glance
 
 | Topic | Value |
 |---|---|
-| Recommendation | Add additive `defineReducer` core DSL helper that bundles event schemas, initial state, event reducer, and generated `fold` function for event-derived state. |
-| Primary surfaces | `src/core/slice.ts` or new cohesive core reducer module, `src/core/read-model.ts`, `src/core/event-store.ts` types only if needed, `src/index.ts`, `src/__tests__/type-check.ts`, focused core/integration tests. |
-| Compatibility | Additive. Existing `tagQuery({ schemas, fold })`, `castTagQuery({ schemas, fold })`, and `eventsByTagsDescriptor(tags, schemas, fold)` stay valid. |
-| Main type change | Infer reducer event union from tuple/array of Zod event schemas via `z.infer<TSchemas[number]>`; expose reusable reducer definition type. |
-| Runtime change | No new event-store semantics. Generated `fold` calls pure reducer over parsed event history starting from `initial`. |
-| Main risk | Accidentally hiding tag/query boundary semantics or creating a second event filtering authority. Keep tags supplied at each call site; reducer owns only schemas + fold logic. |
+| Recommendation | Require `defineReducer(...)` for event-derived state queries. Remove public raw `schemas + fold` descriptor forms. |
+| Compatibility | Breaking by design. No deprecation, no alternate raw fold path, no mercy. |
+| Primary surfaces | `src/core/slice.ts`, `src/core/read-model.ts`, `src/core/event-store.ts`, event-store adapters, `src/index.ts`, tests. |
+| Core rule | DCB tags stay explicit at call sites; reducer owns event schemas + initial state + reduce/fold logic. |
+| Type rule | Reducer definitions are branded. `reducer:` only accepts output of `defineReducer(...)`, not structurally compatible objects or generic functions. |
+| Runtime rule | Event-store tag query accepts reducer definition and invokes reducer fold over parsed matching events. |
+| Sharing model | Define reducer once in a pure domain module; import into many slices; each call site supplies its own DCB tags. |
 
 ## Decisions Needed
 
-None blocking for feature spec. Recommended defaults:
-
-| # | Decision | Recommended | Why |
-|---|---|---|---|
-| 1 | Direct descriptor support | Support both spread reuse and `reducer` shorthand in `tagQuery` + `castTagQuery` | Reduces ceremony where mismatch risk happens, while preserving current explicit form. |
-| 2 | `eventsByTagsDescriptor` support | Add `eventsByTagsDescriptor(tags, reducer)` overload | Same shared reducer applies to read interpreter surfaces; no runtime semantic change. |
-| 3 | Initial state shape | Keep first version to `initial` value, not factory | Matches issue sketch and existing examples; document reducer purity/no mutation. |
-| 4 | Subject-dependent cast folds | Keep current `schemas + fold(events, subject)` form for subject-dependent folds | Reducer shorthand is event-only; no need for larger API. |
+None. User decision recorded: **no compatibility**.
 
 ## Problem
 
-Event-derived state appears repeatedly as paired `schemas` + `fold` declarations:
+Event-derived state currently appears as repeated raw `schemas + fold` pairs across command input, query state resolution, `castTagQuery`, and read descriptors:
 
 ```ts
 tagQuery({
@@ -35,18 +29,16 @@ tagQuery({
 });
 ```
 
-Same state logic can be needed in command input pipelines, query state resolvers, `castTagQuery`, and event-by-tags read descriptors. Today each use site can repeat:
+This creates two problems:
 
-- event schema list,
-- initial state,
-- fold/reduce logic,
-- event union annotation.
+- repeated schemas/folds can drift across call sites,
+- raw function form lets any compatible object/function become event-state authority.
 
-That repetition creates mismatch risk: one call site can use old schemas, a subtly different initial state, or a fold that handles fewer event types. Existing helpers correctly keep DCB tag selection visible at call sites, but they do not give developers a named reusable owner for event-state reduction.
+Feature should force one named reducer definition as canonical owner for event-derived state.
 
 ## Solution Overview
 
-Add `defineReducer` as a pure core helper:
+Add branded `defineReducer`:
 
 ```ts
 const accountReducer = defineReducer({
@@ -66,30 +58,9 @@ const accountReducer = defineReducer({
 });
 ```
 
-Returned definition should expose:
+Use reducer everywhere event-history state is needed:
 
 ```ts
-type ReducerDefinition<TName extends string, TState, TSchemas extends ReadonlyArray<z.ZodType>> = {
-  readonly name: TName;
-  readonly schemas: TSchemas;
-  readonly initial: TState;
-  readonly reduce: (state: TState, event: z.infer<TSchemas[number]>) => TState;
-  readonly fold: (events: ReadonlyArray<z.infer<TSchemas[number]>>) => TState;
-};
-```
-
-Developer reuse shapes:
-
-```ts
-// Explicit current form remains possible.
-tagQuery({
-  key: "account" as const,
-  tags: (ctx) => [`account:${ctx.accountId}`],
-  schemas: accountReducer.schemas,
-  fold: accountReducer.fold,
-});
-
-// New shorthand.
 tagQuery({
   key: "account" as const,
   tags: (ctx) => [`account:${ctx.accountId}`],
@@ -103,148 +74,304 @@ castTagQuery({
   reducer: accountReducer,
 });
 
-// Read-interpreter surface, if included.
 eventsByTagsDescriptor([`account:${accountId}`], accountReducer);
 ```
 
-Runtime normalization should translate reducer shorthand to the existing `{ schemas, fold }` path before calling `eventStore.queryByTags`. Event store adapters keep one authority for tag filtering and schema parsing.
+### Shared reducer module model
+
+Reducers are normal exported values. Put shared reducer beside domain event schemas or in a small domain state module, not inside one command slice when multiple slices need it.
+
+Example layout:
+
+```txt
+src/app/account/events.ts
+src/app/account/reducer.ts
+src/app/account/commands/deposit.ts
+src/app/account/queries/get-balance.ts
+```
+
+`events.ts` owns event schemas:
+
+```ts
+export const AccountOpenedSchema = z.object({
+  type: z.literal("AccountOpened"),
+  tags: z.array(z.string()),
+  payload: z.object({ accountId: z.string() }),
+});
+
+export const DepositedSchema = z.object({
+  type: z.literal("Deposited"),
+  tags: z.array(z.string()),
+  payload: z.object({ accountId: z.string(), amount: z.number() }),
+});
+```
+
+`reducer.ts` owns event-derived state:
+
+```ts
+import { defineReducer } from "esther";
+import { AccountOpenedSchema, DepositedSchema } from "./events";
+
+export type AccountState = {
+  readonly opened: boolean;
+  readonly balance: number;
+};
+
+export const accountReducer = defineReducer({
+  name: "account-state",
+  schemas: [AccountOpenedSchema, DepositedSchema] as const,
+  initial: { opened: false, balance: 0 } satisfies AccountState,
+  reduce: (state, event): AccountState => {
+    switch (event.type) {
+      case "AccountOpened":
+        return { ...state, opened: true };
+      case "Deposited":
+        return { ...state, balance: state.balance + event.payload.amount };
+    }
+  },
+});
+```
+
+Different slices import same reducer and keep boundary selection local:
+
+```ts
+// Command: account boundary from command input.
+tagQuery({
+  key: "account" as const,
+  tags: (ctx) => [`account:${ctx.accountId}`],
+  reducer: accountReducer,
+});
+
+// Query: same reducer, same or different boundary source.
+tagQuery({
+  key: "account" as const,
+  tags: (ctx) => [`account:${ctx.accountId}`],
+  reducer: accountReducer,
+});
+
+// Cast query: same reducer, boundary from resolved subject.
+castTagQuery({
+  key: "account" as const,
+  cast: accountByEmailCast,
+  tags: (account) => [`account:${account.accountId}`],
+  reducer: accountReducer,
+});
+```
+
+Important split:
+
+- shared reducer = schemas + initial state + reduce/fold behavior,
+- each slice/query/cast call site = DCB tags and boundary choice.
+
+This lets one reducer run over different selected histories without hiding DCB semantics.
+
+Remove public raw forms:
+
+```ts
+// Removed
+tagQuery({ key, tags, schemas, fold });
+castTagQuery({ key, cast, tags, schemas, fold });
+eventsByTagsDescriptor(tags, schemas, fold);
+eventStore.queryByTags(tags, schemas, fold);
+```
+
+New event-store contract:
+
+```ts
+eventStore.queryByTags(tags, reducer);
+```
+
+## Proposed Type Contract
+
+```ts
+declare const reducerBrand: unique symbol;
+
+export type ReducerEvent<TSchemas extends ReadonlyArray<z.ZodType>> = z.infer<TSchemas[number]>;
+
+export type ReducerDefinition<
+  TName extends string,
+  TState,
+  TSchemas extends ReadonlyArray<z.ZodType>,
+> = {
+  readonly [reducerBrand]: true;
+  readonly name: TName;
+  readonly schemas: TSchemas;
+  readonly initial: TState;
+  readonly reduce: (state: TState, event: ReducerEvent<TSchemas>) => TState;
+  readonly fold: (events: ReadonlyArray<ReducerEvent<TSchemas>>) => TState;
+};
+
+export function defineReducer<
+  const TName extends string,
+  TState,
+  const TSchemas extends ReadonlyArray<z.ZodType>,
+>(descriptor: {
+  readonly name: TName;
+  readonly schemas: TSchemas;
+  readonly initial: TState;
+  readonly reduce: (state: TState, event: ReducerEvent<TSchemas>) => TState;
+}): ReducerDefinition<TName, TState, TSchemas>;
+```
+
+Brand symbol is not exported. Normal user code cannot build reducer object by shape.
 
 ## User-Observable Scenarios
 
-### Scenario 1 — Reuse reducer in command input
+### Scenario 1 — Command input uses reducer
 
-Given a command needs account state for validation, developer defines `accountReducer` once and passes it to `tagQuery`.
-
-Expected:
-
-- `ctx.account` type is reducer state.
-- Query uses tags supplied by command input context.
-- Event store receives `accountReducer.schemas` and `accountReducer.fold`.
-- Existing boundary observation and append precondition behavior stays unchanged.
-
-### Scenario 2 — Reuse reducer in query state resolver
-
-Given a query slice needs the same account state, developer passes same reducer to `state<Input>().pipe(tagQuery(...))`.
+Given command validation needs event-derived account state, developer passes `accountReducer` to `tagQuery`.
 
 Expected:
 
-- Query stays read-only.
-- Output derivation reads same state shape as command path.
-- No command-only dependency leaks into query DSL.
+- `ctx.account` has reducer state type.
+- Event union in reducer is inferred from reducer schemas.
+- Boundary observation and append preconditions still use call-site tags.
+- Raw `schemas + fold` form fails typecheck.
 
-### Scenario 3 — Reuse reducer after cast lookup
+### Scenario 2 — Query state resolver uses reducer
 
-Given `castTagQuery` resolves a subject from a read model and then queries event history by subject tags, developer passes reducer instead of repeated schemas/fold.
-
-Expected:
-
-- Subject resolution, absent handling, row schema validation, and `${key}Subject` binding stay unchanged.
-- Reducer shorthand computes only event-derived state.
-- Existing `fold(events, subject)` form remains available when fold truly depends on subject.
-
-### Scenario 4 — Event union inferred from schemas
-
-Given schemas `[AccountOpenedSchema, DepositedSchema]`, reducer `event` parameter narrows on `event.type`.
+Given query slice needs same account state, developer passes same reducer to `state().pipe(tagQuery(...))`.
 
 Expected:
 
-- `case "AccountOpened"` exposes opened payload shape.
-- `case "Deposited"` exposes deposit payload shape.
-- Unknown event type access fails in `src/__tests__/type-check.ts`.
+- query stays read-only,
+- state type matches reducer state,
+- no raw fold accepted.
 
-### Scenario 5 — Existing code remains source-compatible
+### Scenario 3 — castTagQuery uses reducer
 
-Given existing `tagQuery`, `castTagQuery`, and `eventsByTagsDescriptor` call sites use `schemas` + `fold`, they continue to typecheck and execute unchanged.
+Given `castTagQuery` resolves subject from read model, developer passes reducer to compute event-derived state.
 
-## Boundary / Request / Response Contract
+Expected:
 
-| Boundary | Current contract | Feature contract | Validation owner |
+- subject lookup, absent handling, row schema validation, and `${key}Subject` binding stay unchanged,
+- reducer handles event-only fold,
+- old subject-aware `fold(events, subject)` form is removed from public API.
+
+If subject-aware state is still needed later, add separate explicit API; do not keep raw generic fold now.
+
+### Scenario 4 — Read descriptor uses reducer
+
+Given processor or read-model helper reads events by tags, developer calls:
+
+```ts
+eventsByTagsDescriptor(tags, accountReducer);
+```
+
+Expected:
+
+- read interpreter resolves through `eventStore.queryByTags(tags, reducer)`,
+- returned value has reducer state type,
+- old `(tags, schemas, fold)` overload fails.
+
+### Scenario 5 — Plain object rejected
+
+Given developer copies reducer shape manually:
+
+```ts
+tagQuery({
+  key: "account" as const,
+  tags,
+  reducer: { name, schemas, initial, reduce, fold },
+});
+```
+
+Expected: TypeScript rejects because brand missing.
+
+## Boundary / Contract Changes
+
+| Boundary | Before | After | Compatibility |
 |---|---|---|---|
-| `defineReducer` | none | Pure definition helper; returns named schemas + initial + reduce + fold | TypeScript + user reducer purity |
-| `tagQuery` | `{ key, tags, schemas, fold }` | Existing form plus `{ key, tags, reducer }` shorthand | Event store parses events with reducer schemas |
-| `castTagQuery` | `{ key, cast, tags, schemas, fold(events, subject) }` | Existing form plus `{ key, cast, tags, reducer }` shorthand | Projection row schema validation + event store schema parsing |
-| `eventsByTagsDescriptor` | `(tags, schemas, fold)` | Existing form plus `(tags, reducer)` overload | Event store schema parsing |
-| `EventStore.queryByTags` | `(tags, schemas, fold)` | unchanged unless type cleanup is needed | event-store adapters |
-| Public root exports | no reducer helper | export `defineReducer` and reducer types from `src/index.ts` | public API type tests |
+| `defineReducer` | absent | new branded reducer factory | additive factory |
+| `tagQuery` | `{ key, tags, schemas, fold }` | `{ key, tags, reducer }` only | breaking |
+| `castTagQuery` | `{ key, cast, tags, schemas, fold }` | `{ key, cast, tags, reducer }` only | breaking |
+| `eventsByTagsDescriptor` | `(tags, schemas, fold)` | `(tags, reducer)` only | breaking |
+| `EventStore.queryByTags` | `(tags, schemas, fold)` | `(tags, reducer)` | breaking; adapters updated |
+| event-store adapters | parse with schema list + call fold | parse with `reducer.schemas` + call `reducer.fold` | internal breaking updates |
+| root exports | no reducer API | export `defineReducer`, reducer types | additive export |
 
 ## Event / State Model Delta
 
 No event model change.
 
-No event names, payloads, tags, persisted rows, positions, or replay ordering change. Reducer schemas are the same Zod event schemas already passed to event-store queries.
+No event names, payloads, tags, positions, or replay ordering change. Reducer schemas are same event schemas previously passed manually.
 
-State model change is developer-facing only: event-derived state reduction gets a reusable named definition instead of repeated anonymous fold functions.
+State model becomes stricter: event-derived state must be named through `defineReducer`.
 
 ## Behavior Concentration Scan
 
 | Behavior / Rule | Current locations | Likely canonical owner | Spread type | Risk | Recommended action |
 |---|---|---|---|---|---|
-| Event history tag selection | `tagQuery.tags`, `castTagQuery.tags`, `eventsByTagsDescriptor(tags, ...)` | call site / DCB boundary descriptor | intentional explicit boundary | medium if reducer hides tags | keep tags outside reducer; reducer owns only schemas + state fold |
-| Event schema parsing for tag queries | event-store adapters `queryByTags` | event store adapter contract | same | low | preserve; reducer passes schemas to existing contract |
-| Event-derived state fold | repeated `schemas` + `fold` call sites in tests/examples | new reducer definition | duplicated business rule | medium | consolidate through `defineReducer` |
-| Command/query context binding | `tagQuery` descriptor + compose/state resolver | core slice DSL | same | low | normalize reducer shorthand to existing step shape |
-| Cast subject lookup and absent handling | `castTagQuery` | core slice DSL | same | low | preserve; reducer shorthand must not alter cast semantics |
-| Read-interpreter event reads | `eventsByTagsDescriptor` + `read-interpreter` | read-model descriptor/read interpreter | derived-only mirror | low | optional overload delegates to same reducer fold |
+| Event-derived state fold | repeated raw fold call sites | `defineReducer` definition | duplicated business rule | high | require reducer; remove raw fold forms |
+| Event schema set for a state reducer | repeated schema arrays | `defineReducer.schemas` | duplicated business rule | high | reducer is canonical schema owner |
+| DCB tag selection | `tagQuery.tags`, `castTagQuery.tags`, read descriptor tags | call site boundary descriptor | intentional explicit boundary | medium if hidden | keep tags outside reducer |
+| Event matching + parsing | event-store adapters | event store contract | same | low | adapters read `reducer.schemas` |
+| Cast subject lookup | `castTagQuery` | core slice DSL | same | low | preserve lookup; remove subject-aware fold unless separate API needed |
+| Read-interpreter event reads | `eventsByTagsDescriptor` + interpreter | read descriptor + event store | same | low | require reducer descriptor |
 
 ## Validation Plan
 
-Runtime validation stays existing:
+Runtime flow:
 
-1. Call site supplies tags for selected event boundary.
-2. Event store finds events matching all tags.
-3. Event store parses each matching event with supplied reducer schemas.
-4. Parsed event union enters reducer-generated `fold`.
-5. Fold returns typed state.
+1. Call site supplies tags.
+2. Descriptor supplies branded reducer.
+3. Event store selects events matching tags.
+4. Event store parses matching events with `reducer.schemas`.
+5. Event store calls `reducer.fold(parsedEvents)`.
+6. Reducer folds from `initial` through `reduce`.
 
-Compile-time validation adds:
+Compile-time flow:
 
-- reducer `reduce` event parameter inferred from `schemas[number]`,
-- reducer `fold` events typed as same inferred union,
-- `tagQuery({ reducer })` binds state as reducer state,
-- `castTagQuery({ reducer })` binds state and subject with existing types,
-- bad event type / bad payload access covered by `@ts-expect-error` in type-check tests.
+- `defineReducer` infers event union from schemas,
+- reducer `event.type` narrows payload shape,
+- descriptor `reducer` fields require branded `ReducerDefinition`,
+- raw `schemas + fold` descriptor forms fail.
 
 ## Side Effects / Automation Impacts
 
 No new side effects.
 
-Commands reached through reducer-backed tag queries append same events and trigger same read-model bindings/processors. Boundary observation stays in `tagQuery`/`castTagQuery` command-side step execution, not inside reducer.
+Commands, queries, read models, and processors still use same runtime pipelines. Only event-state descriptor contract changes.
 
 ## Read Model / Query Impacts
 
-Query slices can use `state().pipe(tagQuery({ reducer }))` with same read-only semantics.
+- Query slices use `state().pipe(tagQuery({ reducer }))`.
+- Read descriptors use `eventsByTagsDescriptor(tags, reducer)`.
+- Projection storage and query adapters unchanged.
 
-Read-model event handlers and processors that use `eventsByTagsDescriptor` can optionally reuse reducers if overload is implemented. This is additive and delegates to current read interpreter behavior.
+## Migration / Rollout Notes
 
-No projection storage shape or query adapter contract changes.
+Breaking migration required.
 
-## Migration / Replay / Rollout Notes
+Every existing raw event-state query must become:
 
-- No persisted data migration.
-- No event replay impact.
-- No read-model rebuild required.
-- Public API is additive.
-- Existing examples and tests do not need forced migration.
-- Docs/examples should show reducer shorthand only where state reuse exists; one-off folds may stay inline.
+```ts
+const xReducer = defineReducer({ name, schemas, initial, reduce });
+
+tagQuery({ key, tags, reducer: xReducer });
+```
+
+No deprecation path. No alternate raw fold escape hatch.
 
 ## Critical Invariants
 
-- Reducer must not hide or derive DCB boundary tags.
-- Reducer must be pure: no I/O, no mutation of shared state, no dependency on wall-clock/randomness.
-- Event-store adapters remain authoritative for tag matching and schema parsing.
-- Existing `schemas` + `fold` public API remains supported.
-- `castTagQuery` absent/read-model schema error semantics remain unchanged.
-- Core must stay adapter-agnostic.
-- Any cast added for overload normalization must be local, documented, and covered by type tests.
+- No public raw `schemas + fold` event-history query APIs remain.
+- Reducer must not own or derive DCB tags.
+- Reducer must be pure: no I/O, no mutation, no time/random dependencies.
+- Event store remains authoritative for tag matching and event schema parsing.
+- Plain objects cannot satisfy `ReducerDefinition` without unsafe casts.
+- Core remains adapter-agnostic.
+- All event-store adapters update together.
 
 ## Non-goals
 
-- No automatic tag derivation from reducer name or schemas.
-- No new event definition DSL in this issue.
-- No event-store adapter rewrite.
-- No runtime immutability enforcement or deep clone of `initial`.
-- No subject-aware reducer API beyond existing `castTagQuery` `fold(events, subject)` form.
-- No migration of every existing inline fold unless needed for tests/examples.
+- No automatic tag derivation.
+- No event definition DSL.
+- No event-store semantic rewrite beyond reducer parameter.
+- No runtime immutability/deep clone of `initial`.
+- No compatibility overloads.
+- No deprecation period.
+- No generic function escape hatch.
 
 ## Verification Contract
 
@@ -252,27 +379,28 @@ No projection storage shape or query adapter contract changes.
 
 Extend `src/__tests__/type-check.ts` to prove:
 
-- `defineReducer` infers event union from multiple Zod schemas,
-- reducer `event.type` narrowing exposes correct payload fields,
-- invalid event type / payload access fails with `@ts-expect-error`,
+- `defineReducer` infers event union from Zod schema tuple,
+- reducer event narrowing works by `event.type`,
+- plain object reducer is rejected,
+- `tagQuery({ schemas, fold })` is rejected,
+- `castTagQuery({ schemas, fold })` is rejected,
+- `eventsByTagsDescriptor(tags, schemas, fold)` is rejected,
 - `tagQuery({ reducer })` accumulates reducer state in command input context,
 - `state().pipe(tagQuery({ reducer }))` accumulates reducer state in query context,
-- `castTagQuery({ reducer })` accumulates reducer state plus `${key}Subject`,
-- existing `schemas` + `fold` descriptor calls still typecheck.
+- `castTagQuery({ reducer })` accumulates reducer state plus `${key}Subject`.
 
 ### Runtime tests
 
-Add focused tests, likely colocated in `src/core/slice.test.ts` and `src/core/read-interpreter.test.ts` or higher-level `src/__tests__/pipeline-wiring.test.ts`:
+Add/update tests for:
 
-- `defineReducer.fold` folds parsed events from initial state in order,
-- `tagQuery({ reducer })` passes reducer schemas/fold to event store and returns state,
-- command-side reducer-backed `tagQuery` still records boundary observation and enforces stale-boundary append preconditions,
+- `defineReducer.fold` folds events from initial state in order,
+- `tagQuery({ reducer })` returns reducer state,
+- command-side reducer-backed `tagQuery` records boundary observation and enforces stale-boundary preconditions,
 - `castTagQuery({ reducer })` preserves subject binding and absent behavior,
-- `eventsByTagsDescriptor(tags, reducer)` resolves through read interpreter if overload included.
+- `eventsByTagsDescriptor(tags, reducer)` resolves through read interpreter,
+- each event-store adapter parses with `reducer.schemas` and calls `reducer.fold`.
 
 ### Full gates
-
-Before merge:
 
 ```bash
 bun run test
