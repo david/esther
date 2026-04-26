@@ -713,6 +713,11 @@ const _typedFastifyRoutes = defineFastifyRoutes<typeof _typedOperations>()([
     respond: ({ result, request, reply }) => {
       const _resultCheck: Result<TypedCommandOutput, SliceError | TypedCommandError> = result;
       const _operationResultCheck: OperationResult<TypedCommandOperation> = result;
+      // @ts-expect-error command route respond does not receive the query result type
+      const _notQueryResult: Result<TypedQueryOutput, SliceError | TypedQueryError> = result;
+      if (result.isOk()) {
+        const _valueCheck: TypedCommandOutput = result.value;
+      }
       const _methodCheck: string = request.method;
       const _replyCheck: unknown = reply;
       return { ok: _resultCheck.isOk() };
@@ -730,6 +735,9 @@ const _typedFastifyRoutes = defineFastifyRoutes<typeof _typedOperations>()([
     respond: ({ result }) => {
       const _resultCheck: Result<TypedQueryOutput, SliceError | TypedQueryError> = result;
       const _operationResultCheck: OperationResult<TypedQueryOperation> = result;
+      if (result.isOk()) {
+        const _valueCheck: TypedQueryOutput = result.value;
+      }
       return Promise.resolve({ ok: _resultCheck.isOk() });
     },
   },
