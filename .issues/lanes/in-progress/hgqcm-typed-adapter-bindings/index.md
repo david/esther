@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: QA passed
+Status: PR open; CI/review pending
 
 ## Active artifacts
 Description:
@@ -39,5 +39,8 @@ QA:
 - qa/tasks/qa-fastify-runtime-routes.md — passed
 - qa/tasks/qa-no-public-typed-client.md — passed
 
+Deploy:
+- deploy/01-pr.md — PR opened: https://github.com/david/esther/pull/4; CI/review pending
+
 ## Next suggested step
-- {{/skill:deploy hgqcm-typed-adapter-bindings}}
+- Wait for CI/review, then merge PR and run {{/skill:deploy hgqcm-typed-adapter-bindings --move-done}} after merge/release evidence is available.
