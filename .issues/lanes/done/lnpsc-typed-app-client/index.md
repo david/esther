@@ -8,7 +8,9 @@
 
 ## Current status
 
-Current-state research is complete, but the approved implementation plan and generated tasks are superseded by clarified architecture intent: command/query invocation should happen through input adapter boundaries, not through a public in-process `app.client.dispatch(...)` facade. Keep `app.dispatch(sliceName: string, input: unknown)` dynamic for adapters, and pursue typed adapter route/binding configuration instead.
+Closed as duplicate/stale. Current-state research and old implementation tasks were superseded by clarified architecture intent: command/query invocation should happen through input adapter boundaries, not through a public in-process `app.client.dispatch(...)` facade. That corrected direction was completed by `.issues/lanes/done/hgqcm-typed-adapter-bindings`.
+
+Closure: [closure/01-closed-as-duplicate.md](closure/01-closed-as-duplicate.md)
 
 ## Superseded implementation tasks
 
@@ -19,4 +21,4 @@ Do not implement these tasks without replanning:
 
 ## Next suggested step
 
-Revise the plan around typed adapter route/binding configuration: {{/skill:plan lnpsc-typed-app-client}}.
+None. Issue closed as duplicate/resolved by `hgqcm-typed-adapter-bindings`.
