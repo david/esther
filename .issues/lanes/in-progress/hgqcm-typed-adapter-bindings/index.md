@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation task 01 complete
+Status: semantic diff review complete; no actionable code findings
 
 ## Active artifacts
 Description:
@@ -23,5 +23,14 @@ Implementation tasks:
 - impl/03.md — Dispatch explicit Fastify routes through the dynamic boundary
 - impl/04.md — Support typed Fastify response overrides and final compatibility
 
+Implementation checkpoints:
+- impl/checkpoints/01.md
+- impl/checkpoints/02.md
+- impl/checkpoints/03.md
+- impl/checkpoints/04.md
+
+Review:
+- review/diff/01-review-diff.md — Semantic diff review; no actionable code findings
+
 ## Next suggested step
-- {{/skill:impl hgqcm-typed-adapter-bindings}}
+- {{/skill:gates hgqcm-typed-adapter-bindings}}
