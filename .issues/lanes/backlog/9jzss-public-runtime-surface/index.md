@@ -14,6 +14,10 @@ Narrow Esther's public runtime surface so low-level pipeline/runtime internals d
 
 - [plan/01-implementation-plan.md](plan/01-implementation-plan.md) — narrow the root export surface by keeping stable DSL/API and extension contracts, retaining deprecated compatibility exports, and removing named root exports for runtime internals.
 
+## Latest plan check
+
+- [plan/checks/01-plan-sanity.md](plan/checks/01-plan-sanity.md) — approved; no required plan changes before breakdown.
+
 ## Current recommended handoff
 
-Use `{{/skill:plan-check 9jzss-public-runtime-surface}}` to sanity-check the implementation plan before breakdown.
+Use `{{/skill:breakdown 9jzss-public-runtime-surface --from plan/01-implementation-plan.md}}`.
