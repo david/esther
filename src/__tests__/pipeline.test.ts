@@ -11,6 +11,7 @@ import {
   defineCommand,
   defineQuery,
   defineReadModel,
+  defineReducer,
   defineReadModelQuery,
   projection,
   readModelEvent,
@@ -58,7 +59,7 @@ const CreditAppliedSchema = z.object({
   payload: accountPayload,
 });
 
-const accountSchemas = [DepositedSchema, WithdrawnSchema, CreditAppliedSchema];
+const accountSchemas = [DepositedSchema, WithdrawnSchema, CreditAppliedSchema] as const;
 
 type AccountEvent =
   | z.infer<typeof DepositedSchema>
@@ -67,23 +68,30 @@ type AccountEvent =
 
 type Balance = { balance: number };
 
-const balanceFold = (events: ReadonlyArray<AccountEvent>): Balance =>
-  events.reduce(
-    (acc: Balance, e) => {
-      if (e.type === "Deposited") return { balance: acc.balance + e.payload.amount };
-      if (e.type === "Withdrawn") return { balance: acc.balance - e.payload.amount };
-      return acc;
-    },
-    { balance: 0 },
-  );
+const accountReducer = defineReducer({
+  name: "account-balance",
+  schemas: accountSchemas,
+  initial: { balance: 0 } as Balance,
+  reduce: (acc, e): Balance => {
+    if (e.type === "Deposited") return { balance: acc.balance + e.payload.amount };
+    if (e.type === "Withdrawn") return { balance: acc.balance - e.payload.amount };
+    return acc;
+  },
+});
+
+const accountEventsReducer = defineReducer({
+  name: "account-events",
+  schemas: accountSchemas,
+  initial: [] as AccountEvent[],
+  reduce: (events, event): AccountEvent[] => [...events, event],
+});
 
 // Helper: declaratively bind account balance from the event store.
 function accountState<TCtx extends { readonly accountId: string }>() {
   return tagQuery({
     key: "account" as const,
     tags: (ctx: TCtx) => [`account:${ctx.accountId}`],
-    schemas: accountSchemas,
-    fold: balanceFold,
+    reducer: accountReducer,
   });
 }
 
@@ -171,11 +179,7 @@ async function readBalance(
   eventStore: ReturnType<typeof createInMemoryEventStore>,
   accountId: string,
 ): Promise<number> {
-  const result = await eventStore.queryByTags(
-    [`account:${accountId}`],
-    accountSchemas,
-    balanceFold,
-  );
+  const result = await eventStore.queryByTags([`account:${accountId}`], accountReducer);
   return result.state.balance;
 }
 
@@ -1136,11 +1140,7 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags(
-      [],
-      accountSchemas,
-      (events: ReadonlyArray<AccountEvent>) => events,
-    );
+    const queryResult = await eventStore.queryByTags([], accountEventsReducer);
     const allEvents = queryResult.state;
 
     for (const event of allEvents) {
@@ -1176,11 +1176,7 @@ describe("replay", () => {
 
     const { adapter: freshAdapter, get: freshGet } = createInMemoryProjectionAdapter(accountModel);
 
-    const queryResult = await eventStore.queryByTags(
-      [],
-      accountSchemas,
-      (events: ReadonlyArray<AccountEvent>) => events,
-    );
+    const queryResult = await eventStore.queryByTags([], accountEventsReducer);
     const allEvents = queryResult.state;
 
     for (const event of allEvents) {

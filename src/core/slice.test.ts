@@ -4,13 +4,28 @@ import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { compose } from "./compose";
 import { defineReadModel, defineReadModelQuery } from "./read-model";
+import { defineReducer } from "./reducer";
 import { castTagQuery, defineCommand, derive, lookup, type ValidatePredicate } from "./slice";
 import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
+const zeroCountReducer = defineReducer({
+  name: "zero-count",
+  schemas: [] as const,
+  initial: { count: 0 },
+  reduce: (state): { readonly count: number } => state,
+});
+
+const emptyStateReducer = defineReducer({
+  name: "empty-state",
+  schemas: [] as const,
+  initial: {} as Record<never, never>,
+  reduce: (state): Record<never, never> => state,
+});
+
 describe("castTagQuery", () => {
-  test("hit: subject unwrapped, fold receives (events, subject)", async () => {
+  test("hit: subject unwrapped and reducer state bound", async () => {
     const eventStore = createInMemoryEventStore();
     const subject = { userId: "u1", name: "Ada" };
 
@@ -20,12 +35,6 @@ describe("castTagQuery", () => {
       key: "userId",
     });
 
-    const foldSpy = mock(
-      (events: ReadonlyArray<unknown>, u: { readonly userId: string; readonly name: string }) => ({
-        count: events.length,
-        subjectName: u.name,
-      }),
-    );
     const tagsSpy = mock((u: { readonly userId: string; readonly name: string }) => [
       `user:${u.userId}`,
     ]);
@@ -38,8 +47,7 @@ describe("castTagQuery", () => {
         absent: { type: "NotFound" as const },
       },
       tags: tagsSpy,
-      schemas: [],
-      fold: foldSpy,
+      reducer: zeroCountReducer,
     });
 
     const projectionStore = {
@@ -57,7 +65,7 @@ describe("castTagQuery", () => {
     if (result.isOk()) {
       // Subject is bound under <key>Subject — unwrapped, no Result.
       expect(result.value).toEqual({
-        state: { count: 0, subjectName: "Ada" },
+        state: { count: 0 },
         stateSubject: { userId: "u1", name: "Ada" },
       });
       // Reading .name does not require .isOk().
@@ -67,9 +75,6 @@ describe("castTagQuery", () => {
 
     expect(tagsSpy).toHaveBeenCalledTimes(1);
     expect(tagsSpy).toHaveBeenCalledWith(subject);
-    expect(foldSpy).toHaveBeenCalledTimes(1);
-    // fold receives (events, subject), not (events) or (Result)
-    expect(foldSpy.mock.calls[0]?.[1]).toEqual(subject);
   });
 
   test("absent: returns cause err directly, tags/fold never invoked", async () => {
@@ -83,8 +88,6 @@ describe("castTagQuery", () => {
     });
 
     const tagsSpy = mock(() => [] as ReadonlyArray<string>);
-    const foldSpy = mock(() => ({}));
-
     const descriptor = castTagQuery({
       key: "state" as const,
       cast: {
@@ -93,8 +96,7 @@ describe("castTagQuery", () => {
         absent: cause,
       },
       tags: tagsSpy,
-      schemas: [],
-      fold: foldSpy,
+      reducer: emptyStateReducer,
     });
 
     const projectionStore = {
@@ -110,10 +112,9 @@ describe("castTagQuery", () => {
       expect(result.error).toEqual(cause);
     }
     expect(tagsSpy).not.toHaveBeenCalled();
-    expect(foldSpy).not.toHaveBeenCalled();
   });
 
-  test("query handle: resolves subject via projectionStore.query, fold receives (events, subject)", async () => {
+  test("query handle: resolves subject via projectionStore.query", async () => {
     const eventStore = createInMemoryEventStore();
     const subject = { userId: "u1", name: "Ada" };
 
@@ -130,12 +131,6 @@ describe("castTagQuery", () => {
       resolve: (args) => ({ where: { name: args.email }, limit: 1 }),
     });
 
-    const foldSpy = mock(
-      (events: ReadonlyArray<unknown>, u: { readonly userId: string; readonly name: string }) => ({
-        count: events.length,
-        subjectName: u.name,
-      }),
-    );
     const tagsSpy = mock((u: { readonly userId: string; readonly name: string }) => [
       `user:${u.userId}`,
     ]);
@@ -148,8 +143,7 @@ describe("castTagQuery", () => {
         absent: { type: "NotFound" as const },
       },
       tags: tagsSpy,
-      schemas: [],
-      fold: foldSpy,
+      reducer: zeroCountReducer,
     });
 
     const querySpy = mock(
@@ -173,7 +167,7 @@ describe("castTagQuery", () => {
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value).toEqual({
-        state: { count: 0, subjectName: "Ada" },
+        state: { count: 0 },
         stateSubject: { userId: "u1", name: "Ada" },
       });
     }
@@ -185,8 +179,6 @@ describe("castTagQuery", () => {
 
     expect(tagsSpy).toHaveBeenCalledTimes(1);
     expect(tagsSpy).toHaveBeenCalledWith(subject);
-    expect(foldSpy).toHaveBeenCalledTimes(1);
-    expect(foldSpy.mock.calls[0]?.[1]).toEqual(subject);
   });
 
   test("query handle absent: returns cause err", async () => {
@@ -207,8 +199,6 @@ describe("castTagQuery", () => {
     });
 
     const tagsSpy = mock(() => [] as ReadonlyArray<string>);
-    const foldSpy = mock(() => ({}));
-
     const descriptor = castTagQuery({
       key: "state" as const,
       cast: {
@@ -217,8 +207,7 @@ describe("castTagQuery", () => {
         absent: cause,
       },
       tags: tagsSpy,
-      schemas: [],
-      fold: foldSpy,
+      reducer: emptyStateReducer,
     });
 
     const projectionStore = {
@@ -234,7 +223,6 @@ describe("castTagQuery", () => {
       expect(result.error).toEqual(cause);
     }
     expect(tagsSpy).not.toHaveBeenCalled();
-    expect(foldSpy).not.toHaveBeenCalled();
   });
   test("malformed row returns ReadModelSchemaError instead of absent cause", async () => {
     const eventStore = createInMemoryEventStore();
@@ -253,8 +241,7 @@ describe("castTagQuery", () => {
         absent: { type: "NotFound" as const },
       },
       tags: () => [],
-      schemas: [],
-      fold: () => ({}),
+      reducer: emptyStateReducer,
     });
 
     const projectionStore = {
@@ -463,8 +450,7 @@ describe("compose builder", () => {
       key: "state" as const,
       cast: { model: composeUserModel, id: () => "u1", absent: { type: "NotFound" as const } },
       tags: (s) => [`user:${s.id}`],
-      schemas: [],
-      fold: (events, _s) => ({ count: events.length }),
+      reducer: zeroCountReducer,
     });
 
     const pipeline = compose<Record<string, never>>().add(descriptor);
@@ -487,8 +473,7 @@ describe("compose builder", () => {
       key: "state" as const,
       cast: { model: absentModel, id: () => "missing", absent: { type: "NotFound" as const } },
       tags: () => [],
-      schemas: [],
-      fold: () => ({}),
+      reducer: emptyStateReducer,
     });
 
     const pipeline = compose<Record<string, never>>().add(descriptor);

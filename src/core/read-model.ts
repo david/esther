@@ -1,5 +1,6 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
+import type { ReducerDefinition } from "./reducer";
 import { getZodTypeName } from "./zod-internals";
 
 // ── Read model not found ───────────────────────────────────────────────
@@ -151,8 +152,7 @@ export type QueryDescriptor<T extends ReadonlyArray<unknown>> = {
 export type EventsByTagsDescriptor<T> = {
   readonly _tag: "eventsByTags";
   readonly tags: ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<unknown>) => T;
+  readonly reducer: ReducerDefinition<string, T, ReadonlyArray<z.ZodType>>;
 };
 
 export type ReadDescriptor<T> =
@@ -232,12 +232,15 @@ export function queryDescriptor<TRow>(input: {
   return input.limit === undefined ? withOrder : { ...withOrder, limit: input.limit };
 }
 
-export function eventsByTagsDescriptor<T>(
+export function eventsByTagsDescriptor<
+  TName extends string,
+  TState,
+  const TSchemas extends ReadonlyArray<z.ZodType>,
+>(
   tags: ReadonlyArray<string>,
-  schemas: ReadonlyArray<z.ZodType>,
-  fold: (events: ReadonlyArray<unknown>) => T,
-): EventsByTagsDescriptor<T> {
-  return { _tag: "eventsByTags", tags, schemas, fold };
+  reducer: ReducerDefinition<TName, TState, TSchemas>,
+): EventsByTagsDescriptor<TState> {
+  return { _tag: "eventsByTags", tags, reducer };
 }
 
 // ── ProjectionQueryAdapter ──────────────────────────────────────────

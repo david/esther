@@ -75,8 +75,8 @@ type CommandInputDescriptor =
 export type InputPipeline<TInput, TCtx, TError> = {
   readonly _tag: "inputPipeline";
   readonly add: {
-    <TKey extends string, TState, TSchema extends z.ZodType>(
-      descriptor: TagQueryStep<TKey, TCtx, TState, TSchema>,
+    <TKey extends string, TState, TSchemas extends ReadonlyArray<z.ZodType>>(
+      descriptor: TagQueryStep<TKey, TCtx, TState, TSchemas>,
     ): InputPipeline<TInput, TCtx & { readonly [K in TKey]: TState }, TError>;
     <TKey extends string, TState, TSubject, TCause>(
       descriptor: CastTagQueryDescriptor<TKey, TCtx, TSubject, TState, TCause>,

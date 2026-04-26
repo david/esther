@@ -1,5 +1,6 @@
 import { err, ok } from "neverthrow";
 import type { z } from "zod";
+import type { ReducerDefinition, ReducerEvent } from "../../core/reducer.js";
 import type {
   AppendOptions,
   EventFilter,
@@ -236,15 +237,18 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       }
     },
 
-    async queryByTags<TSchema extends z.ZodType, TEvent, TState>(
+    async queryByTags<
+      TName extends string,
+      TState,
+      const TSchemas extends ReadonlyArray<z.ZodType>,
+    >(
       tags: ReadonlyArray<string>,
-      schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<TEvent>) => TState,
+      reducer: ReducerDefinition<TName, TState, TSchemas>,
     ) {
       const rows = await fetchEventRows(sql, tags);
       const lastRow = rows[rows.length - 1];
 
-      const parsed = rows.map((row) => {
+      const parsed: Array<ReducerEvent<TSchemas>> = rows.map((row) => {
         const raw = {
           id: EventId(row.id),
           type: row.type,
@@ -253,16 +257,16 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
           position: BigInt(row.position),
           timestamp: row.timestamp,
         };
-        for (const schema of schemas) {
+        for (const schema of reducer.schemas) {
           const result = schema.safeParse(raw);
-          if (result.success) return result.data;
+          if (result.success) return result.data as ReducerEvent<TSchemas>;
         }
         throw new Error(
           `Event at position ${row.position} (type "${row.type}") does not match any provided schema`,
         );
       });
       return {
-        state: fold(parsed as ReadonlyArray<TEvent>),
+        state: reducer.fold(parsed),
         maxPosition: lastRow === undefined ? undefined : BigInt(lastRow.position),
       };
     },

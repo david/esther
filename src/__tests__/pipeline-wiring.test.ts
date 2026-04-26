@@ -11,6 +11,7 @@ import {
   defineProcessor,
   defineQuery,
   defineReadModelQuery,
+  defineReducer,
   derive,
   type AppendOptions,
   type DomainEvent,
@@ -23,7 +24,6 @@ import {
   processorEvent,
   readModelEvent,
   type RegisterableOperation,
-  type StoredEvent,
   state,
   tagQuery,
 } from "../index";
@@ -44,7 +44,42 @@ const ProbeSchema = z.object({
   payload: z.object({ a: z.number().optional(), marker: z.string().optional() }),
 });
 
-const probeSchemas = [ProbeSchema];
+const probeSchemas = [ProbeSchema] as const;
+
+const probeEventsReducer = defineReducer({
+  name: "probe-events",
+  schemas: probeSchemas,
+  initial: [] as ProbeEvent[],
+  reduce: (events, event): ProbeEvent[] => [...events, event],
+});
+
+const probeCountReducer = defineReducer({
+  name: "probe-count",
+  schemas: probeSchemas,
+  initial: { count: 0 },
+  reduce: (state): { readonly count: number } => ({ count: state.count + 1 }),
+});
+
+const emptyCountReducer = defineReducer({
+  name: "empty-count",
+  schemas: [] as const,
+  initial: { count: 0 },
+  reduce: (state): { readonly count: number } => state,
+});
+
+const activeReducer = defineReducer({
+  name: "active-state",
+  schemas: [] as const,
+  initial: { active: true },
+  reduce: (state): { readonly active: boolean } => state,
+});
+
+const emptyFoundReducer = defineReducer({
+  name: "empty-found",
+  schemas: [] as const,
+  initial: { found: "" },
+  reduce: (state): { readonly found: string } => state,
+});
 
 const probeInputSchema = z.object({
   a: z.number(),
@@ -82,8 +117,8 @@ function wrapWithConcurrentAppend(
   let inserted = false;
   return {
     ...base,
-    async queryByTags(tags, schemas, fold) {
-      const result = await base.queryByTags(tags, schemas, fold);
+    async queryByTags(tags, reducer) {
+      const result = await base.queryByTags(tags, reducer);
       if (!inserted) {
         inserted = true;
         await base.append([concurrentEvent]);
@@ -110,11 +145,7 @@ async function readProbeEvents(
   eventStore: EventStore,
   tags: ReadonlyArray<string>,
 ): Promise<ReadonlyArray<ProbeEvent>> {
-  const queried = await eventStore.queryByTags(
-    tags,
-    probeSchemas,
-    (events: ReadonlyArray<ProbeEvent>) => events,
-  );
+  const queried = await eventStore.queryByTags(tags, probeEventsReducer);
   return queried.state;
 }
 
@@ -147,7 +178,7 @@ describe("command pipeline v2 — wiring", () => {
     const result = await app.dispatch("probe-happy", { a: 1 });
 
     // (a) event queryable by tag
-    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events: ReadonlyArray<ProbeEvent>) => events);
+    const queried = await eventStore.queryByTags(["probe:1"], probeEventsReducer);
     expect(queried.state.length).toBe(1);
     // (d) result is ok
     expect(result.isOk()).toBe(true);
@@ -187,7 +218,7 @@ describe("command pipeline v2 — wiring", () => {
     if (result.isOk()) {
       expect(result.value).toEqual({ failed: "rate" });
     }
-    const queried = await eventStore.queryByTags(["probe:1"], probeSchemas, (events: ReadonlyArray<ProbeEvent>) => events);
+    const queried = await eventStore.queryByTags(["probe:1"], probeEventsReducer);
     expect(queried.state.length).toBe(0);
   });
 
@@ -211,8 +242,7 @@ describe("command pipeline v2 — wiring", () => {
         absent: { type: "NotFound" as const },
       },
       tags: (_subject) => ["nope"],
-      schemas: [],
-      fold: (events, _subject) => ({ count: events.length }),
+      reducer: emptyCountReducer,
     });
 
     const eventStore = createInMemoryEventStore();
@@ -272,7 +302,7 @@ describe("command pipeline v2 — wiring", () => {
     expect(outputCalled).toBe(false);
     expect(validateCalled).toBe(false);
     expect(outputErrCalled).toBe(1);
-    const queried = await eventStore.queryByTags(["nope"], probeSchemas, (events: ReadonlyArray<ProbeEvent>) => events);
+    const queried = await eventStore.queryByTags(["nope"], probeEventsReducer);
     expect(queried.state.length).toBe(0);
   });
 
@@ -402,11 +432,7 @@ describe("command pipeline v2 — wiring", () => {
 
     const { app, eventStore } = buildAppWith(slice);
     await app.dispatch("probe-append-event", { a: 1 });
-    const queried = await eventStore.queryByTags(
-      ["probe:marker"],
-      probeSchemas,
-      (events: ReadonlyArray<ProbeEvent>) => events,
-    );
+    const queried = await eventStore.queryByTags(["probe:marker"], probeEventsReducer);
     expect(queried.state.length).toBe(1);
     expect(queried.state[0]?.payload.marker).toBe("unique-xyz");
   });
@@ -622,11 +648,7 @@ describe("command pipeline v2 — wiring", () => {
     }
     expect(noUserCalls).toBe(1);
 
-    const queried = await eventStore.queryByTags(
-      ["probe:lookup-validated"],
-      probeSchemas,
-      (events: ReadonlyArray<ProbeEvent>) => events,
-    );
+    const queried = await eventStore.queryByTags(["probe:lookup-validated"], probeEventsReducer);
     expect(queried.state).toHaveLength(1);
   });
 
@@ -649,8 +671,7 @@ describe("command pipeline v2 — wiring", () => {
         absent: { type: "NoUser" as const },
       },
       tags: (subject) => [`user:${subject.userId}`],
-      schemas: [],
-      fold: () => ({ active: true }),
+      reducer: activeReducer,
     });
 
     let validateCalled = false;
@@ -715,11 +736,7 @@ describe("command pipeline v2 — wiring", () => {
     expect(validateCalled).toBe(false);
     expect(noUserCalls).toBe(0);
 
-    const queried = await eventStore.queryByTags(
-      ["probe:cast-malformed"],
-      probeSchemas,
-      (events: ReadonlyArray<ProbeEvent>) => events,
-    );
+    const queried = await eventStore.queryByTags(["probe:cast-malformed"], probeEventsReducer);
     expect(queried.state).toHaveLength(0);
   });
 
@@ -749,8 +766,7 @@ describe("command pipeline v2 — wiring", () => {
         absent: { type: "NoUser" as const },
       },
       tags: (subject) => [`user:${subject.id}`],
-      schemas: [],
-      fold: (_events, subject) => ({ found: subject.id }),
+      reducer: emptyFoundReducer,
     });
 
     const slice = defineCommand<
@@ -828,8 +844,7 @@ describe("command pipeline v2 — wiring", () => {
         tagQuery({
           key: "history" as const,
           tags: () => ["probe:stale"],
-          schemas: probeSchemas,
-          fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+          reducer: probeCountReducer,
         }),
       ),
       validate: [],
@@ -883,8 +898,7 @@ describe("command pipeline v2 — wiring", () => {
         tagQuery({
           key: "history" as const,
           tags: () => ["probe:empty"],
-          schemas: probeSchemas,
-          fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+          reducer: probeCountReducer,
         }),
       ),
       validate: [],
@@ -960,8 +974,7 @@ describe("command pipeline v2 — wiring", () => {
         absent: { type: "NoUser" as const },
       },
       tags: (subject) => [`user:${subject.userId}`],
-      schemas: probeSchemas,
-      fold: (events: ReadonlyArray<StoredEvent>, _subject) => ({ count: events.length }),
+      reducer: probeCountReducer,
     });
 
     const slice = defineCommand<
@@ -1255,16 +1268,14 @@ describe("command pipeline v2 — wiring", () => {
           tagQuery({
             key: "one" as const,
             tags: () => firstTags,
-            schemas: probeSchemas,
-            fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+            reducer: probeCountReducer,
           }),
         )
         .add(
           tagQuery({
             key: "two" as const,
             tags: () => secondTags,
-            schemas: probeSchemas,
-            fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+            reducer: probeCountReducer,
           }),
         ),
       validate: [
@@ -1355,8 +1366,7 @@ describe("command pipeline v2 — wiring", () => {
         tagQuery({
           key: "history" as const,
           tags: () => ["probe:query"],
-          schemas: probeSchemas,
-          fold: (events: ReadonlyArray<ProbeEvent>) => ({ count: events.length }),
+          reducer: probeCountReducer,
         }),
       ),
       handle: (ctx) => ok({ count: ctx.history.count }),

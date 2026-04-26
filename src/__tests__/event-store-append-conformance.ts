@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import type { EventStore } from "../core/event-store";
+import { defineReducer } from "../core/reducer";
 import type { DomainEvent } from "../core/types";
 
 const APPEND_PRECONDITION_MESSAGE =
@@ -20,7 +21,12 @@ type ConformancePayload = {
   readonly step: string;
 };
 
-type ConformanceEvent = z.output<typeof ConformanceEventSchema>;
+const conformanceEventTypesReducer = defineReducer({
+  name: "conformance-event-types",
+  schemas: [ConformanceEventSchema] as const,
+  initial: [] as string[],
+  reduce: (types, event): string[] => [...types, event.type],
+});
 
 type EventStoreFactory = () => EventStore | Promise<EventStore>;
 
@@ -36,11 +42,7 @@ async function queryTypesByTags(
   store: EventStore,
   tags: ReadonlyArray<string>,
 ): Promise<ReadonlyArray<string>> {
-  const result = await store.queryByTags(
-    tags,
-    [ConformanceEventSchema],
-    (events: ReadonlyArray<ConformanceEvent>) => events.map((event) => event.type),
-  );
+  const result = await store.queryByTags(tags, conformanceEventTypesReducer);
   return result.state;
 }
 

@@ -1,5 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
+import type { ReducerDefinition, ReducerEvent } from "../../core/reducer.js";
 import type {
   AppendOptions,
   EventFilter,
@@ -98,24 +99,27 @@ export function createInMemoryEventStore(): EventStore {
       return ok({ events: stored });
     },
 
-    async queryByTags<TSchema extends z.ZodType, TEvent, TState>(
+    async queryByTags<
+      TName extends string,
+      TState,
+      const TSchemas extends ReadonlyArray<z.ZodType>,
+    >(
       tags: ReadonlyArray<string>,
-      schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<TEvent>) => TState,
+      reducer: ReducerDefinition<TName, TState, TSchemas>,
     ) {
       const matching = events.filter((event) => tags.every((tag) => event.tags.includes(tag)));
       const maxPosition = matching[matching.length - 1]?.position;
 
-      const parsed = matching.map((event) => {
-        for (const schema of schemas) {
+      const parsed: Array<ReducerEvent<TSchemas>> = matching.map((event) => {
+        for (const schema of reducer.schemas) {
           const result = schema.safeParse(event);
-          if (result.success) return result.data;
+          if (result.success) return result.data as ReducerEvent<TSchemas>;
         }
         throw new Error(
           `Event at position ${event.position} (type "${event.type}") does not match any provided schema`,
         );
       });
-      return { state: fold(parsed as ReadonlyArray<TEvent>), maxPosition };
+      return { state: reducer.fold(parsed), maxPosition };
     },
 
     onAfterInsert(filter, handler) {
