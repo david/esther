@@ -6,8 +6,8 @@
 
 ## Current status
 
-Plan written. No lane move.
+Plan approved by `plan/checks/01-plan-sanity.md`. No lane move.
 
 ## Next suggested step
 
-{{/skill:plan-check y7pbl-event-definition}}
+{{/skill:breakdown y7pbl-event-definition --from plan/01-implementation-plan.md}}
