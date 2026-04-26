@@ -38,7 +38,7 @@ export {
   type ProjectionAdapterViewEntry,
 } from "./core/app.js";
 // ── Compose / Step primitives ──────────────────────────────────────────
-export { compose, type InputPipeline, type Step, type StepError } from "./core/compose.js";
+export { compose, type InputPipeline } from "./core/compose.js";
 // ── Effect adapters ────────────────────────────────────────────────────
 export {
   createEffectAdapterRegistry,
@@ -54,8 +54,6 @@ export type {
   OnAfterCommitHandler,
   OnAfterInsertHandler,
 } from "./core/event-store.js";
-// ── Pipeline ───────────────────────────────────────────────────────────
-export { executeCommand, executeQuery } from "./core/pipeline.js";
 // ── Processor ──────────────────────────────────────────────────────────
 export {
   defineProcessor,
@@ -63,12 +61,6 @@ export {
   type Processor,
   type ProcessorEventBinding,
 } from "./core/processor.js";
-// ── Read interpreter ───────────────────────────────────────────────────
-export {
-  createReadInterpreter,
-  type ReadInterpreter,
-  type ReadInterpreterDeps,
-} from "./core/read-interpreter.js";
 // ── Read model registration ────────────────────────────────────────────
 export {
   type ProjectionGetter,
@@ -113,8 +105,6 @@ export {
   type CommandLookupByIdDescriptor,
   type Command,
   type CommandDefinition,
-  type CompileDeps,
-  type CompiledOperation,
   castTagQuery,
   defineCommand,
   defineQuery,
@@ -131,12 +121,10 @@ export {
   type OperationResult,
   type OutputErrHandlers,
   type ProjectionStep,
-  type ProjectionStore,
   projection,
   type QueryProjectionStep,
   type Query,
   type RegisterableOperation,
-  type SliceDeps,
   type StateResolver,
   state,
   type TagQueryStep,
@@ -155,7 +143,6 @@ export type {
   ConcurrencyError,
   DomainEvent,
   EffectResult,
-  InlineResult,
   SchemaError,
   SliceError,
   StoredEvent,

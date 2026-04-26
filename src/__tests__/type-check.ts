@@ -38,7 +38,6 @@ import {
   type ReadModelRegistration,
   type ReadOnlyReadModelRegistration,
   type RegisterableOperation,
-  type SliceDeps,
   type SliceError,
   type WritableReadModelRegistration,
   state,
@@ -110,8 +109,12 @@ const _boundaryObservationError: BoundaryObservationErrorType = BoundaryObservat
 const _boundaryObservationSliceError: SliceError = _boundaryObservationError;
 const _boundaryObservationErrorTag: "BoundaryObservationError" = _boundaryObservationError._tag;
 
-declare const _sliceDepsWithObservationSink: SliceDeps;
-_sliceDepsWithObservationSink.recordBoundaryObservation?.(_boundaryObservation);
+// @ts-expect-error runtime executors are internal and not root-public
+const _removedExecuteCommand = undefined as typeof import("../index").executeCommand;
+// @ts-expect-error projection stores are internal and not root-public
+type _RemovedProjectionStore = import("../index").ProjectionStore;
+// @ts-expect-error slice dependency bags are internal and not root-public
+const _removedSliceDeps = undefined as import("../index").SliceDeps;
 
 const propertyReducer = (
   state: PropertyState,
