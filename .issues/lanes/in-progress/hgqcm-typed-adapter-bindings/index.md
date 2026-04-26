@@ -1,8 +1,8 @@
 # hgqcm-typed-adapter-bindings Index
 
 ## Current state
-Lane: backlog
-Status: implementation tasks ready
+Lane: in-progress
+Status: implementation task 01 complete
 
 ## Active artifacts
 Description:
