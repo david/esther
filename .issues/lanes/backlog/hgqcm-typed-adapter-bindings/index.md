@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: implementation plan drafted
+Status: implementation plan approved
 
 ## Active artifacts
 Description:
@@ -14,5 +14,8 @@ Feature spec:
 Implementation plan:
 - plan/01-implementation-plan.md
 
+Plan checks:
+- plan/checks/01-plan-sanity.md
+
 ## Next suggested step
-- {{/skill:plan-check hgqcm-typed-adapter-bindings}}
+- {{/skill:breakdown hgqcm-typed-adapter-bindings --from plan/01-implementation-plan.md}}
