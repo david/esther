@@ -68,6 +68,12 @@ A pure function on a command that maps a stored event to a `ProjectionResult` vi
 
 A pure function on a command that maps a stored event to an effect descriptor. The effect is executed by a matching effect adapter.
 
+## Input Adapter
+
+The runtime entry point for command/query invocation. An input adapter receives external or host-runtime input, binds to Esther's dynamic dispatch function, and forwards calls as `(sliceName: string, input: unknown)`.
+
+This dynamic boundary is intentional: adapters deal with runtime data from HTTP, CLI, queues, tests, or other transports. Esther validates the unknown input through the selected slice's schema before command/query execution. Typed developer ergonomics should live in adapter configuration or route/binding helpers, not in user app modules directly dispatching commands or queries.
+
 ## Effect Adapter
 
 A named adapter that matches and executes effect descriptors emitted by processors. Handles side effects like sending emails or calling external APIs.

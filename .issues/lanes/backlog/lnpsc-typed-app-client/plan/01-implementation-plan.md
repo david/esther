@@ -1,5 +1,7 @@
 # Implementation Plan — Typed app client
 
+> Superseded: this plan proposed a public in-process `app.client.dispatch(...)` facade. Clarified architecture intent is that command/query invocation belongs at input adapter boundaries; future planning should target typed adapter route/binding configuration while keeping `app.dispatch(sliceName: string, input: unknown)` dynamic for adapters.
+
 ## Goal
 
 Add a typed in-process app client so callers can dispatch registered slices by name with inferred input, output, and error types, while preserving the existing dynamic `App.dispatch(sliceName: string, input: unknown)` surface for transport/input adapters.

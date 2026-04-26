@@ -48,11 +48,13 @@ Do:
 - resolve reads through the framework DSL
 - keep query logic in `defineReadModelQuery`
 - return effect descriptors from processors and let adapters execute them
+- express typed command/query entry points through adapter configuration or route/binding helpers
 
 Do not:
 - perform direct I/O in slices, read models, projectors, or processors
 - hide external lookups in helper functions called from app modules
 - write inline SQL or one-off read-model filtering logic inside slices
+- add public in-process app clients that encourage app modules or host code to bypass adapters for command/query invocation
 
 ## Cast policy
 
