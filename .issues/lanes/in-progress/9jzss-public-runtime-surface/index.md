@@ -23,6 +23,15 @@ Narrow Esther's public runtime surface so low-level pipeline/runtime internals d
 - [impl/01.md](impl/01.md) — narrow root runtime exports and update the public API type-check sentinel.
 - [impl/02.md](impl/02.md) — record rollout note and run final API gates.
 
+## Latest implementation checkpoints
+
+- [impl/checkpoints/01.md](impl/checkpoints/01.md) — aligned; root runtime internals removed from `src/index.ts`, public API sentinel updated, full gates passed.
+- [impl/checkpoints/02.md](impl/checkpoints/02.md) — aligned; rollout note added and full gates passed.
+
+## Latest review
+
+- [review/diff/01-review-diff.md](review/diff/01-review-diff.md) — no actionable findings; highest risk is intended caller-breaking root TypeScript API cleanup.
+
 ## Current recommended handoff
 
-Use `{{/skill:impl 9jzss-public-runtime-surface}}`.
+Use `{{/skill:gates 9jzss-public-runtime-surface}}`.
