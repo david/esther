@@ -10,6 +10,10 @@ Narrow Esther's public runtime surface so low-level pipeline/runtime internals d
 - [research/02-caller-inventory.md](research/02-caller-inventory.md) — only tests/type fixtures import root exports in-repo; no root caller depends on `executeCommand`, `executeQuery`, `createReadInterpreter`, or `ReadInterpreterDeps`.
 - [research/03-public-export-audit.md](research/03-public-export-audit.md) — classified exports into stable public DSL, extension contracts, deprecated compatibility surface, and unstable internal candidates.
 
+## Active plan
+
+- [plan/01-implementation-plan.md](plan/01-implementation-plan.md) — narrow the root export surface by keeping stable DSL/API and extension contracts, retaining deprecated compatibility exports, and removing named root exports for runtime internals.
+
 ## Current recommended handoff
 
-Use `{{/skill:plan 9jzss-public-runtime-surface}}` to decide the target export policy: keep stable DSL/API, document extension contracts, handle deprecated projection compatibility, and hide or mark unstable runtime internals.
+Use `{{/skill:plan-check 9jzss-public-runtime-surface}}` to sanity-check the implementation plan before breakdown.
