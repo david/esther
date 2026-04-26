@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: PR opened — https://github.com/david/esther/pull/6
+Status: PR opened, CI passed — https://github.com/david/esther/pull/6
 
 ## Active artifacts
 Description:
@@ -36,5 +36,5 @@ Implementation tasks:
 - impl/01.md through impl/05.md
 
 ## Next suggested step
-- Review and merge PR 6 after CI passes: https://github.com/david/esther/pull/6
+- Review and merge PR 6: https://github.com/david/esther/pull/6
 - After merge to `main`, run {{/skill:deploy heqik-define-reducer --move-done}}
