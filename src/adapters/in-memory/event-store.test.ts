@@ -20,10 +20,36 @@ const eventCountReducer = defineReducer({
   reduce: (count): number => count + 1,
 });
 
+const AmountAddedSchema = z.object({
+  type: z.literal("AmountAdded"),
+  tags: z.array(z.string()),
+  payload: z.object({ amount: z.coerce.number() }),
+});
+
+const AmountRemovedSchema = z.object({
+  type: z.literal("AmountRemoved"),
+  tags: z.array(z.string()),
+  payload: z.object({ amount: z.coerce.number() }),
+});
+
+const amountReducer = defineReducer({
+  name: "amount-state",
+  schemas: [AmountAddedSchema, AmountRemovedSchema] as const,
+  initial: { total: 0 },
+  reduce: (state, event): { readonly total: number } => {
+    if (event.type === "AmountAdded") return { total: state.total + event.payload.amount };
+    return { total: state.total - event.payload.amount };
+  },
+});
+
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function makeEvent(type: string, tags: ReadonlyArray<string> = []): DomainEvent {
-  return { type, tags, payload: {} };
+function makeEvent(
+  type: string,
+  tags: ReadonlyArray<string> = [],
+  payload: unknown = {},
+): DomainEvent<string, unknown> {
+  return { type, tags, payload };
 }
 
 // ── append ─────────────────────────────────────────────────────────────
@@ -120,6 +146,19 @@ describe("queryByTags", () => {
     const result = await store.queryByTags(["a"], eventCountReducer);
 
     expect(result).toEqual({ state: 1, maxPosition: 0n });
+  });
+
+  test("parses matching events through reducer schemas and folds reducer state", async () => {
+    const store = createInMemoryEventStore();
+    await store.append([
+      makeEvent("AmountAdded", ["account:1", "ledger"], { amount: "10" }),
+      makeEvent("AmountAdded", ["account:2", "ledger"], { amount: "99" }),
+      makeEvent("AmountRemoved", ["account:1", "ledger"], { amount: "4" }),
+    ]);
+
+    const result = await store.queryByTags(["account:1"], amountReducer);
+
+    expect(result).toEqual({ state: { total: 6 }, maxPosition: 2n });
   });
 });
 
