@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: implementation plan drafted; awaiting plan check
+Status: implementation plan approved; ready for breakdown
 
 ## Active artifacts
 Description:
@@ -14,8 +14,11 @@ Feature spec:
 Implementation plan:
 - plan/01-implementation-plan.md
 
+Plan check:
+- plan/checks/01-plan-sanity.md — approved
+
 ## Key decision
 - No compatibility. Public event-history query surfaces require `defineReducer(...)` output. Raw `schemas + fold` forms removed.
 
 ## Next suggested step
-- Run {{/skill:plan-check heqik-define-reducer}}
+- Run {{/skill:breakdown heqik-define-reducer --from plan/01-implementation-plan.md}}
