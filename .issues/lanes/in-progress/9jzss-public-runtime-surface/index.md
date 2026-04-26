@@ -32,6 +32,10 @@ Narrow Esther's public runtime surface so low-level pipeline/runtime internals d
 
 - [review/diff/01-review-diff.md](review/diff/01-review-diff.md) — no actionable findings; highest risk is intended caller-breaking root TypeScript API cleanup.
 
+## Latest deploy
+
+- [deploy/01-pr.md](deploy/01-pr.md) — PR #5 opened at https://github.com/david/esther/pull/5; lane not moved because PR is not merged yet.
+
 ## Current recommended handoff
 
-Use `{{/skill:gates 9jzss-public-runtime-surface}}`.
+Review and merge PR #5, then use `{{/skill:deploy 9jzss-public-runtime-surface --move-done}}`.
