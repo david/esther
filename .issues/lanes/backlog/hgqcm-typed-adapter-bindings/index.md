@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: implementation plan approved
+Status: implementation tasks ready
 
 ## Active artifacts
 Description:
@@ -17,5 +17,11 @@ Implementation plan:
 Plan checks:
 - plan/checks/01-plan-sanity.md
 
+Implementation tasks:
+- impl/01.md — Add operation name and result type helpers
+- impl/02.md — Add typed Fastify route binding contracts
+- impl/03.md — Dispatch explicit Fastify routes through the dynamic boundary
+- impl/04.md — Support typed Fastify response overrides and final compatibility
+
 ## Next suggested step
-- {{/skill:breakdown hgqcm-typed-adapter-bindings --from plan/01-implementation-plan.md}}
+- {{/skill:impl hgqcm-typed-adapter-bindings}}
