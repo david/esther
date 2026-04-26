@@ -6,6 +6,7 @@ import { compose } from "./compose";
 import { defineReadModel, defineReadModelQuery } from "./read-model";
 import { defineReducer } from "./reducer";
 import { castTagQuery, defineCommand, derive, lookup, type ValidatePredicate } from "./slice";
+import type { EventStore } from "./event-store";
 import type { DomainEvent } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -24,9 +25,29 @@ const emptyStateReducer = defineReducer({
   reduce: (state): Record<never, never> => state,
 });
 
+const userCountEventSchema = z.object({
+  type: z.literal("UserCounted"),
+  tags: z.array(z.string()),
+  payload: z.object({ delta: z.number() }),
+  position: z.bigint(),
+});
+
+const userCountReducer = defineReducer({
+  name: "user-count",
+  schemas: [userCountEventSchema] as const,
+  initial: { count: 0 },
+  reduce: (state, event): { readonly count: number } => ({
+    count: state.count + event.payload.delta,
+  }),
+});
+
 describe("castTagQuery", () => {
   test("hit: subject unwrapped and reducer state bound", async () => {
     const eventStore = createInMemoryEventStore();
+    await eventStore.append([
+      { type: "UserCounted", tags: ["user:u1"], payload: { delta: 2 } },
+      { type: "UserCounted", tags: ["user:u2"], payload: { delta: 99 } },
+    ]);
     const subject = { userId: "u1", name: "Ada" };
 
     const userModel = defineReadModel({
@@ -47,7 +68,7 @@ describe("castTagQuery", () => {
         absent: { type: "NotFound" as const },
       },
       tags: tagsSpy,
-      reducer: zeroCountReducer,
+      reducer: userCountReducer,
     });
 
     const projectionStore = {
@@ -65,7 +86,7 @@ describe("castTagQuery", () => {
     if (result.isOk()) {
       // Subject is bound under <key>Subject — unwrapped, no Result.
       expect(result.value).toEqual({
-        state: { count: 0 },
+        state: { count: 2 },
         stateSubject: { userId: "u1", name: "Ada" },
       });
       // Reading .name does not require .isOk().
@@ -78,7 +99,15 @@ describe("castTagQuery", () => {
   });
 
   test("absent: returns cause err directly, tags/fold never invoked", async () => {
-    const eventStore = createInMemoryEventStore();
+    const baseEventStore = createInMemoryEventStore();
+    let queryCalled = false;
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async queryByTags(tags, reducer) {
+        queryCalled = true;
+        return baseEventStore.queryByTags(tags, reducer);
+      },
+    };
     const cause = { type: "NotFound" as const, reason: "x" };
 
     const absentModel = defineReadModel({
@@ -112,6 +141,7 @@ describe("castTagQuery", () => {
       expect(result.error).toEqual(cause);
     }
     expect(tagsSpy).not.toHaveBeenCalled();
+    expect(queryCalled).toBe(false);
   });
 
   test("query handle: resolves subject via projectionStore.query", async () => {
