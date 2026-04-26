@@ -22,8 +22,8 @@ Verify removed runtime-internal symbols are not exported from the `esther` packa
 ## Steps
 1. Page: terminal at repository root
    Inspect: `src/index.ts`
-   Action: run `rg -n "executeCommand|executeQuery|createReadInterpreter|ReadInterpreter|ReadInterpreterDeps|ProjectionStore|SliceDeps|CompileDeps|CompiledOperation|Step|StepError|InlineResult" src/index.ts || true`
-   Expect: no output; none of the removed root export names appear in `src/index.ts`.
+   Action: run `rg -n "executeCommand|executeQuery|createReadInterpreter|ReadInterpreter|ReadInterpreterDeps|ProjectionStore|SliceDeps|CompileDeps|CompiledOperation|StepError|InlineResult|type Step\\b" src/index.ts || true`
+   Expect: no output; none of the removed root export names or `type Step` export appear in `src/index.ts`. Comment-only text such as `Step primitives` is not a failure.
 2. Page: terminal at repository root
    Inspect: `src/__tests__/type-check.ts` negative assertions
    Action: run `rg -n "removedExecuteCommand|RemovedProjectionStore|removedSliceDeps|@ts-expect-error runtime executors|@ts-expect-error projection stores|@ts-expect-error slice dependency" src/__tests__/type-check.ts`
@@ -39,11 +39,11 @@ Verify removed runtime-internal symbols are not exported from the `esther` packa
 | Runtime executors removed | `src/index.ts` | `executeCommand`, `executeQuery` | No `rg` matches | Use `createApp().dispatch` or adapters instead |
 | Read interpreter internals removed | `src/index.ts` | `createReadInterpreter`, `ReadInterpreter`, `ReadInterpreterDeps` | No `rg` matches | `createApp()` owns wiring |
 | Projection/store/deps internals removed | `src/index.ts` | `ProjectionStore`, `SliceDeps`, `CompileDeps`, `CompiledOperation` | No `rg` matches | Internal modules may still define them |
-| Low-level step/result internals removed | `src/index.ts` | `Step`, `StepError`, `InlineResult` | No `rg` matches | Watch-item descriptor types may remain separately |
+| Low-level step/result internals removed | `src/index.ts` | `type Step`, `StepError`, `InlineResult` | No `rg` matches | Comment-only `Step` text is allowed; watch-item descriptor types may remain separately |
 | Negative compile assertions | `src/__tests__/type-check.ts` | `executeCommand`, `ProjectionStore`, `SliceDeps` | Assertions present and `bun run typecheck` passes | Guards representative removals |
 
 ## Pass Criteria
-- Removed root export name search returns no matches in `src/index.ts`.
+- Removed root export name search returns no matches in `src/index.ts` for runtime internals or `type Step` export.
 - Negative assertion anchors exist for representative removed root exports.
 - `bun run typecheck` exits 0.
 
