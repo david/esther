@@ -8,8 +8,13 @@
 
 ## Current status
 
-Current-state research is complete and the implementation plan is approved. The recommended public shape is an additive `app.client.dispatch(...)` typed in-process facade while keeping existing `app.dispatch(...)` dynamic for adapters.
+Current-state research is complete, the implementation plan is approved, and implementation tasks `impl/01.md` through `impl/02.md` are ready. The recommended public shape is an additive `app.client.dispatch(...)` typed in-process facade while keeping existing `app.dispatch(...)` dynamic for adapters.
+
+## Implementation tasks
+
+- [impl/01.md](impl/01.md) — Preserve operation name literals.
+- [impl/02.md](impl/02.md) — Add typed app client dispatch.
 
 ## Next suggested step
 
-Break the approved plan into implementation tasks: {{/skill:breakdown lnpsc-typed-app-client --from plan/01-implementation-plan.md}}.
+Start implementation: {{/skill:impl lnpsc-typed-app-client}}.
