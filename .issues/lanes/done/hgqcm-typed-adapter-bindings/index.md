@@ -1,8 +1,8 @@
 # hgqcm-typed-adapter-bindings Index
 
 ## Current state
-Lane: in-progress
-Status: PR open; CI passed; review pending
+Lane: done
+Status: merged to main; repo-local deploy complete
 
 ## Active artifacts
 Description:
@@ -40,7 +40,14 @@ QA:
 - qa/tasks/qa-no-public-typed-client.md — passed
 
 Deploy:
-- deploy/01-pr.md — PR opened: https://github.com/david/esther/pull/4; CI passed; review pending
+- deploy/01-pr.md — PR opened: https://github.com/david/esther/pull/4; CI passed
+- deploy/02-release.md — PR merged to main; issue moved to done
+
+## Closure evidence
+- PR: https://github.com/david/esther/pull/4
+- Merged at: 2026-04-26T17:45:36Z
+- Main commit: 5bf6c63546b190e0088d8729f9f18a7f6e41f80f
+- External issue closure: not applicable / not requested
 
 ## Next suggested step
-- Wait for CI/review, then merge PR and run {{/skill:deploy hgqcm-typed-adapter-bindings --move-done}} after merge/release evidence is available.
+- None.
