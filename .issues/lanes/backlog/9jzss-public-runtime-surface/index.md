@@ -18,6 +18,11 @@ Narrow Esther's public runtime surface so low-level pipeline/runtime internals d
 
 - [plan/checks/01-plan-sanity.md](plan/checks/01-plan-sanity.md) — approved; no required plan changes before breakdown.
 
+## Implementation tasks
+
+- [impl/01.md](impl/01.md) — narrow root runtime exports and update the public API type-check sentinel.
+- [impl/02.md](impl/02.md) — record rollout note and run final API gates.
+
 ## Current recommended handoff
 
-Use `{{/skill:breakdown 9jzss-public-runtime-surface --from plan/01-implementation-plan.md}}`.
+Use `{{/skill:impl 9jzss-public-runtime-surface}}`.
