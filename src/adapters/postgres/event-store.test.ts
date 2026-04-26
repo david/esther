@@ -278,7 +278,7 @@ defineEventStoreAppendConformanceTests("postgres", () => {
 });
 
 describe("createPostgresEventStore — queryByTags", () => {
-  test("parses matching events through reducer schemas and folds reducer state", async () => {
+  test("parses matching events through reducer definitions and reduces state", async () => {
     const { sql } = createEventStoreHarness();
     const store = createPostgresEventStore({ sql });
     await store.append([

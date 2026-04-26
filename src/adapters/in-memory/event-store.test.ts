@@ -148,7 +148,7 @@ describe("queryByTags", () => {
     expect(result).toEqual({ state: 1, maxPosition: 0n });
   });
 
-  test("parses matching events through reducer schemas and folds reducer state", async () => {
+  test("parses matching events through reducer definitions and reduces state", async () => {
     const store = createInMemoryEventStore();
     await store.append([
       makeEvent("AmountAdded", ["account:1", "ledger"], { amount: "10" }),
