@@ -1,5 +1,7 @@
 # Plan Check — plan/01-implementation-plan.md
 
+> Superseded: this check approved the now-superseded public `app.client.dispatch(...)` plan. Re-run plan-check after replanning around typed adapter route/binding configuration.
+
 ## Verdict
 
 - approved

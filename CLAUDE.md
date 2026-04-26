@@ -15,5 +15,6 @@ Short reminders:
 - Core must not import adapters; adapters must not import each other.
 - Slices, read models, projectors, and processors do not perform direct I/O.
 - Query logic belongs in named read-model queries, not inline in slices.
+- Command/query invocation belongs at input adapter boundaries. Keep `app.dispatch(sliceName: string, input: unknown)` dynamic for adapters; prefer typed adapter route/binding configuration over public in-process app clients.
 - No `Record<string, unknown>` as a value type, and no bare `object`. Use explicit shapes, `Record<never, never>` for intentionally empty object shapes, or named internal patch/dictionary types when keyed dynamic data is genuinely required.
 - Ask rather than guess when requirements are ambiguous.

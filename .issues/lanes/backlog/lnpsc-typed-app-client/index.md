@@ -1,20 +1,22 @@
-# lnpsc-typed-app-client — Add typed app client
+# lnpsc-typed-app-client — Typed adapter invocation boundaries
 
 ## Latest artifacts
 
 - Research: [research/01-current-state.md](research/01-current-state.md)
-- Plan: [plan/01-implementation-plan.md](plan/01-implementation-plan.md)
-- Plan check: [plan/checks/01-plan-sanity.md](plan/checks/01-plan-sanity.md)
+- Superseded plan: [plan/01-implementation-plan.md](plan/01-implementation-plan.md)
+- Superseded plan check: [plan/checks/01-plan-sanity.md](plan/checks/01-plan-sanity.md)
 
 ## Current status
 
-Current-state research is complete, the implementation plan is approved, and implementation tasks `impl/01.md` through `impl/02.md` are ready. The recommended public shape is an additive `app.client.dispatch(...)` typed in-process facade while keeping existing `app.dispatch(...)` dynamic for adapters.
+Current-state research is complete, but the approved implementation plan and generated tasks are superseded by clarified architecture intent: command/query invocation should happen through input adapter boundaries, not through a public in-process `app.client.dispatch(...)` facade. Keep `app.dispatch(sliceName: string, input: unknown)` dynamic for adapters, and pursue typed adapter route/binding configuration instead.
 
-## Implementation tasks
+## Superseded implementation tasks
+
+Do not implement these tasks without replanning:
 
 - [impl/01.md](impl/01.md) — Preserve operation name literals.
 - [impl/02.md](impl/02.md) — Add typed app client dispatch.
 
 ## Next suggested step
 
-Start implementation: {{/skill:impl lnpsc-typed-app-client}}.
+Revise the plan around typed adapter route/binding configuration: {{/skill:plan lnpsc-typed-app-client}}.
