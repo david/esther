@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: automated gates passed
+Status: QA passed
 
 ## Active artifacts
 Description:
@@ -33,5 +33,11 @@ Review:
 - review/diff/01-review-diff.md — Semantic diff review; no actionable code findings
 - review/findings/01-gate-results.md — Automated gates passed
 
+QA:
+- qa/summary.md — QA passed
+- qa/tasks/qa-type-route-contracts.md — passed
+- qa/tasks/qa-fastify-runtime-routes.md — passed
+- qa/tasks/qa-no-public-typed-client.md — passed
+
 ## Next suggested step
-- {{/skill:qa hgqcm-typed-adapter-bindings}}
+- {{/skill:deploy hgqcm-typed-adapter-bindings}}
