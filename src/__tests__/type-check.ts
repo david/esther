@@ -23,13 +23,21 @@ import {
   type AppConfig,
   type BoundaryObservation,
   type BoundaryObservationError as BoundaryObservationErrorType,
+  type DispatchFn,
   type DomainEvent,
+  type OperationByName,
+  type OperationError,
+  type OperationInput,
+  type OperationName,
+  type OperationOutput,
+  type OperationResult,
   type ProjectionAdapter,
   type ProjectionGetter,
   type ProjectionQuery,
   type ReadModelNotFound,
   type ReadModelRegistration,
   type ReadOnlyReadModelRegistration,
+  type RegisterableOperation,
   type SliceDeps,
   type SliceError,
   type WritableReadModelRegistration,
@@ -39,6 +47,10 @@ import {
 import { createPostgresProjectionAdapter } from "../adapters/postgres/index";
 
 // ── Shared contracts ───────────────────────────────────────────────────
+
+type Equal<TActual, TExpected> =
+  (<T>() => T extends TActual ? 1 : 2) extends <T>() => T extends TExpected ? 1 : 2 ? true : false;
+type Expect<T extends true> = T;
 
 const createBookingInputSchema = z.object({
   tenantId: z.string().uuid(),
@@ -557,4 +569,162 @@ const _queryProjectionOptionalSlice = defineQuery({
     }
     return ok({ pricePerNight: 0 });
   },
+});
+
+// ── Operation helper type flow ─────────────────────────────────────────
+
+const typedCommandInputSchema = z.object({ commandId: z.string() });
+type TypedCommandInput = z.output<typeof typedCommandInputSchema>;
+
+const typedCommandOutputSchema = z.object({ accepted: z.boolean() });
+type TypedCommandOutput = z.output<typeof typedCommandOutputSchema>;
+
+type TypedCommandError = {
+  readonly type: "TypedCommandRejected";
+  readonly message: string;
+};
+
+type TypedCommandAccepted = DomainEvent<
+  "TypedCommandAccepted",
+  {
+    readonly commandId: string;
+  }
+>;
+
+const _typedNamedCommand = defineCommand({
+  name: "typed-command",
+  inputSchema: typedCommandInputSchema,
+  outputSchema: typedCommandOutputSchema,
+  input: compose<TypedCommandInput>(),
+  validate: [(_ctx: TypedCommandInput): ReadonlyArray<TypedCommandError> => []],
+  event: (ctx: TypedCommandInput): TypedCommandAccepted => ({
+    type: "TypedCommandAccepted",
+    tags: ["typed-command"],
+    payload: { commandId: ctx.commandId },
+  }),
+  output: (
+    _event: TypedCommandAccepted,
+    _ctx: TypedCommandInput,
+  ): Result<TypedCommandOutput, TypedCommandError> => ok({ accepted: true }),
+  outputErr: {
+    TypedCommandRejected: (errors): Result<TypedCommandOutput, TypedCommandError> => err(errors[0]),
+  },
+});
+
+const typedQueryInputSchema = z.object({ queryId: z.string() });
+type TypedQueryInput = z.output<typeof typedQueryInputSchema>;
+
+const typedQueryOutputSchema = z.object({ found: z.boolean() });
+type TypedQueryOutput = z.output<typeof typedQueryOutputSchema>;
+
+type TypedQueryError = {
+  readonly type: "TypedQueryMissing";
+  readonly message: string;
+};
+
+const _typedNamedQuery = defineQuery({
+  name: "typed-query",
+  inputSchema: typedQueryInputSchema,
+  outputSchema: typedQueryOutputSchema,
+  state: state<TypedQueryInput>(),
+  handle: (ctx): Result<TypedQueryOutput, TypedQueryError> => {
+    if (ctx.queryId.length === 0) {
+      return err({ type: "TypedQueryMissing", message: "Missing query id" });
+    }
+    return ok({ found: true });
+  },
+});
+
+const _typedCommandNameCheck: "typed-command" = _typedNamedCommand.name;
+const _typedQueryNameCheck: "typed-query" = _typedNamedQuery.name;
+
+const _typedOperations = [_typedNamedCommand, _typedNamedQuery] as const;
+
+type _OperationNameCheck = Expect<
+  Equal<OperationName<typeof _typedOperations>, "typed-command" | "typed-query">
+>;
+
+type TypedCommandOperation = OperationByName<typeof _typedOperations, "typed-command">;
+type TypedQueryOperation = OperationByName<typeof _typedOperations, "typed-query">;
+
+const _typedCommandByNameCheck: TypedCommandOperation = _typedNamedCommand;
+const _typedQueryByNameCheck: TypedQueryOperation = _typedNamedQuery;
+
+type _CommandOperationInputCheck = Expect<
+  Equal<OperationInput<TypedCommandOperation>, TypedCommandInput>
+>;
+type _CommandOperationOutputCheck = Expect<
+  Equal<OperationOutput<TypedCommandOperation>, TypedCommandOutput>
+>;
+type _CommandOperationErrorCheck = Expect<
+  Equal<OperationError<TypedCommandOperation>, SliceError | TypedCommandError>
+>;
+type _CommandOperationResultCheck = Expect<
+  Equal<
+    OperationResult<TypedCommandOperation>,
+    Result<TypedCommandOutput, SliceError | TypedCommandError>
+  >
+>;
+
+type _QueryOperationInputCheck = Expect<
+  Equal<OperationInput<TypedQueryOperation>, TypedQueryInput>
+>;
+type _QueryOperationOutputCheck = Expect<
+  Equal<OperationOutput<TypedQueryOperation>, TypedQueryOutput>
+>;
+type _QueryOperationErrorCheck = Expect<
+  Equal<OperationError<TypedQueryOperation>, SliceError | TypedQueryError>
+>;
+type _QueryOperationResultCheck = Expect<
+  Equal<
+    OperationResult<TypedQueryOperation>,
+    Result<TypedQueryOutput, SliceError | TypedQueryError>
+  >
+>;
+
+const _validCommandInput: OperationInput<TypedCommandOperation> = { commandId: "command-1" };
+const _validQueryInput: OperationInput<TypedQueryOperation> = { queryId: "query-1" };
+const _validCommandResult: OperationResult<TypedCommandOperation> = ok({ accepted: true });
+const _validQueryResult: OperationResult<TypedQueryOperation> = ok({ found: true });
+
+// @ts-expect-error preserved tuples reject unknown operation names
+type _MissingOperation = OperationByName<typeof _typedOperations, "missing-operation">;
+// @ts-expect-error command input helper rejects query-shaped input
+const _invalidCommandInput: OperationInput<TypedCommandOperation> = { queryId: "query-1" };
+// @ts-expect-error query input helper rejects command-shaped input
+const _invalidQueryInput: OperationInput<TypedQueryOperation> = { commandId: "command-1" };
+
+const _widenedOperations: ReadonlyArray<RegisterableOperation> = _typedOperations;
+type _WidenedOperationNameCheck = Expect<Equal<OperationName<typeof _widenedOperations>, string>>;
+type _WidenedOperationInputCheck = Expect<
+  Equal<OperationInput<OperationByName<typeof _widenedOperations, string>>, unknown>
+>;
+type _WidenedOperationOutputCheck = Expect<
+  Equal<OperationOutput<OperationByName<typeof _widenedOperations, string>>, unknown>
+>;
+type _WidenedOperationErrorCheck = Expect<
+  Equal<OperationError<OperationByName<typeof _widenedOperations, string>>, unknown>
+>;
+type _WidenedOperationResultCheck = Expect<
+  Equal<
+    OperationResult<OperationByName<typeof _widenedOperations, string>>,
+    Result<unknown, unknown>
+  >
+>;
+
+const _dynamicOperationInput: OperationInput<OperationByName<typeof _widenedOperations, string>> = {
+  anyRuntimeShape: true,
+};
+const _dynamicDispatchApp = createApp({
+  eventStore: createInMemoryEventStore(),
+  inputAdapter: createInMemoryAdapter(),
+  slices: _typedOperations,
+});
+const _dynamicDispatchResult: Promise<Result<unknown, unknown>> = _dynamicDispatchApp.dispatch(
+  "anything",
+  _dynamicOperationInput,
+);
+const _dispatchFnCheck: DispatchFn = _dynamicDispatchApp.dispatch;
+const _dispatchFnResult: Promise<Result<unknown, unknown>> = _dispatchFnCheck("anything", {
+  anyRuntimeShape: true,
 });

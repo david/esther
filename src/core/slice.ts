@@ -14,6 +14,7 @@ import {
   type BoundaryObservation,
   type DomainEvent,
   type ReadModelSchemaError,
+  type SliceError,
   type StoredEvent,
 } from "./types";
 
@@ -805,8 +806,8 @@ export type CompileDeps = {
 
 // ── Registerable operation ─────────────────────────────────────────────
 
-export type RegisterableOperation = {
-  readonly name: string;
+export type RegisterableOperation<TName extends string = string> = {
+  readonly name: TName;
   readonly _tag: "command" | "query";
   readonly compile: (deps: CompileDeps) => CompiledOperation;
 };
@@ -868,7 +869,8 @@ export type Command<
   TOutput,
   TEvent extends DomainEvent,
   TError extends { readonly type: string },
-> = RegisterableOperation & {
+  TName extends string = string,
+> = RegisterableOperation<TName> & {
   readonly _tag: "command";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
@@ -892,13 +894,95 @@ export type Query<
   TContext,
   TOutput,
   TError extends { readonly type: string } = never,
-> = RegisterableOperation & {
+  TName extends string = string,
+> = RegisterableOperation<TName> & {
   readonly _tag: "query";
   readonly inputSchema: z.ZodType<TInput>;
   readonly outputSchema: z.ZodType<TOutput>;
   readonly resolveState: StateResolver<TInput, TContext>;
   readonly handle: (context: TContext) => Result<TOutput, TError>;
 };
+
+// ── Operation type helpers ─────────────────────────────────────────
+
+export type OperationName<TSlices extends ReadonlyArray<RegisterableOperation>> =
+  TSlices[number]["name"];
+
+export type OperationByName<
+  TSlices extends ReadonlyArray<RegisterableOperation>,
+  TName extends OperationName<TSlices>,
+> = Extract<TSlices[number], { readonly name: TName }>;
+
+export type OperationInput<TOperation> =
+  TOperation extends Command<
+    infer TInput,
+    infer _TCtx,
+    infer _TOutput,
+    infer _TEvent,
+    infer _TError,
+    infer _TName
+  >
+    ? TInput
+    : TOperation extends Query<
+          infer TInput,
+          infer _TContext,
+          infer _TOutput,
+          infer _TError,
+          infer _TName
+        >
+      ? TInput
+      : TOperation extends RegisterableOperation
+        ? unknown
+        : never;
+
+export type OperationOutput<TOperation> =
+  TOperation extends Command<
+    infer _TInput,
+    infer _TCtx,
+    infer TOutput,
+    infer _TEvent,
+    infer _TError,
+    infer _TName
+  >
+    ? TOutput
+    : TOperation extends Query<
+          infer _TInput,
+          infer _TContext,
+          infer TOutput,
+          infer _TError,
+          infer _TName
+        >
+      ? TOutput
+      : TOperation extends RegisterableOperation
+        ? unknown
+        : never;
+
+export type OperationError<TOperation> =
+  TOperation extends Command<
+    infer _TInput,
+    infer _TCtx,
+    infer _TOutput,
+    infer _TEvent,
+    infer TError,
+    infer _TName
+  >
+    ? SliceError | TError
+    : TOperation extends Query<
+          infer _TInput,
+          infer _TContext,
+          infer _TOutput,
+          infer TError,
+          infer _TName
+        >
+      ? SliceError | TError
+      : TOperation extends RegisterableOperation
+        ? unknown
+        : never;
+
+export type OperationResult<TOperation> = Result<
+  OperationOutput<TOperation>,
+  OperationError<TOperation>
+>;
 
 // ── defineCommand ─────────────────────────────────────────────────
 
@@ -922,6 +1006,51 @@ export type CommandDefinition<
 } & ([TError] extends [never]
   ? { readonly outputErr?: undefined }
   : { readonly outputErr: OutputErrHandlers<TError, TOutput, TCtx, TInput> });
+
+export function defineCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEvent extends DomainEvent,
+  TError extends { readonly type: string } = never,
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+  const TName extends string = string,
+>(
+  definition: CommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEvent,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  > & { readonly name: TName },
+): Command<TInput, TCtx, TOutput, TEvent, TError, TName>;
+
+export function defineCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEvent extends DomainEvent,
+  TError extends { readonly type: string } = never,
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+>(
+  definition: CommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEvent,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+): Command<TInput, TCtx, TOutput, TEvent, TError>;
 
 export function defineCommand<
   TInput,
@@ -976,6 +1105,37 @@ export function defineCommand<
 }
 
 // ── defineQuery ───────────────────────────────────────────────────
+
+export function defineQuery<
+  TInput,
+  TContext,
+  TOutput,
+  TError extends { readonly type: string } = never,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+  const TName extends string = string,
+>(definition: {
+  readonly name: TName;
+  readonly inputSchema: TInputSchema;
+  readonly outputSchema: TOutputSchema;
+  readonly state: StateResolver<TInput, TContext>;
+  readonly handle: (ctx: TContext) => Result<TOutput, TError>;
+}): Query<TInput, TContext, TOutput, TError, TName>;
+
+export function defineQuery<
+  TInput,
+  TContext,
+  TOutput,
+  TError extends { readonly type: string } = never,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+>(definition: {
+  readonly name?: string | undefined;
+  readonly inputSchema: TInputSchema;
+  readonly outputSchema: TOutputSchema;
+  readonly state: StateResolver<TInput, TContext>;
+  readonly handle: (ctx: TContext) => Result<TOutput, TError>;
+}): Query<TInput, TContext, TOutput, TError>;
 
 export function defineQuery<
   TInput,
