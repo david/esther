@@ -1,10 +1,72 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { DispatchFn, InputAdapter, InputAdapterBinding } from "../../core/input-adapter.js";
+import type {
+  OperationByName,
+  OperationInput,
+  OperationName,
+  OperationResult,
+  RegisterableOperation,
+} from "../../core/slice.js";
 
-export type FastifyAdapterConfig = {
+export type FastifyRouteMethod = "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT";
+
+export type FastifyRouteRequest = {
+  readonly body: unknown;
+  readonly query: unknown;
+  readonly params: unknown;
+  readonly headers: unknown;
+  readonly method: string;
+  readonly url: string;
+  readonly request: FastifyRequest;
+};
+
+type FastifyRouteRespondContext<
+  TSlices extends ReadonlyArray<RegisterableOperation>,
+  TName extends OperationName<TSlices>,
+> = {
+  readonly result: OperationResult<OperationByName<TSlices, TName>>;
+  readonly request: FastifyRouteRequest;
+  readonly reply: FastifyReply;
+};
+
+export type FastifyRouteBinding<
+  TSlices extends ReadonlyArray<RegisterableOperation>,
+  TName extends OperationName<TSlices> = OperationName<TSlices>,
+> = {
+  readonly [K in TName]: {
+    readonly method: FastifyRouteMethod;
+    readonly path: string;
+    readonly slice: K;
+    readonly input: (request: FastifyRouteRequest) => OperationInput<OperationByName<TSlices, K>>;
+    readonly respond?: (
+      context: FastifyRouteRespondContext<TSlices, K>,
+    ) => unknown | Promise<unknown>;
+  };
+}[TName];
+
+export type FastifyRouteConfigEntry = {
+  readonly method: FastifyRouteMethod;
+  readonly path: string;
+  readonly slice: string;
+  readonly input: (request: FastifyRouteRequest) => unknown;
+  readonly respond?: unknown;
+};
+
+export type FastifyAdapterConfig<
+  TRoutes extends ReadonlyArray<FastifyRouteConfigEntry> = ReadonlyArray<FastifyRouteConfigEntry>,
+> = {
   readonly port: number;
   readonly hostname?: string;
+  readonly routes?: TRoutes;
 };
+
+export function defineFastifyRoutes<const TSlices extends ReadonlyArray<RegisterableOperation>>(): <
+  const TRoutes extends ReadonlyArray<FastifyRouteBinding<TSlices>>,
+>(
+  routes: TRoutes,
+) => TRoutes {
+  return (routes) => routes;
+}
 
 export type FastifyInputAdapter = InputAdapter & {
   readonly instance: FastifyInstance;
