@@ -1,5 +1,11 @@
 # 9jzss-public-runtime-surface — workflow index
 
+## Status
+
+- Lane: done
+- Closure evidence: PR #5 merged to `main` by rebase on 2026-04-26; resulting main head `8c0c6dda56eb2691c26b02e6e42207c25cf6e276`.
+- External issue closure: not applicable; no external GitHub issue linked.
+
 ## Issue
 
 Narrow Esther's public runtime surface so low-level pipeline/runtime internals do not become accidental stable API.
@@ -34,8 +40,9 @@ Narrow Esther's public runtime surface so low-level pipeline/runtime internals d
 
 ## Latest deploy
 
-- [deploy/01-pr.md](deploy/01-pr.md) — PR #5 opened at https://github.com/david/esther/pull/5; lane not moved because PR is not merged yet.
+- [deploy/02-release.md](deploy/02-release.md) — PR #5 merged to `main`; issue moved to done.
+- [deploy/01-pr.md](deploy/01-pr.md) — PR #5 opened at https://github.com/david/esther/pull/5.
 
 ## Current recommended handoff
 
-Review and merge PR #5, then use `{{/skill:deploy 9jzss-public-runtime-surface --move-done}}`.
+No repo-local deploy action remains for this issue.
