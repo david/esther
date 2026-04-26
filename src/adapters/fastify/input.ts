@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Result } from "neverthrow";
 import type { DispatchFn, InputAdapter, InputAdapterBinding } from "../../core/input-adapter.js";
 import type {
   OperationByName,
@@ -72,6 +73,39 @@ export type FastifyInputAdapter = InputAdapter & {
   readonly instance: FastifyInstance;
 };
 
+function createRouteRequest(request: FastifyRequest): FastifyRouteRequest {
+  return {
+    body: request.body,
+    query: request.query,
+    params: request.params,
+    headers: request.headers,
+    method: request.method,
+    url: request.url,
+    request,
+  };
+}
+
+function sendDefaultResult(reply: FastifyReply, result: Result<unknown, unknown>) {
+  if (result.isOk()) {
+    return reply.send({ data: result.value });
+  }
+
+  const error = result.error;
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    switch (error._tag) {
+      case "ConstraintError":
+      case "ConcurrencyError":
+        return reply.status(409).send({ error });
+      case "SchemaError":
+        return reply.status(400).send({ error });
+      case "ReadModelNotFound":
+        return reply.status(404).send({ error });
+    }
+  }
+
+  return reply.status(422).send({ error });
+}
+
 export function createFastifyInputAdapter(
   config: FastifyAdapterConfig,
 ): InputAdapterBinding<FastifyInputAdapter> {
@@ -80,6 +114,24 @@ export function createFastifyInputAdapter(
   const Fastify = require("fastify") as typeof import("fastify");
   const app = Fastify.default();
   const hostname = config.hostname ?? "0.0.0.0";
+
+  for (const route of config.routes ?? []) {
+    app.route({
+      method: route.method,
+      url: route.path,
+      async handler(request, reply) {
+        if (!boundDispatch) {
+          throw new Error("Fastify adapter not bound to app");
+        }
+
+        const routeRequest = createRouteRequest(request);
+        const input = route.input(routeRequest);
+        const result = await boundDispatch(route.slice, input);
+
+        return sendDefaultResult(reply, result);
+      },
+    });
+  }
 
   app.all("/*", async (request, reply) => {
     if (!boundDispatch) {
@@ -104,24 +156,7 @@ export function createFastifyInputAdapter(
 
     const result = await boundDispatch(sliceName, input);
 
-    if (result.isOk()) {
-      return reply.send({ data: result.value });
-    }
-
-    const error = result.error;
-    if (typeof error === "object" && error !== null && "_tag" in error) {
-      switch (error._tag) {
-        case "ConstraintError":
-        case "ConcurrencyError":
-          return reply.status(409).send({ error });
-        case "SchemaError":
-          return reply.status(400).send({ error });
-        case "ReadModelNotFound":
-          return reply.status(404).send({ error });
-      }
-    }
-
-    return reply.status(422).send({ error });
+    return sendDefaultResult(reply, result);
   });
 
   const adapter: FastifyInputAdapter = {

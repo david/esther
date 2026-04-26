@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { FastifyRequest } from "fastify";
 import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
-import { createFastifyInputAdapter } from "../adapters/fastify/input";
+import { createFastifyInputAdapter, type FastifyRouteConfigEntry } from "../adapters/fastify/input";
 import { ReadModelNotFound } from "../core/read-model";
-import type { ConstraintError, SchemaError } from "../core/types";
+import type { ConcurrencyError, ConstraintError, SchemaError } from "../core/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -17,7 +18,241 @@ function createBoundAdapter(result: Result<unknown, unknown>) {
   return adapter;
 }
 
+type CapturedDispatchCall = {
+  readonly sliceName: string;
+  readonly input: unknown;
+};
+
+function createCapturingAdapter(
+  result: Result<unknown, unknown>,
+  routes?: ReadonlyArray<FastifyRouteConfigEntry>,
+) {
+  const calls: Array<CapturedDispatchCall> = [];
+  const { adapter, bind } = createFastifyInputAdapter(
+    routes === undefined ? { port: 0 } : { port: 0, routes },
+  );
+  bind(async (sliceName, input) => {
+    calls.push({ sliceName, input });
+    return result;
+  });
+  return { adapter, calls };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
+
+describe("Fastify input adapter explicit routes", () => {
+  test("configured routes dispatch the configured slice name instead of the URL path", async () => {
+    const routes: ReadonlyArray<FastifyRouteConfigEntry> = [
+      {
+        method: "POST",
+        path: "/bookings",
+        slice: "create-booking",
+        input: ({ body }) => body,
+      },
+    ];
+    const { adapter, calls } = createCapturingAdapter(ok({ bookingId: "b1" }), routes);
+
+    const response = await adapter.instance.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: { tenantId: "t1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json() as unknown).toEqual({ data: { bookingId: "b1" } });
+    expect(calls).toEqual([{ sliceName: "create-booking", input: { tenantId: "t1" } }]);
+  });
+
+  test("configured route mappers receive request context and pass their return value to dispatch", async () => {
+    let observedRequest: FastifyRequest | undefined;
+    const routes: ReadonlyArray<FastifyRouteConfigEntry> = [
+      {
+        method: "PUT",
+        path: "/bookings/:bookingId",
+        slice: "update-booking",
+        input: ({ body, query, params, headers, method, url, request }) => {
+          observedRequest = request;
+          return {
+            body,
+            query,
+            params,
+            headers,
+            method,
+            url,
+            sameRequest: request === observedRequest,
+          };
+        },
+      },
+    ];
+    const { adapter, calls } = createCapturingAdapter(ok({ updated: true }), routes);
+
+    await adapter.instance.inject({
+      method: "PUT",
+      url: "/bookings/b1?include=summary",
+      headers: { "x-tenant-id": "t1" },
+      payload: { status: "confirmed" },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sliceName).toBe("update-booking");
+    expect(calls[0]?.input).toMatchObject({
+      body: { status: "confirmed" },
+      query: { include: "summary" },
+      params: { bookingId: "b1" },
+      headers: { "x-tenant-id": "t1" },
+      method: "PUT",
+      url: "/bookings/b1?include=summary",
+      sameRequest: true,
+    });
+    expect(observedRequest).toBeDefined();
+  });
+
+  test("configured routes use the default success response mapping", async () => {
+    const routes: ReadonlyArray<FastifyRouteConfigEntry> = [
+      {
+        method: "GET",
+        path: "/balances/:accountId",
+        slice: "account-balance",
+        input: ({ params }) => params,
+      },
+    ];
+    const { adapter } = createCapturingAdapter(ok({ balance: 100 }), routes);
+
+    const response = await adapter.instance.inject({
+      method: "GET",
+      url: "/balances/a1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json() as unknown).toEqual({ data: { balance: 100 } });
+  });
+
+  test("configured routes use the default known-error response mapping", async () => {
+    const route: FastifyRouteConfigEntry = {
+      method: "POST",
+      path: "/bookings",
+      slice: "create-booking",
+      input: ({ body }) => body,
+    };
+    const concurrency: ConcurrencyError = {
+      _tag: "ConcurrencyError",
+      message: "stale write",
+      expectedPosition: undefined,
+      actualPosition: undefined,
+      boundaryTags: ["booking:b1"],
+    };
+    const schema: SchemaError = {
+      _tag: "SchemaError",
+      message: "invalid input",
+      issues: ["field required"],
+    };
+    const constraint: ConstraintError = {
+      _tag: "ConstraintError",
+      constraint: "unique_booking",
+      columns: ["booking_id"],
+      table: "bookings",
+      message: "duplicate",
+    };
+    const readModelNotFound = ReadModelNotFound("Booking", "b1");
+    const cases: ReadonlyArray<{
+      readonly error: unknown;
+      readonly statusCode: number;
+    }> = [
+      { error: schema, statusCode: 400 },
+      { error: readModelNotFound, statusCode: 404 },
+      { error: constraint, statusCode: 409 },
+      { error: concurrency, statusCode: 409 },
+      { error: { code: "UNKNOWN" }, statusCode: 422 },
+    ];
+
+    for (const { error, statusCode } of cases) {
+      const { adapter } = createCapturingAdapter(err(error), [route]);
+
+      const response = await adapter.instance.inject({
+        method: "POST",
+        url: "/bookings",
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(statusCode);
+      expect(response.json() as unknown).toEqual({ error });
+    }
+  });
+
+  test("unbound configured routes throw the existing adapter binding error", async () => {
+    const { adapter } = createFastifyInputAdapter({
+      port: 0,
+      routes: [
+        {
+          method: "POST",
+          path: "/bookings",
+          slice: "create-booking",
+          input: ({ body }) => body,
+        },
+      ],
+    });
+
+    const response = await adapter.instance.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json() as unknown).toMatchObject({
+      message: "Fastify adapter not bound to app",
+    });
+  });
+});
+
+describe("Fastify input adapter wildcard dispatch", () => {
+  test("without routes, GET requests dispatch URL-path-derived slice names with query input", async () => {
+    const { adapter, calls } = createCapturingAdapter(ok({ balance: 100 }));
+
+    const response = await adapter.instance.inject({
+      method: "GET",
+      url: "/balance?accountId=a1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json() as unknown).toEqual({ data: { balance: 100 } });
+    expect(calls).toEqual([{ sliceName: "balance", input: { accountId: "a1" } }]);
+  });
+
+  test("without routes, non-GET requests dispatch URL-path-derived slice names with body input", async () => {
+    const { adapter, calls } = createCapturingAdapter(ok({ bookingId: "b1" }));
+
+    const response = await adapter.instance.inject({
+      method: "POST",
+      url: "/create-booking",
+      payload: { tenantId: "t1" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json() as unknown).toEqual({ data: { bookingId: "b1" } });
+    expect(calls).toEqual([{ sliceName: "create-booking", input: { tenantId: "t1" } }]);
+  });
+
+  test("wildcard fallback remains available when no configured route matches", async () => {
+    const routes: ReadonlyArray<FastifyRouteConfigEntry> = [
+      {
+        method: "POST",
+        path: "/bookings",
+        slice: "create-booking",
+        input: ({ body }) => body,
+      },
+    ];
+    const { adapter, calls } = createCapturingAdapter(ok({ balance: 100 }), routes);
+
+    const response = await adapter.instance.inject({
+      method: "GET",
+      url: "/balance?accountId=a1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(calls).toEqual([{ sliceName: "balance", input: { accountId: "a1" } }]);
+  });
+});
 
 describe("Fastify input adapter error mapping", () => {
   test("ReadModelNotFound returns 404", async () => {
