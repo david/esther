@@ -20,7 +20,7 @@ import type { ProjectionStore } from "./slice";
 //    on hit, `undefined` on `ReadModelNotFound`.
 //  - `query`: calls `projectionQuery.query`; returns an array of
 //    values (empty if no matches).
-//  - `eventsByTags`: calls `eventStore.queryByTags(tags, schemas, fold)` and
+//  - `eventsByTags`: calls `eventStore.queryByTags(tags, reducer)` and
 //    returns the folded state.
 //
 // The return type is `Promise<unknown>` because the three variants
@@ -63,11 +63,7 @@ export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterprete
   }
 
   async function resolveEventsByTags<T>(descriptor: EventsByTagsDescriptor<T>): Promise<T> {
-    const result = await eventStore.queryByTags(
-      descriptor.tags,
-      descriptor.schemas,
-      descriptor.fold,
-    );
+    const result = await eventStore.queryByTags(descriptor.tags, descriptor.reducer);
     return result.state;
   }
 

@@ -3,6 +3,7 @@ import { err, ok } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
+import { defineReducer } from "./reducer";
 import { createReadInterpreter } from "./read-interpreter";
 import {
   defineReadModel,
@@ -227,33 +228,21 @@ describe("createReadInterpreter — eventsByTags", () => {
 
     const interpreter = createReadInterpreter(deps);
 
-    const descriptor = eventsByTagsDescriptor(
-      ["thing:1"],
-      [
+    const thingReducer = defineReducer({
+      name: "thing-sum",
+      schemas: [
         z.object({
           type: z.literal("ThingHappened"),
           tags: z.array(z.string()),
           payload: z.object({ n: z.number() }),
           position: z.bigint(),
         }),
-      ],
-      (events) =>
-        events.reduce((sum: number, event) => {
-          if (typeof event !== "object" || event === null || !("payload" in event)) {
-            return sum;
-          }
-          const payload = event.payload;
-          if (
-            typeof payload === "object" &&
-            payload !== null &&
-            "n" in payload &&
-            typeof payload.n === "number"
-          ) {
-            return sum + payload.n;
-          }
-          return sum;
-        }, 0),
-    );
+      ] as const,
+      initial: 0,
+      reduce: (sum, event): number => sum + event.payload.n,
+    });
+
+    const descriptor = eventsByTagsDescriptor(["thing:1"], thingReducer);
 
     const result = await interpreter.resolve(descriptor);
 

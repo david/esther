@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
+import { defineReducer } from "../../core/reducer.js";
 import type { DomainEvent } from "../../core/types.js";
 import { createFilesystemCheckpointStore, createFilesystemEventStore } from "./index.js";
 
@@ -14,6 +15,28 @@ const StoredEventSchema = z.object({
   payload: z.unknown(),
   position: z.bigint(),
   timestamp: z.date(),
+});
+
+
+const eventTypesReducer = defineReducer({
+  name: "stored-event-types",
+  schemas: [StoredEventSchema] as const,
+  initial: [] as string[],
+  reduce: (types, event): string[] => [...types, event.type],
+});
+
+const eventCountReducer = defineReducer({
+  name: "stored-event-count",
+  schemas: [StoredEventSchema] as const,
+  initial: 0,
+  reduce: (count): number => count + 1,
+});
+
+const eventPositionLabelsReducer = defineReducer({
+  name: "stored-event-position-labels",
+  schemas: [StoredEventSchema] as const,
+  initial: [] as string[],
+  reduce: (labels, event): string[] => [...labels, `${event.position}:${event.type}`],
 });
 
 function makeEvent(
@@ -90,11 +113,7 @@ describe("filesystem event store", () => {
       makeEvent("IssueRetitled", ["issue:ab12", "kind:issue"], { title: "Gamma" }),
     ]);
 
-    const result = await store.queryByTags(
-      ["issue:ab12"],
-      [StoredEventSchema],
-      (events: ReadonlyArray<z.infer<typeof StoredEventSchema>>) => events.map((event) => event.type),
-    );
+    const result = await store.queryByTags(["issue:ab12"], eventTypesReducer);
 
     expect(result.state).toEqual(["IssueCreated", "IssueRetitled"]);
     expect(result.maxPosition).toBe(2n);
@@ -108,11 +127,7 @@ describe("filesystem event store", () => {
       makeEvent("EpicCreated", ["parent:epic1", "kind:epic"]),
     ]);
 
-    const result = await store.queryByTags(
-      ["issue:ab12", "parent:epic1"],
-      [StoredEventSchema],
-      (events) => events.length,
-    );
+    const result = await store.queryByTags(["issue:ab12", "parent:epic1"], eventCountReducer);
 
     expect(result.state).toBe(1);
     expect(result.maxPosition).toBe(0n);
@@ -127,11 +142,7 @@ describe("filesystem event store", () => {
 
     await rm(join(root, "indexes"), { recursive: true, force: true });
 
-    const result = await store.queryByTags(
-      ["issue:ab12"],
-      [StoredEventSchema],
-      (events) => events.length,
-    );
+    const result = await store.queryByTags(["issue:ab12"], eventCountReducer);
 
     expect(result.state).toBe(2);
     const rebuilt = await readFile(join(root, "indexes", "tags", "issue__ab12.json"), "utf8");
@@ -159,12 +170,7 @@ describe("filesystem event store", () => {
       makeEvent("Third", ["issue:ab12", "kind:issue"]),
     ]);
 
-    const result = await store.queryByTags(
-      ["issue:ab12"],
-      [StoredEventSchema],
-      (events: ReadonlyArray<z.infer<typeof StoredEventSchema>>) =>
-        events.map((event) => `${event.position}:${event.type}`),
-    );
+    const result = await store.queryByTags(["issue:ab12"], eventPositionLabelsReducer);
 
     expect(result.state).toEqual(["0:First", "1:Second", "2:Third"]);
   });
@@ -191,11 +197,7 @@ describe("filesystem event store", () => {
       "utf8",
     );
 
-    const result = await store.queryByTags(
-      ["issue:ab12"],
-      [StoredEventSchema],
-      (events) => events.length,
-    );
+    const result = await store.queryByTags(["issue:ab12"], eventCountReducer);
 
     expect(result.state).toBe(1);
     expect(result.maxPosition).toBe(0n);
@@ -214,11 +216,7 @@ describe("filesystem event store", () => {
       "utf8",
     );
 
-    const result = await store.queryByTags(
-      ["issue:ab12"],
-      [StoredEventSchema],
-      (events) => events.length,
-    );
+    const result = await store.queryByTags(["issue:ab12"], eventCountReducer);
 
     expect(result.state).toBe(2);
     const repaired = await readFile(join(root, "indexes", "tags", "issue__ab12.json"), "utf8");

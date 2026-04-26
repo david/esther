@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/p
 import { basename, dirname, join, relative } from "node:path";
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
+import type { ReducerDefinition, ReducerEvent } from "../../core/reducer.js";
 import type {
   AppendOptions,
   EventFilter,
@@ -573,10 +574,13 @@ export function createFilesystemEventStore(config: FilesystemEventStoreConfig): 
       return ok({ events: stored });
     },
 
-    async queryByTags<TSchema extends z.ZodType, TEvent, TState>(
+    async queryByTags<
+      TName extends string,
+      TState,
+      const TSchemas extends ReadonlyArray<z.ZodType>,
+    >(
       tags: ReadonlyArray<string>,
-      schemas: ReadonlyArray<TSchema>,
-      fold: (events: ReadonlyArray<TEvent>) => TState,
+      reducer: ReducerDefinition<TName, TState, TSchemas>,
     ): Promise<TagQueryResult<TState>> {
       await ensureLayout(config.root);
 
@@ -586,11 +590,11 @@ export function createFilesystemEventStore(config: FilesystemEventStoreConfig): 
       const matchingRecords = allRecords.filter((record) =>
         tags.every((tag) => record.event.tags.includes(tag)),
       );
-      const parsed = matchingRecords.map((record) => {
-        for (const schema of schemas) {
+      const parsed: Array<ReducerEvent<TSchemas>> = matchingRecords.map((record) => {
+        for (const schema of reducer.schemas) {
           const result = schema.safeParse(record.event);
           if (result.success) {
-            return result.data;
+            return result.data as ReducerEvent<TSchemas>;
           }
         }
         throw new Error(
@@ -599,7 +603,7 @@ export function createFilesystemEventStore(config: FilesystemEventStoreConfig): 
       });
 
       return {
-        state: fold(parsed as ReadonlyArray<TEvent>),
+        state: reducer.fold(parsed),
         maxPosition: getMaxPosition(matchingRecords.map((record) => record.event)),
       };
     },

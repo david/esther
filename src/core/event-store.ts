@@ -1,5 +1,6 @@
 import type { Result } from "neverthrow";
 import type { z } from "zod";
+import type { ReducerDefinition } from "./reducer.js";
 import type {
   AppendResult,
   DomainEvent,
@@ -41,10 +42,13 @@ export type EventStore = {
     options?: AppendOptions,
   ) => Promise<Result<AppendResult, SliceError>>;
 
-  readonly queryByTags: <TSchema extends z.ZodType, TEvent, TState>(
+  readonly queryByTags: <
+    TName extends string,
+    TState,
+    const TSchemas extends ReadonlyArray<z.ZodType>,
+  >(
     tags: ReadonlyArray<string>,
-    schemas: ReadonlyArray<TSchema>,
-    fold: (events: ReadonlyArray<TEvent>) => TState,
+    reducer: ReducerDefinition<TName, TState, TSchemas>,
   ) => Promise<TagQueryResult<TState>>;
 
   readonly onAfterInsert: (filter: EventFilter, handler: OnAfterInsertHandler) => void;

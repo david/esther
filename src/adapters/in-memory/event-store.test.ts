@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
+import { defineReducer } from "../../core/reducer";
 import type { DomainEvent } from "../../core/types";
 import { createInMemoryEventStore } from "./event-store";
 
@@ -11,6 +12,13 @@ const AnyEventSchema = z
     payload: z.record(z.string(), z.unknown()),
   })
   .passthrough();
+
+const eventCountReducer = defineReducer({
+  name: "event-count",
+  schemas: [AnyEventSchema] as const,
+  initial: 0,
+  reduce: (count): number => count + 1,
+});
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -109,7 +117,7 @@ describe("queryByTags", () => {
     const store = createInMemoryEventStore();
     await store.append([makeEvent("TestHappened", ["a"])]);
 
-    const result = await store.queryByTags(["a"], [AnyEventSchema], (events) => events.length);
+    const result = await store.queryByTags(["a"], eventCountReducer);
 
     expect(result).toEqual({ state: 1, maxPosition: 0n });
   });

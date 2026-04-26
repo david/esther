@@ -2,6 +2,7 @@ import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type { InputPipeline, Step } from "./compose";
 import type { EventStore } from "./event-store";
+import type { ReducerDefinition } from "./reducer";
 import type {
   OrderDirection,
   ReadModelHandle,
@@ -15,7 +16,6 @@ import {
   type DomainEvent,
   type ReadModelSchemaError,
   type SliceError,
-  type StoredEvent,
 } from "./types";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
@@ -133,8 +133,8 @@ export type StateResolver<TInput, TContext> = {
   ) => Promise<Result<ResolveResult<TContext>, ProjectionReadError>>;
 
   readonly pipe: {
-    <TKey extends string, TState, TSchema extends z.ZodType>(
-      step: TagQueryStep<TKey, TContext, TState, TSchema>,
+    <TKey extends string, TState, TSchemas extends ReadonlyArray<z.ZodType>>(
+      step: TagQueryStep<TKey, TContext, TState, TSchemas>,
     ): StateResolver<TInput, TContext & { readonly [K in TKey]: TState }>;
 
     <TKey extends string, T, TRequired extends boolean>(
@@ -191,7 +191,7 @@ function buildResolver<TInput, TContext>(
 
       if (step._tag === "tagQuery") {
         const tags = step.tags(prev.context);
-        const result = await eventStore.queryByTags(tags, step.schemas, step.fold);
+        const result = await eventStore.queryByTags(tags, step.reducer);
         return ok({
           context: addField(prev.context, step.key, result.state),
         });
@@ -323,27 +323,31 @@ export type TagQueryStep<
   TKey extends string,
   TInput,
   TState,
-  TSchema extends z.ZodType = z.ZodType,
+  TSchemas extends ReadonlyArray<z.ZodType> = ReadonlyArray<z.ZodType>,
 > = FrameworkStepBrand & {
   readonly _tag: "tagQuery";
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<TSchema>;
-  readonly fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState;
+  readonly reducer: ReducerDefinition<string, TState, TSchemas>;
   readonly toStep: (deps: SliceDeps) => Step<TInput, { readonly [K in TKey]: TState }, never>;
 };
 
-export function tagQuery<TKey extends string, TInput, TState, TSchema extends z.ZodType>(descriptor: {
+export function tagQuery<
+  TKey extends string,
+  TInput,
+  TName extends string,
+  TState,
+  const TSchemas extends ReadonlyArray<z.ZodType>,
+>(descriptor: {
   readonly key: TKey;
   readonly tags: (ctx: TInput) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<TSchema>;
-  readonly fold: (events: ReadonlyArray<z.infer<TSchema>>) => TState;
-}): TagQueryStep<TKey, TInput, TState, TSchema> {
+  readonly reducer: ReducerDefinition<TName, TState, TSchemas>;
+}): TagQueryStep<TKey, TInput, TState, TSchemas> {
   const toStep =
     (deps: SliceDeps): Step<TInput, { readonly [K in TKey]: TState }, never> =>
     async (ctx) => {
       const tags = [...descriptor.tags(ctx)];
-      const result = await deps.eventStore.queryByTags(tags, descriptor.schemas, descriptor.fold);
+      const result = await deps.eventStore.queryByTags(tags, descriptor.reducer);
       deps.recordBoundaryObservation?.({ tags: [...tags], maxPosition: result.maxPosition });
       return ok(addField({}, descriptor.key, result.state));
     };
@@ -353,18 +357,17 @@ export function tagQuery<TKey extends string, TInput, TState, TSchema extends z.
     _tag: "tagQuery",
     key: descriptor.key,
     tags: descriptor.tags,
-    schemas: descriptor.schemas,
-    fold: descriptor.fold,
+    reducer: descriptor.reducer,
     toStep,
   };
 }
 
 // ── castTagQuery — NEW DSL primitive (alongside tagQuery) ─────────────
 // Resolves a *subject* via a declarative projection lookup (model + id),
-// then runs `tags(subject)` and `fold(events, subject)`. The unwrapped
-// subject is bound under `<key>Subject` (convention) so downstream steps
-// can read fields without unwrapping a Result. On absent, returns the
-// descriptor's `absent` error value.
+// then runs `tags(subject)` and reducer history. The unwrapped subject is
+// bound under `<key>Subject` (convention) so downstream steps can read fields
+// without unwrapping a Result. On absent, returns the descriptor's `absent`
+// error value.
 
 export type CastDescriptorById<TInput, TSubject, TCause> = {
   readonly model: ReadModelHandle<TSubject>;
@@ -382,31 +385,43 @@ export type CastDescriptor<TInput, TSubject, TCause> =
   | CastDescriptorById<TInput, TSubject, TCause>
   | CastDescriptorByArgs<TInput, TSubject, unknown, TCause>;
 
-export type CastTagQueryDescriptor<TKey extends string, TInput, TSubject, TState, TCause> =
-  FrameworkStepBrand & {
-    readonly _tag: "castTagQuery";
-    readonly key: TKey;
-    readonly cast: CastDescriptor<TInput, TSubject, TCause>;
-    readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-    readonly schemas: ReadonlyArray<z.ZodType>;
-    readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-    readonly toStep: (
-      deps: SliceDeps,
-    ) => Step<
-      TInput,
-      { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
-      TCause | ReadModelSchemaError
-    >;
-  };
+export type CastTagQueryDescriptor<
+  TKey extends string,
+  TInput,
+  TSubject,
+  TState,
+  TCause,
+  TSchemas extends ReadonlyArray<z.ZodType> = ReadonlyArray<z.ZodType>,
+> = FrameworkStepBrand & {
+  readonly _tag: "castTagQuery";
+  readonly key: TKey;
+  readonly cast: CastDescriptor<TInput, TSubject, TCause>;
+  readonly tags: (subject: TSubject) => ReadonlyArray<string>;
+  readonly reducer: ReducerDefinition<string, TState, TSchemas>;
+  readonly toStep: (
+    deps: SliceDeps,
+  ) => Step<
+    TInput,
+    { readonly [K in TKey]: TState } & { readonly [K in `${TKey}Subject`]: TSubject },
+    TCause | ReadModelSchemaError
+  >;
+};
 
 // Overload: id-based lookup (ReadModelHandle)
-export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
+export function castTagQuery<
+  TKey extends string,
+  TInput,
+  TSubject,
+  TName extends string,
+  TState,
+  const TSchemas extends ReadonlyArray<z.ZodType>,
+  TCause,
+>(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptorById<TInput, TSubject, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause>;
+  readonly reducer: ReducerDefinition<TName, TState, TSchemas>;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause, TSchemas>;
 
 // Overload: args-based lookup (ReadModelQueryHandle)
 export function castTagQuery<
@@ -414,24 +429,32 @@ export function castTagQuery<
   TInput,
   TSubject,
   TArgs,
+  TName extends string,
   TState,
+  const TSchemas extends ReadonlyArray<z.ZodType>,
   TCause,
 >(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptorByArgs<TInput, TSubject, TArgs, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause>;
+  readonly reducer: ReducerDefinition<TName, TState, TSchemas>;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause, TSchemas>;
 
 // Implementation
-export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCause>(descriptor: {
+export function castTagQuery<
+  TKey extends string,
+  TInput,
+  TSubject,
+  TName extends string,
+  TState,
+  const TSchemas extends ReadonlyArray<z.ZodType>,
+  TCause,
+>(descriptor: {
   readonly key: TKey;
   readonly cast: CastDescriptor<TInput, TSubject, TCause>;
   readonly tags: (subject: TSubject) => ReadonlyArray<string>;
-  readonly schemas: ReadonlyArray<z.ZodType>;
-  readonly fold: (events: ReadonlyArray<StoredEvent>, subject: TSubject) => TState;
-}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause> {
+  readonly reducer: ReducerDefinition<TName, TState, TSchemas>;
+}): CastTagQueryDescriptor<TKey, TInput, TSubject, TState, TCause, TSchemas> {
   const toStep = (
     deps: SliceDeps,
   ): Step<
@@ -480,11 +503,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
       }
       const subject = subjectResult.value as TSubject;
       const tags = [...descriptor.tags(subject)];
-      const queryResult = await deps.eventStore.queryByTags(
-        tags,
-        descriptor.schemas,
-        (events: ReadonlyArray<StoredEvent>) => descriptor.fold(events, subject),
-      );
+      const queryResult = await deps.eventStore.queryByTags(tags, descriptor.reducer);
       deps.recordBoundaryObservation?.({ tags: [...tags], maxPosition: queryResult.maxPosition });
       const withState = addField({}, descriptor.key, queryResult.state);
       // as const required: without it TS widens the template literal to string,
@@ -501,8 +520,7 @@ export function castTagQuery<TKey extends string, TInput, TSubject, TState, TCau
     key: descriptor.key,
     cast: descriptor.cast,
     tags: descriptor.tags,
-    schemas: descriptor.schemas,
-    fold: descriptor.fold,
+    reducer: descriptor.reducer,
     toStep,
   };
 }

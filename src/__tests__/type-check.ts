@@ -109,7 +109,7 @@ const BookingCancelledSchema = z.object({
   }),
 });
 
-const propertySchemas = [BookingCreatedSchema];
+const propertySchemas = [BookingCreatedSchema] as const;
 
 const _boundaryObservation: BoundaryObservation = {
   tags: ["property"],
@@ -139,8 +139,8 @@ const propertyReducer = (
         bookedRanges: [
           ...state.bookedRanges,
           {
-            checkIn: (event.payload as { checkIn: string }).checkIn,
-            checkOut: (event.payload as { checkOut: string }).checkOut,
+            checkIn: event.payload.checkIn,
+            checkOut: event.payload.checkOut,
           },
         ],
       };
@@ -148,6 +148,13 @@ const propertyReducer = (
       return state;
   }
 };
+
+const propertyStateReducer = defineReducer({
+  name: "property-state",
+  schemas: propertySchemas,
+  initial: initialPropertyState,
+  reduce: propertyReducer,
+});
 
 // ── Reducer DSL type contract ──────────────────────────────────────────
 
@@ -353,8 +360,7 @@ const _createBookingSlice = defineCommand<
       tagQuery({
         key: "property" as const,
         tags: (ctx: CreateBookingInput) => ["property", `property:${ctx.propertyId}`],
-        schemas: propertySchemas,
-        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+        reducer: propertyStateReducer,
       }),
     )
     .add(
@@ -529,8 +535,7 @@ const _getPropertySlice = defineQuery({
     tagQuery({
       key: "property" as const,
       tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-      schemas: [BookingCreatedSchema],
-      fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+      reducer: propertyStateReducer,
     }),
   ),
 
@@ -557,8 +562,7 @@ const _generateFlowSlice = defineQuery({
       tagQuery({
         key: "property" as const,
         tags: (ctx) => ["property", `property:${ctx.propertyId}`],
-        schemas: [BookingCreatedSchema],
-        fold: (events): PropertyState => events.reduce(propertyReducer, initialPropertyState),
+        reducer: propertyStateReducer,
       }),
     )
     .pipe(
