@@ -61,6 +61,8 @@ export {
   type Processor,
   type ProcessorEventBinding,
 } from "./core/processor.js";
+// ── Reducer ────────────────────────────────────────────────────────────
+export { defineReducer, type ReducerDefinition, type ReducerEvent } from "./core/reducer.js";
 // ── Read model registration ────────────────────────────────────────────
 export {
   type ProjectionGetter,

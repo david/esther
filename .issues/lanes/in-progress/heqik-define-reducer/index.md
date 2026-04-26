@@ -1,8 +1,8 @@
 # heqik-define-reducer Index
 
 ## Current state
-Lane: backlog
-Status: breakdown complete; ready for implementation
+Lane: in-progress
+Status: implementation task 01 complete
 
 ## Active artifacts
 Description:
