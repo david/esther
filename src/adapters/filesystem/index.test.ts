@@ -17,12 +17,27 @@ const StoredEventSchema = z.object({
   timestamp: z.date(),
 });
 
+const IssueCreatedSchema = z.object({
+  type: z.literal("IssueCreated"),
+  tags: z.array(z.string()),
+  payload: z.object({ title: z.string() }),
+});
 
-const eventTypesReducer = defineReducer({
-  name: "stored-event-types",
-  schemas: [StoredEventSchema] as const,
-  initial: [] as string[],
-  reduce: (types, event): string[] => [...types, event.type],
+const IssueRetitledSchema = z.object({
+  type: z.literal("IssueRetitled"),
+  tags: z.array(z.string()),
+  payload: z.object({ title: z.string() }),
+});
+
+const issueTitleReducer = defineReducer({
+  name: "issue-title",
+  schemas: [IssueCreatedSchema, IssueRetitledSchema] as const,
+  initial: { title: "" },
+  reduce: (state, event): { readonly title: string } => {
+    if (event.type === "IssueCreated") return { title: event.payload.title };
+    if (event.type === "IssueRetitled") return { title: event.payload.title };
+    return state;
+  },
 });
 
 const eventCountReducer = defineReducer({
@@ -105,7 +120,7 @@ describe("filesystem event store", () => {
     expect(stored?.tags).toEqual(["issue:ab12", "kind:issue"]);
   });
 
-  test("queryByTags folds matching issue history", async () => {
+  test("queryByTags parses reducer schemas and folds matching issue history", async () => {
     const store = createFilesystemEventStore({ root });
     await store.append([
       makeEvent("IssueCreated", ["issue:ab12", "kind:issue"], { title: "Alpha" }),
@@ -113,9 +128,9 @@ describe("filesystem event store", () => {
       makeEvent("IssueRetitled", ["issue:ab12", "kind:issue"], { title: "Gamma" }),
     ]);
 
-    const result = await store.queryByTags(["issue:ab12"], eventTypesReducer);
+    const result = await store.queryByTags(["issue:ab12"], issueTitleReducer);
 
-    expect(result.state).toEqual(["IssueCreated", "IssueRetitled"]);
+    expect(result.state).toEqual({ title: "Gamma" });
     expect(result.maxPosition).toBe(2n);
   });
 

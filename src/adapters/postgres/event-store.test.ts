@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
+import { defineReducer } from "../../core/reducer";
 import type { DomainEvent } from "../../core/types";
 import { ConstraintError } from "../../core/types";
 import { createMockSql } from "./mock-sql";
@@ -135,8 +137,34 @@ type EventTableRow = {
   readonly timestamp: Date;
 };
 
-function event(type: string, tags: ReadonlyArray<string>): DomainEvent {
-  return { type, tags, payload: {} };
+const AmountAddedSchema = z.object({
+  type: z.literal("AmountAdded"),
+  tags: z.array(z.string()),
+  payload: z.object({ amount: z.coerce.number() }),
+});
+
+const AmountRemovedSchema = z.object({
+  type: z.literal("AmountRemoved"),
+  tags: z.array(z.string()),
+  payload: z.object({ amount: z.coerce.number() }),
+});
+
+const amountReducer = defineReducer({
+  name: "postgres-amount-state",
+  schemas: [AmountAddedSchema, AmountRemovedSchema] as const,
+  initial: { total: 0 },
+  reduce: (state, event): { readonly total: number } => {
+    if (event.type === "AmountAdded") return { total: state.total + event.payload.amount };
+    return { total: state.total - event.payload.amount };
+  },
+});
+
+function event(
+  type: string,
+  tags: ReadonlyArray<string>,
+  payload: unknown = {},
+): DomainEvent<string, unknown> {
+  return { type, tags, payload };
 }
 
 function boundaryTagsFromParams(params: ReadonlyArray<unknown>): ReadonlyArray<string> {
@@ -247,6 +275,36 @@ function queryKinds(log: ReadonlyArray<QueryLogEntry>): ReadonlyArray<string> {
 defineEventStoreAppendConformanceTests("postgres", () => {
   const { sql } = createEventStoreHarness();
   return createPostgresEventStore({ sql });
+});
+
+describe("createPostgresEventStore — queryByTags", () => {
+  test("parses matching events through reducer schemas and folds reducer state", async () => {
+    const { sql } = createEventStoreHarness();
+    const store = createPostgresEventStore({ sql });
+    await store.append([
+      event("AmountAdded", ["account:1", "ledger"], { amount: "10" }),
+      event("AmountAdded", ["account:2", "ledger"], { amount: "99" }),
+      event("AmountRemoved", ["account:1", "ledger"], { amount: "4" }),
+    ]);
+
+    const result = await store.queryByTags(["account:1"], amountReducer);
+
+    expect(result).toEqual({ state: { total: 6 }, maxPosition: 2n });
+  });
+
+  test("supports reducer-backed tag intersection", async () => {
+    const { sql } = createEventStoreHarness();
+    const store = createPostgresEventStore({ sql });
+    await store.append([
+      event("AmountAdded", ["account:1", "ledger"], { amount: "10" }),
+      event("AmountAdded", ["account:1"], { amount: "99" }),
+      event("AmountAdded", ["ledger"], { amount: "100" }),
+    ]);
+
+    const result = await store.queryByTags(["account:1", "ledger"], amountReducer);
+
+    expect(result).toEqual({ state: { total: 10 }, maxPosition: 0n });
+  });
 });
 
 describe("createPostgresEventStore — append preconditions", () => {
