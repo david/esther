@@ -44,6 +44,13 @@ import {
   state,
   tagQuery,
 } from "../index";
+import {
+  defineFastifyRoutes,
+  type FastifyAdapterConfig,
+  type FastifyRouteBinding,
+  type FastifyRouteMethod,
+  type FastifyRouteRequest,
+} from "../adapters/fastify/index";
 import { createPostgresProjectionAdapter } from "../adapters/postgres/index";
 
 // ── Shared contracts ───────────────────────────────────────────────────
@@ -686,6 +693,86 @@ const _validCommandInput: OperationInput<TypedCommandOperation> = { commandId: "
 const _validQueryInput: OperationInput<TypedQueryOperation> = { queryId: "query-1" };
 const _validCommandResult: OperationResult<TypedCommandOperation> = ok({ accepted: true });
 const _validQueryResult: OperationResult<TypedQueryOperation> = ok({ found: true });
+
+// ── Typed Fastify route bindings ──────────────────────────────────────
+
+const _fastifyMethodCheck: FastifyRouteMethod = "PATCH";
+declare const _fastifyRouteRequest: FastifyRouteRequest;
+const _fastifyRouteRequestBodyCheck: unknown = _fastifyRouteRequest.body;
+
+const _typedFastifyRoutes = defineFastifyRoutes<typeof _typedOperations>()([
+  {
+    method: "POST",
+    path: "/typed/commands/:commandId",
+    slice: "typed-command",
+    input: ({ body, headers }) => {
+      const _bodyCheck: unknown = body;
+      const _headersCheck: unknown = headers;
+      return { commandId: "command-1" };
+    },
+    respond: ({ result, request, reply }) => {
+      const _resultCheck: Result<TypedCommandOutput, SliceError | TypedCommandError> = result;
+      const _operationResultCheck: OperationResult<TypedCommandOperation> = result;
+      const _methodCheck: string = request.method;
+      const _replyCheck: unknown = reply;
+      return { ok: _resultCheck.isOk() };
+    },
+  },
+  {
+    method: "GET",
+    path: "/typed/queries/:queryId",
+    slice: "typed-query",
+    input: ({ params, query }) => {
+      const _paramsCheck: unknown = params;
+      const _queryCheck: unknown = query;
+      return { queryId: "query-1" };
+    },
+    respond: ({ result }) => {
+      const _resultCheck: Result<TypedQueryOutput, SliceError | TypedQueryError> = result;
+      const _operationResultCheck: OperationResult<TypedQueryOperation> = result;
+      return Promise.resolve({ ok: _resultCheck.isOk() });
+    },
+  },
+]);
+
+const _typedFastifyRouteBindings: ReadonlyArray<FastifyRouteBinding<typeof _typedOperations>> =
+  _typedFastifyRoutes;
+const _fastifyConfigWithoutRoutes: FastifyAdapterConfig = { port: 0, hostname: "127.0.0.1" };
+const _fastifyConfigWithRoutes: FastifyAdapterConfig = {
+  port: 0,
+  hostname: "127.0.0.1",
+  routes: _typedFastifyRoutes,
+};
+
+const _missingFastifySliceRoutes = defineFastifyRoutes<typeof _typedOperations>()([
+  {
+    method: "POST",
+    path: "/typed/missing",
+    // @ts-expect-error unknown Fastify route slice names are rejected for preserved tuples
+    slice: "missing-slice",
+    input: () => ({ commandId: "command-1" }),
+  },
+]);
+
+const _invalidFastifyCommandInputRoutes = defineFastifyRoutes<typeof _typedOperations>()([
+  // @ts-expect-error command route input must return the selected command input shape
+  {
+    method: "POST",
+    path: "/typed/commands/:commandId",
+    slice: "typed-command",
+    input: () => ({ queryId: "query-1" }),
+  },
+]);
+
+const _invalidFastifyQueryInputRoutes = defineFastifyRoutes<typeof _typedOperations>()([
+  // @ts-expect-error query route input must return the selected query input shape
+  {
+    method: "GET",
+    path: "/typed/queries/:queryId",
+    slice: "typed-query",
+    input: () => ({ commandId: "command-1" }),
+  },
+]);
 
 // @ts-expect-error preserved tuples reject unknown operation names
 type _MissingOperation = OperationByName<typeof _typedOperations, "missing-operation">;
