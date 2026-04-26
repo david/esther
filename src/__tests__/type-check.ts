@@ -16,6 +16,7 @@ import {
   defineQuery,
   defineReadModel,
   defineReadModelQuery,
+  defineReducer,
   derive,
   generate,
   lookup,
@@ -37,6 +38,8 @@ import {
   type ReadModelNotFound,
   type ReadModelRegistration,
   type ReadOnlyReadModelRegistration,
+  type ReducerDefinition,
+  type ReducerEvent,
   type RegisterableOperation,
   type SliceError,
   type WritableReadModelRegistration,
@@ -97,6 +100,15 @@ const BookingCreatedSchema = z.object({
   }),
 });
 
+const BookingCancelledSchema = z.object({
+  type: z.literal("BookingCancelled"),
+  tags: z.array(z.string()),
+  payload: z.object({
+    bookingId: z.string(),
+    reason: z.string(),
+  }),
+});
+
 const propertySchemas = [BookingCreatedSchema];
 
 const _boundaryObservation: BoundaryObservation = {
@@ -136,6 +148,75 @@ const propertyReducer = (
       return state;
   }
 };
+
+// ── Reducer DSL type contract ──────────────────────────────────────────
+
+type BookingReducerState = {
+  readonly available: boolean;
+  readonly bookedCount: number;
+  readonly cancellationReasons: ReadonlyArray<string>;
+};
+
+const initialBookingReducerState: BookingReducerState = {
+  available: true,
+  bookedCount: 0,
+  cancellationReasons: [],
+};
+
+const bookingReducer = defineReducer({
+  name: "booking-history",
+  schemas: [BookingCreatedSchema, BookingCancelledSchema] as const,
+  initial: initialBookingReducerState,
+  reduce: (state, event): BookingReducerState => {
+    if (event.type === "BookingCreated") {
+      const _createdCheckIn: string = event.payload.checkIn;
+
+      return {
+        available: false,
+        bookedCount: state.bookedCount + 1,
+        cancellationReasons: state.cancellationReasons,
+      };
+    }
+
+    const _cancellationReason: string = event.payload.reason;
+
+    return {
+      available: state.available,
+      bookedCount: state.bookedCount,
+      cancellationReasons: [...state.cancellationReasons, event.payload.reason],
+    };
+  },
+});
+
+type _ReducerEventInference = Expect<
+  Equal<
+    ReducerEvent<typeof bookingReducer.schemas>,
+    z.infer<typeof BookingCreatedSchema> | z.infer<typeof BookingCancelledSchema>
+  >
+>;
+type _ReducerFoldStateInference = Expect<
+  Equal<ReturnType<typeof bookingReducer.fold>, BookingReducerState>
+>;
+
+const acceptBookingReducer = (
+  _reducer: ReducerDefinition<
+    "booking-history",
+    BookingReducerState,
+    typeof bookingReducer.schemas
+  >,
+) => undefined;
+acceptBookingReducer(bookingReducer);
+
+const plainBookingReducer = {
+  name: bookingReducer.name,
+  schemas: bookingReducer.schemas,
+  initial: bookingReducer.initial,
+  reduce: bookingReducer.reduce,
+  fold: bookingReducer.fold,
+};
+
+// @ts-expect-error plain reducer-shaped objects are missing the private reducer brand
+acceptBookingReducer(plainBookingReducer);
 
 // ── Typed domain event ─────────────────────────────────────────────────
 
