@@ -45,6 +45,16 @@ export type FastifyRouteBinding<
   };
 }[TName];
 
+type FastifyRouteRuntimeRespondContext = {
+  readonly result: Result<unknown, unknown>;
+  readonly request: FastifyRouteRequest;
+  readonly reply: FastifyReply;
+};
+
+type FastifyRouteRuntimeRespond = (
+  context: FastifyRouteRuntimeRespondContext,
+) => unknown | Promise<unknown>;
+
 export type FastifyRouteConfigEntry = {
   readonly method: FastifyRouteMethod;
   readonly path: string;
@@ -83,6 +93,12 @@ function createRouteRequest(request: FastifyRequest): FastifyRouteRequest {
     url: request.url,
     request,
   };
+}
+
+function hasRouteRespond(
+  route: FastifyRouteConfigEntry,
+): route is FastifyRouteConfigEntry & { readonly respond: FastifyRouteRuntimeRespond } {
+  return typeof route.respond === "function";
 }
 
 function sendDefaultResult(reply: FastifyReply, result: Result<unknown, unknown>) {
@@ -127,6 +143,10 @@ export function createFastifyInputAdapter(
         const routeRequest = createRouteRequest(request);
         const input = route.input(routeRequest);
         const result = await boundDispatch(route.slice, input);
+
+        if (hasRouteRespond(route)) {
+          return route.respond({ result, request: routeRequest, reply });
+        }
 
         return sendDefaultResult(reply, result);
       },

@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
-import { createFastifyInputAdapter, type FastifyRouteConfigEntry } from "../adapters/fastify/input";
+import {
+  createFastifyInputAdapter,
+  type FastifyRouteConfigEntry,
+  type FastifyRouteRequest,
+} from "../adapters/fastify/input";
 import { ReadModelNotFound } from "../core/read-model";
 import type { ConcurrencyError, ConstraintError, SchemaError } from "../core/types";
 
@@ -105,6 +109,45 @@ describe("Fastify input adapter explicit routes", () => {
       sameRequest: true,
     });
     expect(observedRequest).toBeDefined();
+  });
+
+  test("configured routes can override responses with respond", async () => {
+    let observedReply: FastifyReply | undefined;
+    let observedRequestMethod: string | undefined;
+    const routes: ReadonlyArray<FastifyRouteConfigEntry> = [
+      {
+        method: "POST",
+        path: "/bookings",
+        slice: "create-booking",
+        input: ({ body }) => body,
+        respond: ({
+          result,
+          request,
+          reply,
+        }: {
+          readonly result: Result<unknown, unknown>;
+          readonly request: FastifyRouteRequest;
+          readonly reply: FastifyReply;
+        }) => {
+          observedReply = reply;
+          observedRequestMethod = request.method;
+          return reply.status(result.isOk() ? 201 : 499).send({ custom: result.isOk() });
+        },
+      },
+    ];
+    const { adapter, calls } = createCapturingAdapter(ok({ id: "b1" }), routes);
+
+    const response = await adapter.instance.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: { tenantId: "t1" },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json() as unknown).toEqual({ custom: true });
+    expect(calls).toEqual([{ sliceName: "create-booking", input: { tenantId: "t1" } }]);
+    expect(observedRequestMethod).toBe("POST");
+    expect(observedReply).toBeDefined();
   });
 
   test("configured routes use the default success response mapping", async () => {
