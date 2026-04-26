@@ -120,7 +120,7 @@ describe("filesystem event store", () => {
     expect(stored?.tags).toEqual(["issue:ab12", "kind:issue"]);
   });
 
-  test("queryByTags parses reducer schemas and folds matching issue history", async () => {
+  test("queryByTags parses reducer definitions and reduces matching issue history", async () => {
     const store = createFilesystemEventStore({ root });
     await store.append([
       makeEvent("IssueCreated", ["issue:ab12", "kind:issue"], { title: "Alpha" }),

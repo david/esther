@@ -7,6 +7,7 @@ import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import {
   BoundaryObservationError,
+  castTagQuery,
   compose,
   createApp,
   createInMemoryAdapter,
@@ -18,6 +19,7 @@ import {
   defineReadModelQuery,
   defineReducer,
   derive,
+  eventsByTagsDescriptor,
   generate,
   lookup,
   projection,
@@ -26,6 +28,9 @@ import {
   type BoundaryObservationError as BoundaryObservationErrorType,
   type DispatchFn,
   type DomainEvent,
+  type EventStore,
+  type EventsByTagsDescriptor,
+  type InputPipeline,
   type OperationByName,
   type OperationError,
   type OperationInput,
@@ -42,6 +47,8 @@ import {
   type ReducerEvent,
   type RegisterableOperation,
   type SliceError,
+  type StateResolver,
+  type TagQueryResult,
   type WritableReadModelRegistration,
   state,
   tagQuery,
@@ -60,6 +67,19 @@ import { createPostgresProjectionAdapter } from "../adapters/postgres/index";
 type Equal<TActual, TExpected> =
   (<T>() => T extends TActual ? 1 : 2) extends <T>() => T extends TExpected ? 1 : 2 ? true : false;
 type Expect<T extends true> = T;
+type PipelineContext<TPipeline> = TPipeline extends InputPipeline<
+  infer _TInput,
+  infer TContext,
+  infer _TError
+>
+  ? TContext
+  : never;
+type ResolverContext<TResolver> = TResolver extends StateResolver<infer _TInput, infer TContext>
+  ? TContext
+  : never;
+type EventsByTagsState<TDescriptor> = TDescriptor extends EventsByTagsDescriptor<infer TState>
+  ? TState
+  : never;
 
 const createBookingInputSchema = z.object({
   tenantId: z.string().uuid(),
@@ -156,6 +176,19 @@ const propertyStateReducer = defineReducer({
   reduce: propertyReducer,
 });
 
+// ── Read model for pricing ──────────────────────────────────────────────
+
+const pricingModel = defineReadModel({
+  name: "pricing",
+  schema: z.object({
+    propertyId: z.string(),
+    pricePerNight: z.number(),
+  }),
+  key: "propertyId",
+});
+
+type PricingRow = { propertyId: string; pricePerNight: number };
+
 // ── Reducer DSL type contract ──────────────────────────────────────────
 
 type BookingReducerState = {
@@ -225,6 +258,128 @@ const plainBookingReducer = {
 // @ts-expect-error plain reducer-shaped objects are missing the private reducer brand
 acceptBookingReducer(plainBookingReducer);
 
+const _tagQueryCommandPipeline = compose<CreateBookingInput>().add(
+  tagQuery({
+    key: "bookingHistory" as const,
+    tags: (ctx: CreateBookingInput) => ["booking", `property:${ctx.propertyId}`],
+    reducer: bookingReducer,
+  }),
+);
+type _TagQueryCommandContext = Expect<
+  Equal<
+    PipelineContext<typeof _tagQueryCommandPipeline>,
+    CreateBookingInput & { readonly bookingHistory: BookingReducerState }
+  >
+>;
+
+const _tagQueryQueryState = state<CreateBookingInput>().pipe(
+  tagQuery({
+    key: "bookingHistory" as const,
+    tags: (ctx: CreateBookingInput) => ["booking", `property:${ctx.propertyId}`],
+    reducer: bookingReducer,
+  }),
+);
+type _TagQueryQueryContext = Expect<
+  Equal<
+    ResolverContext<typeof _tagQueryQueryState>,
+    CreateBookingInput & { readonly bookingHistory: BookingReducerState }
+  >
+>;
+
+const _castTagQueryCommandPipeline = compose<CreateBookingInput>().add(
+  castTagQuery({
+    key: "bookingHistory" as const,
+    cast: {
+      model: pricingModel,
+      id: (ctx: CreateBookingInput) => ctx.propertyId,
+      absent: {
+        type: "PricingMissing" as const,
+        code: "PRICING_MISSING" as const,
+        message: "Pricing row not found",
+      },
+    },
+    tags: (subject: PricingRow) => ["pricing", `property:${subject.propertyId}`],
+    reducer: bookingReducer,
+  }),
+);
+type _CastTagQueryCommandContext = Expect<
+  Equal<
+    PipelineContext<typeof _castTagQueryCommandPipeline>,
+    CreateBookingInput &
+      { readonly bookingHistory: BookingReducerState } &
+      { readonly bookingHistorySubject: PricingRow }
+  >
+>;
+
+const _bookingEventsDescriptor = eventsByTagsDescriptor(["booking"], bookingReducer);
+type _EventsByTagsDescriptorState = Expect<
+  Equal<EventsByTagsState<typeof _bookingEventsDescriptor>, BookingReducerState>
+>;
+
+declare const _eventStoreForTypeCheck: EventStore;
+const _eventStoreQueryByTagsResult: Promise<TagQueryResult<BookingReducerState>> =
+  _eventStoreForTypeCheck.queryByTags(["booking"], bookingReducer);
+
+const _fakeTagQuery = tagQuery({
+  key: "fakeReducer" as const,
+  tags: (_ctx: CreateBookingInput) => ["booking"],
+  // @ts-expect-error fake plain-object reducers are rejected by the private reducer brand
+  reducer: plainBookingReducer,
+});
+
+const fakeCastTagQueryDescriptor = {
+  key: "fakeReducer" as const,
+  cast: {
+    model: pricingModel,
+    id: (ctx: CreateBookingInput) => ctx.propertyId,
+    absent: {
+      type: "PricingMissing" as const,
+      code: "PRICING_MISSING" as const,
+      message: "Pricing row not found",
+    },
+  },
+  tags: (subject: PricingRow) => ["pricing", `property:${subject.propertyId}`],
+  reducer: plainBookingReducer,
+};
+// @ts-expect-error fake plain-object reducers are rejected by the private reducer brand
+castTagQuery(fakeCastTagQueryDescriptor);
+
+// @ts-expect-error fake plain-object reducers are rejected by the private reducer brand
+eventsByTagsDescriptor(["booking"], plainBookingReducer);
+
+const rawTagQueryDescriptor = {
+  key: "rawHistory" as const,
+  tags: (_ctx: CreateBookingInput) => ["booking"],
+  schemas: propertySchemas,
+  fold: () => initialPropertyState,
+};
+// @ts-expect-error raw tagQuery event-history form is not public API
+tagQuery(rawTagQueryDescriptor);
+
+const rawCastTagQueryDescriptor = {
+  key: "rawHistory" as const,
+  cast: {
+    model: pricingModel,
+    id: (ctx: CreateBookingInput) => ctx.propertyId,
+    absent: {
+      type: "PricingMissing" as const,
+      code: "PRICING_MISSING" as const,
+      message: "Pricing row not found",
+    },
+  },
+  tags: (subject: PricingRow) => ["pricing", `property:${subject.propertyId}`],
+  schemas: propertySchemas,
+  fold: () => initialPropertyState,
+};
+// @ts-expect-error raw castTagQuery event-history form is not public API
+castTagQuery(rawCastTagQueryDescriptor);
+
+// @ts-expect-error raw eventsByTagsDescriptor event-history form is not public API
+eventsByTagsDescriptor(["booking"], propertySchemas, () => initialPropertyState);
+
+// @ts-expect-error raw EventStore.queryByTags event-history form is not public API
+void _eventStoreForTypeCheck.queryByTags(["booking"], propertySchemas, () => initialPropertyState);
+
 // ── Typed domain event ─────────────────────────────────────────────────
 
 type BookingCreated = DomainEvent<
@@ -238,19 +393,6 @@ type BookingCreated = DomainEvent<
     checkOut: string;
   }
 >;
-
-// ── Read model for pricing ──────────────────────────────────────────────
-
-const pricingModel = defineReadModel({
-  name: "pricing",
-  schema: z.object({
-    propertyId: z.string(),
-    pricePerNight: z.number(),
-  }),
-  key: "propertyId",
-});
-
-type PricingRow = { propertyId: string; pricePerNight: number };
 
 // ── Public read-model registration API type flow ──────────────────────
 
