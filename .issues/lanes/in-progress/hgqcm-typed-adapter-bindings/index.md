@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: semantic diff review complete; no actionable code findings
+Status: automated gates passed
 
 ## Active artifacts
 Description:
@@ -31,6 +31,7 @@ Implementation checkpoints:
 
 Review:
 - review/diff/01-review-diff.md — Semantic diff review; no actionable code findings
+- review/findings/01-gate-results.md — Automated gates passed
 
 ## Next suggested step
-- {{/skill:gates hgqcm-typed-adapter-bindings}}
+- {{/skill:qa hgqcm-typed-adapter-bindings}}
