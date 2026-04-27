@@ -8,15 +8,17 @@
 import { z } from "zod";
 import { ok, err } from "neverthrow";
 import {
-  compose, castTagQuery, generate,
+  compose, castTagQuery, derive, generate, lookup,
   state, tagQuery, projection,
   defineEvent, defineReducer,
-  defineReadModel, defineReadModelQuery,
+  defineReadModel, defineReadModelQuery, readModelEvent,
+  defineProcessor, processorEvent,
   defineCommand, defineQuery,
   createApp,
   createInMemoryEventStore, createInMemoryProjectionAdapter, createInMemoryAdapter,
 } from "esther";
-import type { DomainEvent, EventOf, StoredEvent, ReadModelHandle, ReadModelQueryHandle } from "esther";
+import type { DomainEvent, EffectAdapter, EventOf, ReadModelHandle, ReadModelQueryHandle } from "esther";
+import { createFastifyInputAdapter, defineFastifyRoutes } from "esther/fastify";
 ```
 
 ## Events
@@ -50,9 +52,18 @@ Plain strings queried by intersection. Use prefixed patterns:
 
 ## Read models
 
-Define a read model with `defineReadModel`. Returns a `ReadModelHandle<T>` used in projectors and state resolution:
+Define a read model with `defineReadModel`. Returns a `ReadModelHandle<T>` used by read-model event bindings and `projection()` state reads:
 
 ```typescript
+const OrderPlaced = defineEvent({
+  type: "OrderPlaced",
+  payload: z.object({
+    orderId: z.string().uuid(),
+    customerId: z.string().uuid(),
+    total: z.number(),
+  }),
+});
+
 const orderSummaryModel = defineReadModel({
   name: "order_summary",
   key: "orderId",
@@ -60,14 +71,26 @@ const orderSummaryModel = defineReadModel({
     orderId: z.string().uuid(),
     customerId: z.string().uuid(),
     total: z.number(),
+    lineItems: z.array(z.object({ sku: z.string(), quantity: z.number() })),
   }),
   constraints: {
     unique: [["customerId"]], // optional — database enforces uniqueness
   },
+  events: [
+    readModelEvent({
+      schema: OrderPlaced.schema,
+      handler: (event, ctx) => ctx.project({
+        orderId: event.payload.orderId,
+        customerId: event.payload.customerId,
+        total: event.payload.total,
+        lineItems: [],
+      }),
+    }),
+  ],
 });
 ```
 
-Schema fields must be `z.string()`, `z.number()`, `z.boolean()`, `z.string().uuid()`, or `z.string().datetime()`. The `key` must reference a field in the schema. The `name` must match `[a-zA-Z][a-zA-Z0-9_]*`.
+Schema fields support `z.string()`, `z.number()`, `z.boolean()`, `z.array(...)`, `z.object(...)`, plus `z.string().uuid()` and `z.string().datetime()`. Postgres stores arrays/objects as JSONB. The `key` must reference a field in the schema. The `name` must match `[a-zA-Z][a-zA-Z0-9_]*`.
 
 ### Read model queries
 
@@ -90,6 +113,7 @@ const latestOrderOfWorship = defineReadModelQuery({
   resolve: (args) => ({
     where: { service_at: { lte: args.asOf } },
     orderBy: "service_at",
+    orderDirection: "desc",
     limit: 1,
   }),
 });
@@ -106,24 +130,20 @@ projection({
 })
 ```
 
-**Never write query logic (WHERE, ORDER BY, filtering) inline in a slice.** If you need a filtered or sorted lookup, define a `defineReadModelQuery` and reference it by name.
-
-Use `handle.project(value, operation?)` in projectors to build a `ProjectionResult`:
+Use `many: true` for query-many lookup; state binds as `ReadonlyArray<T>`:
 
 ```typescript
-projectors: [(event) => {
-  if (event.type === "OrderPlaced") {
-    const p = event.payload as OrderPlaced["payload"];
-    return orderSummaryModel.project({
-      orderId: p.orderId,
-      customerId: p.customerId,
-      total: p.total,
-    });
-  }
-}],
+projection({
+  key: "orders" as const,
+  model: ordersByCustomer,
+  args: (ctx) => ({ customerId: ctx.customerId }),
+  many: true,
+})
 ```
 
-The `operation` parameter defaults to `"upsert"`. Other options: `"insert"`, `"update"`, `"delete"`.
+**Never write query logic (WHERE, ORDER BY, filtering) inline in a slice.** If you need a filtered or sorted lookup, define a `defineReadModelQuery` and reference it by name.
+
+Use `ctx.project(value, operation?)` inside `readModelEvent(...)` handlers to build a `ProjectionResult`. The `operation` parameter defaults to `"upsert"`; other options: `"insert"`, `"update"`, `"delete"`.
 
 ## Command DSL
 
@@ -258,53 +278,92 @@ defineQuery({
 
 ## Projectors and processors
 
-Inline functions after append. Projectors update read models via `model.project()`, processors emit effect descriptors:
+Projectors are read-model event bindings attached to `defineReadModel({ events: [...] })`. They are pure: return projection descriptors; adapters perform storage writes after append.
 
 ```typescript
-projectors: [(event) => {
-  if (event.type === "OrderPlaced") {
-    const p = event.payload as OrderPlaced["payload"];
-    return orderSummaryModel.project({ orderId: p.orderId, customerId: p.customerId, total: p.total });
-  }
-}],
-processors: [(event) => ({ type: "effect" as const, email: { to, subject, body } })],
+const orderSummaryModel = defineReadModel({
+  name: "order_summary",
+  key: "orderId",
+  schema: orderSummarySchema,
+  events: [
+    readModelEvent({
+      schema: OrderPlaced.schema,
+      handler: (event, ctx) => ctx.project({
+        orderId: event.payload.orderId,
+        customerId: event.payload.customerId,
+        total: event.payload.total,
+      }),
+    }),
+  ],
+});
 ```
 
-Effect adapters execute processor descriptors:
+Processors emit effect descriptors. Effect adapters execute side effects:
 
 ```typescript
+const sendOrderEmail = defineProcessor({
+  name: "send-order-email",
+  events: [
+    processorEvent({
+      schema: OrderPlaced.schema,
+      handler: (event) => ({
+        type: "effect" as const,
+        email: { to: event.payload.customerId, subject: "Order placed" },
+      }),
+    }),
+  ],
+});
+
 const emailAdapter: EffectAdapter = {
   name: "email",
   match: (effect) => "email" in effect,
-  execute: async (effect) => { await sendEmail(effect.email); return { emailSent: true }; },
+  execute: async (effect) => ({ emailSent: true, effect }),
 };
 ```
 
 ## Wiring
 
-Projection adapters are created per read model and passed to `createApp` as canonical read-model registrations:
+Projection adapters are created per read model and passed to `createApp` as canonical read-model registrations. `inputAdapter` is optional; direct dispatch stays dynamic:
 
 ```typescript
 const eventStore = createInMemoryEventStore();
-const { adapter, bind } = createInMemoryAdapter();
-
 const orderSummaryProjection = createInMemoryProjectionAdapter(orderSummaryModel);
 
 const app = createApp({
   eventStore,
   readModels: [orderSummaryProjection],
-  inputAdapter: { adapter, bind },
+  processors: [sendOrderEmail],
   effectAdapters: [emailAdapter],
   slices: [placeOrderSlice, getOrderSlice],
 });
 
 await app.start();
-const result = await app.dispatch("place-order", { ... });
+const result = await app.dispatch("place-order", { ... }); // sliceName: string, input: unknown
 ```
 
-The projection registration provides write, point-lookup, and query capability to app wiring. It also remains destructurable as `{ adapter, get, query }` for replay helpers and focused adapter tests. Legacy `projectionAdapters` table/view entries and `projectionQuery` remain available for compatibility.
+The projection registration provides write, point-lookup, query capability, constraints, and event bindings to app wiring. It also remains destructurable as `{ adapter, get, query }` for replay helpers and focused adapter tests. Legacy `projectionAdapters` table/view entries and `projectionQuery` are deprecated compatibility paths only.
 
-For HTTP: `import { createFastifyAdapter } from "esther/fastify"`.
+Typed invocation belongs at adapter route/binding config, not a public in-process typed app client:
+
+```typescript
+const slices = [placeOrderSlice, getOrderSlice] as const;
+
+const routes = defineFastifyRoutes<typeof slices>()([
+  {
+    method: "POST",
+    path: "/orders",
+    slice: "place-order",
+    input: ({ body }) => placeOrderInputSchema.parse(body),
+    respond: ({ result, reply }) => reply.send({ ok: result.isOk() }),
+  },
+]);
+
+const inputAdapter = createFastifyInputAdapter({ port: 3000, routes });
+createApp({ eventStore, readModels: [orderSummaryProjection], inputAdapter, slices });
+```
+
+Fastify route helpers type request-to-operation mapping only. Authorization/session/token checks remain host responsibility.
+
 For Postgres:
 
 ```typescript
@@ -319,28 +378,10 @@ Use `generateCreateTableDDL(handle)` to produce a migration for a read model tab
 
 ## Event store hooks
 
-Two hook types:
+Apps normally use read-model event bindings and processors. Low-level hooks remain available for adapters/infrastructure:
 
-- `onAfterInsert` — runs inside the database transaction (projectors). Constraint violations here roll back the event.
-- `onAfterCommit` — runs after the transaction commits (processors). Fire-and-forget.
-
-```typescript
-// Projector — runs in-transaction
-eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, async (event) => {
-  const p = event.payload as OrderPlaced["payload"];
-  const result = orderSummaryModel.project({
-    orderId: p.orderId,
-    customerId: p.customerId,
-    total: p.total,
-  });
-  await projectionAdapter.execute(result);
-});
-
-// Processor — runs post-commit
-eventStore.onAfterCommit({ eventTypes: ["OrderPlaced"] }, async (event) => {
-  await sendNotification(event);
-});
-```
+- `onAfterInsert` — runs inside append transaction; failures roll back event.
+- `onAfterCommit` — runs after transaction commits; fire-and-forget.
 
 Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`. Handlers are async and return `Promise<void>`.
 
@@ -380,9 +421,10 @@ The Fastify adapter maps `ConstraintError` and `ConcurrencyError` to HTTP 409, `
 7. Projectors/processors are pure -- side effects go in effect adapters.
 8. Tags are your query model -- design them for the queries you need.
 9. The `output(event, ctx)` function shapes the command result from the appended event and the final context. `outputErr(error, ctx)` maps `input`/`validate` errors.
-10. Define read models with `defineReadModel` and use the returned handle in both projectors and `projection()` steps.
-11. App modules (commands, queries, projectors, processors) must not do I/O directly. Declare dependencies; return effects.
+10. Define read models with `defineReadModel`; attach projection bindings with `readModelEvent(...)`; use `projection()` for read state.
+11. App modules (commands, queries, read-model event bindings, processors) must not do I/O directly. Declare descriptors; adapters perform I/O.
 12. Query logic belongs in read model definitions. Never write WHERE/ORDER BY/filtering inline in a command or query — encapsulate it in a `defineReadModelQuery`.
+13. `app.dispatch(sliceName, input)` is dynamic; typed operation invocation belongs in adapter route/binding config.
 
 ## Full example
 
@@ -395,6 +437,11 @@ const transferInputSchema = z.object({
 type TransferInput = z.output<typeof transferInputSchema>;
 
 const transferOutputSchema = z.object({ transferId: z.string().uuid() });
+
+const MoneyCredited = defineEvent({
+  type: "MoneyCredited",
+  payload: z.object({ accountId: z.string().uuid(), amount: z.number().positive() }),
+});
 
 const MoneyDebited = defineEvent({
   type: "MoneyDebited",
@@ -411,11 +458,14 @@ type AccountBalance = { balance: number };
 
 const accountBalanceReducer = defineReducer({
   name: "account-balance",
-  schemas: [MoneyDebited.schema] as const,
+  schemas: [MoneyCredited.schema, MoneyDebited.schema] as const,
   initial: { balance: 0 } satisfies AccountBalance,
-  reduce: (balance, event): AccountBalance => ({
-    balance: balance.balance - event.payload.amount,
-  }),
+  reduce: (balance, event): AccountBalance => {
+    if (event.type === "MoneyCredited") {
+      return { balance: balance.balance + event.payload.amount };
+    }
+    return { balance: balance.balance - event.payload.amount };
+  },
 });
 
 type TransferCtx = TransferInput & { readonly fromBalance: AccountBalance };

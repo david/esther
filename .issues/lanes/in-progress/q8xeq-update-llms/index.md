@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation in progress; task 01 complete; 1 pending implementation task
+Status: implementation complete; 2 implementation tasks complete
 
 ## Active artifacts
 Description:
@@ -20,11 +20,10 @@ Plan checks:
 - plan/checks/02-revised-plan-sanity.md — approved: revised plan requires full repo gates and has no blockers.
 
 Implementation tasks:
-- impl/01.md — update event-history docs to reducer API
-- impl/02.md — update app, read-model, processor, and adapter docs
+- impl/01.md — update event-history docs to reducer API — complete; checkpoint `impl/checkpoints/01.md`
+- impl/02.md — update app, read-model, processor, and adapter docs — complete; checkpoint `impl/checkpoints/02.md`
 
-Pending implementation tasks: 1
+Pending implementation tasks: 0
 
 ## Next suggested step
-- {{/skill:impl q8xeq-update-llms}}
-- {{/skill-loop 2 /skill:impl q8xeq-update-llms}}
+- {{/skill:review-diff q8xeq-update-llms}}
