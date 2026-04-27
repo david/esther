@@ -429,6 +429,8 @@ The Fastify adapter maps errors returned from dispatch `Result`s: `ConstraintErr
 
 ## Full example
 
+This example models only the source-account debit leg of a transfer. The command emits one `MoneyDebited` event; a target-account credit is produced by another command/process not shown here.
+
 ```typescript
 const transferInputSchema = z.object({
   fromAccountId: z.string().uuid(),
@@ -439,6 +441,7 @@ type TransferInput = z.output<typeof transferInputSchema>;
 
 const transferOutputSchema = z.object({ transferId: z.string().uuid() });
 
+// Reducer input for credits produced by another flow, not by this debit command.
 const MoneyCredited = defineEvent({
   type: "MoneyCredited",
   payload: z.object({ accountId: z.string().uuid(), amount: z.number().positive() }),

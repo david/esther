@@ -29,6 +29,7 @@ Ask instead of guessing.
 - Keep architecture boundaries intact; do not trade correctness for convenience.
 - Prefer one coherent change over mixed unrelated edits.
 - If you uncover existing breakage, treat it as real work, not ignorable noise.
+- If public API, DSL behavior, adapter usage, errors, or canonical examples change, update `llms.txt` in the same change or explicitly record why no `llms.txt` update is needed.
 - If a new convention emerges, document it in `doc/` rather than leaving it in chat only.
 
 ## Commits
@@ -45,7 +46,7 @@ At minimum:
 - `bun run typecheck` passes
 - `bun run lint` passes
 - `bun run test` passes
-- docs and exported API surface are updated when needed
+- docs, `llms.txt`, and exported API surface are updated when needed
 
 ## Direct pushes and risky operations
 
