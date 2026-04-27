@@ -15,15 +15,6 @@ import {
 } from "./read-model";
 import type { ProjectionStore } from "./slice";
 
-// ── Test utilities ───────────────────────────────────────────────────
-
-function expectArray<T>(value: unknown, schema: z.ZodType<T>): ReadonlyArray<T> {
-  if (!Array.isArray(value)) {
-    throw new Error(`Expected array, got ${typeof value}`);
-  }
-  return value.map((item) => schema.parse(item));
-}
-
 // ── Fixtures ─────────────────────────────────────────────────────────
 
 const memberSchema = z.object({
@@ -118,7 +109,9 @@ describe("createReadInterpreter — get", () => {
     const interpreter = createReadInterpreter(deps);
 
     const result = await interpreter.resolve(getDescriptor(memberModel, alice.id));
+    const typedResult: Member | undefined = result;
 
+    expect(typedResult?.name).toBe("Alice");
     expect(result).toEqual(alice);
   });
 
@@ -129,8 +122,25 @@ describe("createReadInterpreter — get", () => {
     const result = await interpreter.resolve(
       getDescriptor(memberModel, "00000000-0000-0000-0000-0000000000ff"),
     );
+    const typedResult: Member | undefined = result;
 
-    expect(result).toBeUndefined();
+    expect(typedResult).toBeUndefined();
+  });
+
+  test("rejects malformed row with ReadModelSchemaError", async () => {
+    const deps = await seed([]);
+    const projectionStore: ProjectionStore = {
+      ...deps.projectionStore,
+      async get() {
+        return ok({ value: { id: alice.id, name: "Alice", age: "bad", active: true } });
+      },
+    };
+    const interpreter = createReadInterpreter({ ...deps, projectionStore });
+
+    await expect(interpreter.resolve(getDescriptor(memberModel, alice.id))).rejects.toMatchObject({
+      _tag: "ReadModelSchemaError",
+      readModelName: "member",
+    });
   });
 });
 
@@ -145,7 +155,7 @@ describe("createReadInterpreter — query", () => {
       queryDescriptor({ model: memberModel, where: { active: true } }),
     );
 
-    const rows = expectArray(result, memberSchema);
+    const rows: ReadonlyArray<Member> = result;
     expect(rows).toHaveLength(2);
     const ids = rows.map((m) => m.id).sort();
     expect(ids).toEqual([alice.id, carol.id]);
@@ -159,7 +169,7 @@ describe("createReadInterpreter — query", () => {
       queryDescriptor({ model: memberModel, where: { age: { gte: 35, lte: 45 } } }),
     );
 
-    const rows = expectArray(result, memberSchema);
+    const rows: ReadonlyArray<Member> = result;
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe(bob.id);
   });
@@ -175,7 +185,7 @@ describe("createReadInterpreter — query", () => {
       }),
     );
 
-    const rows = expectArray(result, memberSchema);
+    const rows: ReadonlyArray<Member> = result;
     expect(rows).toHaveLength(2);
     const ids = rows.map((m) => m.id).sort();
     expect(ids).toEqual([alice.id, carol.id]);
@@ -186,8 +196,9 @@ describe("createReadInterpreter — query", () => {
     const interpreter = createReadInterpreter(deps);
 
     const result = await interpreter.resolve(queryDescriptor({ model: memberModel, where: {} }));
+    const rows: ReadonlyArray<Member> = result;
 
-    expect(expectArray(result, memberSchema)).toHaveLength(3);
+    expect(rows).toHaveLength(3);
   });
 
   test("orderBy ascending with limit", async () => {
@@ -198,7 +209,7 @@ describe("createReadInterpreter — query", () => {
       queryDescriptor({ model: memberModel, where: {}, orderBy: "age", limit: 2 }),
     );
 
-    const rows = expectArray(result, memberSchema);
+    const rows: ReadonlyArray<Member> = result;
     expect(rows).toHaveLength(2);
     const ages = rows.map((m) => m.age);
     expect(ages).toEqual([30, 40]);
@@ -211,8 +222,26 @@ describe("createReadInterpreter — query", () => {
     const result = await interpreter.resolve(
       queryDescriptor({ model: memberModel, where: { name: "Nobody" } }),
     );
+    const rows: ReadonlyArray<Member> = result;
 
-    expect(result).toEqual([]);
+    expect(rows).toEqual([]);
+  });
+
+  test("rejects malformed row with ReadModelSchemaError", async () => {
+    const deps = await seed([]);
+    const projectionQuery: ProjectionQueryAdapter = {
+      async query() {
+        return [alice, { id: bob.id, name: "Bob", age: "bad", active: false }];
+      },
+    };
+    const interpreter = createReadInterpreter({ ...deps, projectionQuery });
+
+    await expect(
+      interpreter.resolve(queryDescriptor({ model: memberModel, where: { active: false } })),
+    ).rejects.toMatchObject({
+      _tag: "ReadModelSchemaError",
+      readModelName: "member",
+    });
   });
 });
 
@@ -281,7 +310,9 @@ describe("createReadInterpreter — eventsByTags", () => {
     };
     const interpreter = createReadInterpreter({ ...deps, eventStore });
 
-    const result = await interpreter.resolve(eventsByTagsDescriptor(["thing:forward"], thingReducer));
+    const result = await interpreter.resolve(
+      eventsByTagsDescriptor(["thing:forward"], thingReducer),
+    );
 
     expect(result).toEqual({ total: 0 });
     expect(observedTags).toEqual(["thing:forward"]);
