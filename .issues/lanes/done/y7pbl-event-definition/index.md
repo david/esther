@@ -1,12 +1,14 @@
 # y7pbl-event-definition
 
+Lane: done
+
 ## Active plan
 
 - `plan/01-implementation-plan.md` — additive `defineEvent` event definition helper.
 
 ## Current status
 
-Implementation checkpoints complete. Diff review recorded in `review/diff/01-review-diff.md`; no actionable findings. Gates passed per `impl/checkpoints/04.md`. QA passed per `qa/summary.md`. PR opened at https://github.com/david/esther/pull/7. No lane move until PR is merged to `main`.
+Implementation complete, reviewed, QA passed, and merged to `main` via PR https://github.com/david/esther/pull/7. Merge commit: `46657d75e975687a8bcdd1f93a797cdd7f5ed028`. Lane moved to `.issues/lanes/done/y7pbl-event-definition`.
 
 ## Implementation tasks
 
@@ -23,4 +25,4 @@ Pending implementation tasks: 0
 
 ## Next suggested step
 
-{{Review and merge https://github.com/david/esther/pull/7, then run /skill:deploy y7pbl-event-definition --move-done after merge if lane repair is needed.}}
+No repo-local action pending.
