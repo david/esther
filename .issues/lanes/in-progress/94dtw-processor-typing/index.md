@@ -31,12 +31,18 @@ Runnable tasks written:
 
 1. [Review Diff Digest — processor typing](review/diff/01-review-diff.md) — no actionable review findings; highest-risk area is intended stricter `ReadModelSchemaError` fail-fast behavior for malformed descriptor read rows.
 
+## Latest deploy
+
+1. [Deploy — PR creation / 2026-04-27](deploy/01-pr.md) — PR opened: https://github.com/david/esther/pull/8
+
 ## Current status
 
-Implementation complete. `ReadInterpreter.resolve(...)` preserves `ReadDescriptor<T>` as `Promise<T>`, read-model `get`/`query` descriptor results are schema-validated, processor/read-model event read inference is pinned in type-level tests, and event/storage/adapter contracts stay unchanged.
+PR open for review. `ReadInterpreter.resolve(...)` preserves `ReadDescriptor<T>` as `Promise<T>`, read-model `get`/`query` descriptor results are schema-validated, processor/read-model event read inference is pinned in type-level tests, and event/storage/adapter contracts stay unchanged.
 
-Full verification recorded in `impl/checkpoints/04.md`: `bun run typecheck`, `bun run lint`, and `bun run test` pass.
+Full verification recorded in `review/findings/01-gate-results.md`: `bun run typecheck`, `bun run lint`, and `bun run test` pass. QA recorded in `qa/summary.md`: 3 passed, 0 failed, 0 skipped.
+
+Lane remains `in-progress` until PR merges to `main`.
 
 ## Suggested next step
 
-Use {{/skill:gates 94dtw-processor-typing}} to record formal gate artifact before QA.
+Review https://github.com/david/esther/pull/8. After merge to `main`, use {{/skill:deploy 94dtw-processor-typing --move-done}}.
