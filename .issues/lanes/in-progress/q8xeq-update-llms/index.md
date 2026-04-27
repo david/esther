@@ -1,8 +1,8 @@
 # q8xeq-update-llms Index
 
 ## Current state
-Lane: backlog
-Status: breakdown complete; 2 pending implementation tasks
+Lane: in-progress
+Status: implementation in progress; task 01 complete; 1 pending implementation task
 
 ## Active artifacts
 Description:
@@ -23,7 +23,7 @@ Implementation tasks:
 - impl/01.md — update event-history docs to reducer API
 - impl/02.md — update app, read-model, processor, and adapter docs
 
-Pending implementation tasks: 2
+Pending implementation tasks: 1
 
 ## Next suggested step
 - {{/skill:impl q8xeq-update-llms}}
