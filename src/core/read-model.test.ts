@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
 import { createApp } from "./app";
+import { defineEvent } from "./event";
 import {
   defineReadModel,
   defineReadModelQuery,
@@ -338,6 +339,101 @@ describe("read model events", () => {
         id: memberId,
         name: "Alice",
         age: 30,
+        active: true,
+        createdAt: "2026-01-01T00:00:00Z",
+      });
+    }
+  });
+
+  test("binding with generated event schema projects matching events only", async () => {
+    const eventStore = createInMemoryEventStore();
+    const MemberRegistered = defineEvent({
+      type: "MemberRegistered",
+      payload: z.object({
+        memberId: z.string(),
+        name: z.string(),
+        age: z.number(),
+        active: z.boolean(),
+        createdAt: z.string(),
+      }),
+    });
+
+    const model = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      events: [
+        readModelEvent({
+          schema: MemberRegistered.schema,
+          handler: (event, ctx) => {
+            const _nameCheck: string = event.payload.name;
+            return ctx.project({
+              id: event.payload.memberId,
+              name: event.payload.name,
+              age: event.payload.age,
+              active: event.payload.active,
+              createdAt: event.payload.createdAt,
+            });
+          },
+        }),
+      ],
+    });
+
+    const projResult = createInMemoryProjectionAdapter(model);
+
+    createApp({
+      eventStore,
+      inputAdapter: createNoopInputAdapter(),
+      slices: [],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projResult.adapter,
+          get: projResult.get,
+          constraints: {},
+          tableName: "member",
+          handle: model,
+        },
+      ],
+    });
+
+    const memberId = "550e8400-e29b-41d4-a716-446655440002";
+    await eventStore.append([
+      {
+        type: "OtherMemberEvent",
+        tags: [`member:${memberId}`],
+        payload: {
+          memberId,
+          name: "Ignored",
+          age: 40,
+          active: true,
+          createdAt: "2026-01-01T00:00:00Z",
+        },
+      },
+    ]);
+
+    expect((await projResult.get(memberId)).isErr()).toBe(true);
+
+    await eventStore.append([
+      MemberRegistered.create({
+        tags: [`member:${memberId}`],
+        payload: {
+          memberId,
+          name: "Carol",
+          age: 40,
+          active: true,
+          createdAt: "2026-01-01T00:00:00Z",
+        },
+      }),
+    ]);
+
+    const result = await projResult.get(memberId);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.value).toEqual({
+        id: memberId,
+        name: "Carol",
+        age: 40,
         active: true,
         createdAt: "2026-01-01T00:00:00Z",
       });
