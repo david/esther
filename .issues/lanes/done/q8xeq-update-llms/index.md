@@ -1,8 +1,8 @@
 # q8xeq-update-llms Index
 
 ## Current state
-Lane: in-progress
-Status: QA passed; 4 implementation tasks complete; 0 implementation tasks pending; 0 review findings open; 0 QA failures
+Lane: done
+Status: shipped by direct `main` push; 4 implementation tasks complete; 0 implementation tasks pending; 0 review findings open; 0 QA failures
 
 ## Active artifacts
 Description:
@@ -38,5 +38,8 @@ QA:
 - qa/tasks/qa-llms-doc-review.md — passed; agent-executable documentation QA for `llms.txt`.
 - qa/summary.md — QA suite summary; verdict passed.
 
+Deploy:
+- deploy/01-release.md — shipped by direct `main` push to `origin/main`; no external issue closure performed.
+
 ## Next suggested step
-- {{/skill:deploy q8xeq-update-llms}}
+- No repo-local follow-up. If an external issue or project item exists outside artifacts, review/close it explicitly after stakeholder approval.
