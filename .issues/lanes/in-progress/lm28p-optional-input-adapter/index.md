@@ -2,7 +2,7 @@
 
 ## Current status
 
-Implementation plan approved and broken down into runnable implementation tasks. Issue asks to make `createApp()` usable without mandatory `inputAdapter` for direct in-process dispatch/tests.
+Implementation complete and semantic diff review passed with no actionable findings. Issue asks to make `createApp()` usable without mandatory `inputAdapter` for direct in-process dispatch/tests.
 
 ## Artifacts
 
@@ -12,13 +12,15 @@ Implementation plan approved and broken down into runnable implementation tasks.
 - [impl/01.md](impl/01.md) — enable no-adapter app construction, direct dispatch, and no-op lifecycle.
 - [impl/02.md](impl/02.md) — preserve adapter-bound bind/start/stop behavior.
 - [impl/03.md](impl/03.md) — remove obsolete noop-adapter test scaffolding and update app wiring docs.
+- [impl/checkpoints/01.md](impl/checkpoints/01.md) — task 01 implementation checkpoint and focused verification.
+- [impl/checkpoints/02.md](impl/checkpoints/02.md) — task 02 implementation checkpoint and focused verification.
+- [impl/checkpoints/03.md](impl/checkpoints/03.md) — task 03 implementation checkpoint and full verification.
+- [review/diff/01-review-diff.md](review/diff/01-review-diff.md) — semantic review digest; no high-risk or actionable review findings.
 
 ## Latest finding
 
-Breakdown created tasks `impl/01.md` through `impl/03.md`. Pending implementation tasks: 3.
+Semantic review found additive public API change only: `AppConfig.inputAdapter` is optional, no-adapter lifecycle is no-op, and adapter-present behavior remains covered. No event, persistence, auth, read-model, processor, effect, or adapter counterpart gap found.
 
 ## Suggested next step
 
-Use `{{/skill:impl lm28p-optional-input-adapter}}`.
-
-For child-session loop, use `{{/skill-loop 3 /skill:impl lm28p-optional-input-adapter}}`.
+Use `{{/skill:gates lm28p-optional-input-adapter}}`.
