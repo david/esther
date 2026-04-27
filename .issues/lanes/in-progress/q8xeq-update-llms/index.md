@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: review complete; 2 implementation tasks complete; 1 follow-up implementation task pending; 2 review findings open
+Status: second review complete; 3 implementation tasks complete; 0 implementation tasks pending; 1 review finding open
 
 ## Active artifacts
 Description:
@@ -22,15 +22,15 @@ Plan checks:
 Implementation tasks:
 - impl/01.md — update event-history docs to reducer API — complete; checkpoint `impl/checkpoints/01.md`
 - impl/02.md — update app, read-model, processor, and adapter docs — complete; checkpoint `impl/checkpoints/02.md`
-- impl/03.md — clarify Fastify route input parse errors — pending follow-up for `review/findings/01-fastify-route-parse-contract.md`
+- impl/03.md — clarify Fastify route input parse errors — complete; checkpoint `impl/checkpoints/03.md`
 
-Pending implementation tasks: 1
+Pending implementation tasks: 0
 
 Review:
 - review/diff/01-review-diff.md — semantic docs-only review; source/persistence/auth unchanged; two docs-contract follow-ups found.
-- review/findings/01-fastify-route-parse-contract.md — Fastify route input parser example may throw before Esther result error mapping.
-- review/findings/02-transfer-example-credit-counterpart.md — transfer example shows debit without visible credit counterpart.
+- review/diff/02-review-diff.md — follow-up semantic review after Fastify parser docs fix; no runtime/source risk found; transfer counterpart finding remains.
+- review/findings/01-fastify-route-parse-contract.md — addressed by impl/03; Fastify route input parser behavior now clarified in `llms.txt`.
+- review/findings/02-transfer-example-credit-counterpart.md — open; transfer example shows debit without visible credit counterpart.
 
 ## Next suggested step
-- {{/skill:impl q8xeq-update-llms}}
-- {{/skill-loop 1 /skill:impl q8xeq-update-llms}}
+- {{/skill:breakdown q8xeq-update-llms --from review/findings/02-transfer-example-credit-counterpart.md}}
