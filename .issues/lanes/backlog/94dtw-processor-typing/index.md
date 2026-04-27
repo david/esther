@@ -18,10 +18,23 @@ Research artifacts written:
 
 1. [Plan Check — plan/01-implementation-plan.md](plan/checks/01-plan-sanity.md) — approved
 
+## Implementation tasks
+
+Runnable tasks written:
+
+1. [Preserve descriptor result type and validate interpreter rows](impl/01.md)
+2. [Pin processor read inference and effect gating](impl/02.md)
+3. [Pin read-model event ctx read inference](impl/03.md)
+4. [Update public notes and run full gates](impl/04.md)
+
 ## Current status
 
-Plan approved. Plan strengthens `ReadInterpreter.resolve(...)` to preserve `ReadDescriptor<T>` as `Promise<T>`, adds schema validation for read-model `get`/`query` descriptor results, pins processor/read-model event read inference in type-level tests, and preserves event/storage/adapter contracts.
+Plan approved and broken down. Plan strengthens `ReadInterpreter.resolve(...)` to preserve `ReadDescriptor<T>` as `Promise<T>`, adds schema validation for read-model `get`/`query` descriptor results, pins processor/read-model event read inference in type-level tests, and preserves event/storage/adapter contracts.
+
+Pending implementation tasks: 4.
 
 ## Suggested next step
 
-Use {{/skill:breakdown 94dtw-processor-typing --from plan/01-implementation-plan.md}}.
+Use {{/skill:impl 94dtw-processor-typing}}.
+
+For child-session loop, use {{/skill-loop 4 /skill:impl 94dtw-processor-typing}}.
