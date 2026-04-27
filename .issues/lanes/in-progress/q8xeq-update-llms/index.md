@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; 2 implementation tasks complete
+Status: review complete; 2 implementation tasks complete; 2 review findings open
 
 ## Active artifacts
 Description:
@@ -25,5 +25,10 @@ Implementation tasks:
 
 Pending implementation tasks: 0
 
+Review:
+- review/diff/01-review-diff.md — semantic docs-only review; source/persistence/auth unchanged; two docs-contract follow-ups found.
+- review/findings/01-fastify-route-parse-contract.md — Fastify route input parser example may throw before Esther result error mapping.
+- review/findings/02-transfer-example-credit-counterpart.md — transfer example shows debit without visible credit counterpart.
+
 ## Next suggested step
-- {{/skill:review-diff q8xeq-update-llms}}
+- {{/skill:breakdown q8xeq-update-llms --from review/findings/01-fastify-route-parse-contract.md}}
