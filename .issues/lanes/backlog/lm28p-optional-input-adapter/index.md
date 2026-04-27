@@ -2,16 +2,17 @@
 
 ## Current status
 
-Research complete. Issue asks to make `createApp()` usable without mandatory `inputAdapter` for direct in-process dispatch/tests.
+Implementation plan written. Issue asks to make `createApp()` usable without mandatory `inputAdapter` for direct in-process dispatch/tests.
 
 ## Artifacts
 
 - [research/01-current-state.md](research/01-current-state.md) — current `createApp()` input-adapter requirement, dispatch/lifecycle behavior, caller inventory, tests.
+- [plan/01-implementation-plan.md](plan/01-implementation-plan.md) — plan to make `AppConfig.inputAdapter` optional, preserve adapter binding, and make lifecycle no-op without adapter.
 
 ## Latest finding
 
-`AppConfig.inputAdapter` is required today, and `createApp()` unconditionally binds and delegates lifecycle to it. Direct `app.dispatch()` already exists and is heavily used, but tests/callers still pass `createInMemoryAdapter()` or local noop adapters just to satisfy app construction.
+`AppConfig.inputAdapter` can become optional directly. Existing adapter-bound behavior should stay same; omitted adapter means `app.start()` / `app.stop()` resolve as no-ops and `app.dispatch()` remains dynamic.
 
 ## Suggested next step
 
-Use `{{/skill:plan lm28p-optional-input-adapter}}`.
+Use `{{/skill:plan-check lm28p-optional-input-adapter}}`.
