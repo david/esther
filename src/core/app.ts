@@ -1,9 +1,10 @@
 import { err, ok, type Result } from "neverthrow";
 import type { EffectAdapter, EffectAdapterRegistry } from "./effect-adapter.js";
 import { createEffectAdapterRegistry } from "./effect-adapter.js";
+import { extractEventType } from "./event.js";
 import type { EventStore } from "./event-store.js";
 import type { InputAdapterBinding } from "./input-adapter.js";
-import { extractEventType, type Processor } from "./processor.js";
+import type { Processor } from "./processor.js";
 import { createReadInterpreter, type ReadInterpreter } from "./read-interpreter.js";
 import type {
   ProjectionAdapter,
