@@ -88,7 +88,7 @@ Read interpreter paths do not parse rows through read-model schemas before retur
 - `resolveGet(...)` returns `result.value.value` from projection store.
 - `resolveQuery(...)` returns rows from projection query adapter.
 
-This means typing improvements that make handler reads feel safe may expose an existing semantic mismatch: handler-surface types may become stronger than runtime row validation guarantees unless validation is added or documented as adapter trust.
+This means typing improvements that make handler reads feel safe may expose an existing semantic mismatch: handler-surface types may become stronger than runtime row validation guarantees. User guidance resolved this direction: stronger validation is preferred, so planning should include runtime schema validation for read-model `get`/`query` descriptor results rather than documenting adapter trust as sufficient.
 
 ### Effect data
 
@@ -207,7 +207,7 @@ Projection adapters persist the result. Typing issue does not require changing p
 
 ## Open questions
 
-- Should stronger handler typing include runtime schema validation for read-model `get`/`query` descriptor results?
+- Resolved user direction: stronger validation is preferred. Planning should include runtime schema validation for read-model `get`/`query` descriptor results.
 - If validation is added, should malformed rows surface as `ReadModelSchemaError`, throw from hook path, or map to absent/empty behavior?
 - Should read-interpreter query fallback with no query capability remain `[]`, or align with slice projection `ReadModelNotFound` behavior?
 - Should `ctx.get(...)` in read-model event handlers continue exposing raw adapter getter result, or route through validated projection store access?
@@ -215,4 +215,4 @@ Projection adapters persist the result. Typing issue does not require changing p
 
 ## Suggested next step
 
-Data audit found no persistence migration blocker. Plan can focus on type API plus validation-boundary decision. Use {{/skill:plan 94dtw-processor-typing}}.
+Data audit found no persistence migration blocker. Plan can focus on type API plus adding stronger runtime validation for read-model descriptor results. Use {{/skill:plan 94dtw-processor-typing}}.

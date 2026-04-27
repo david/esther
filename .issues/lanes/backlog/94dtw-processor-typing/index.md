@@ -12,7 +12,7 @@ Research artifacts written:
 
 ## Current status
 
-Research complete. Current API carries read result types in `ReadDescriptor<T>` and binding generics, but `ReadInterpreter.resolve(...)` returns `Promise<unknown>` and runtime wiring erases reads before handler calls. Tests prove runtime behavior, but type-level coverage does not pin processor/read-model event read inference.
+Research complete. Current API carries read result types in `ReadDescriptor<T>` and binding generics, but `ReadInterpreter.resolve(...)` returns `Promise<unknown>` and runtime wiring erases reads before handler calls. Tests prove runtime behavior, but type-level coverage does not pin processor/read-model event read inference. User direction: stronger validation is preferred, so planning should include runtime schema validation for read-model descriptor results.
 
 ## Suggested next step
 
