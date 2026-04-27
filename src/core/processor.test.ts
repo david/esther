@@ -4,6 +4,7 @@ import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
 import { createApp } from "./app";
 import type { EffectAdapter } from "./effect-adapter";
+import { defineEvent } from "./event";
 import { defineProcessor, processorEvent } from "./processor";
 import { defineReadModel, getDescriptor } from "./read-model";
 import type { EffectResult } from "./types";
@@ -113,6 +114,68 @@ describe("defineProcessor", () => {
       kind: "test",
       email: "test@example.com",
     });
+  });
+
+  test("processor with generated event schema handles matching events only", async () => {
+    const eventStore = createInMemoryEventStore();
+    const { adapter: effectAdapter, captured } = createCapturingEffectAdapter();
+    const UserEmailChanged = defineEvent({
+      type: "UserEmailChanged",
+      payload: z.object({
+        userId: z.string(),
+        email: z.string(),
+      }),
+    });
+
+    const processor = defineProcessor({
+      name: "generated-event-processor",
+      events: [
+        processorEvent({
+          schema: UserEmailChanged.schema,
+          handler: (event): EffectResult => {
+            const _emailCheck: string = event.payload.email;
+            return {
+              type: "effect",
+              kind: "test",
+              email: event.payload.email,
+            };
+          },
+        }),
+      ],
+    });
+
+    createApp({
+      eventStore,
+      inputAdapter: createNoopInputAdapter(),
+      slices: [],
+      effectAdapters: [effectAdapter],
+      processors: [processor],
+    });
+
+    await eventStore.append([
+      {
+        type: "OtherUserEvent",
+        tags: ["user:abc"],
+        payload: { userId: "abc", email: "ignored@example.com" },
+      },
+    ]);
+
+    expect(captured).toHaveLength(0);
+
+    await eventStore.append([
+      UserEmailChanged.create({
+        tags: ["user:abc"],
+        payload: { userId: "abc", email: "updated@example.com" },
+      }),
+    ]);
+
+    expect(captured).toEqual([
+      {
+        type: "effect",
+        kind: "test",
+        email: "updated@example.com",
+      },
+    ]);
   });
 
   test("processor with reads: resolves reads and passes to handler", async () => {
