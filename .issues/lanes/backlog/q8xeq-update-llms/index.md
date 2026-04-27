@@ -2,11 +2,14 @@
 
 ## Current state
 Lane: backlog
-Status: intake
+Status: researched
 
 ## Active artifacts
 Description:
 - description.md
 
+Research:
+- research/01-current-state.md — completed API-change intake for `llms.txt`, including reducer/event/DCB/app/Fastify/read-model/projector-processor drift.
+
 ## Next suggested step
-- {{/skill:research q8xeq-update-llms}}
+- {{/skill:plan q8xeq-update-llms}}
