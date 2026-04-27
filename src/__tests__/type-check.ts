@@ -14,6 +14,7 @@ import {
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
   defineCommand,
+  defineEvent,
   defineQuery,
   defineReadModel,
   defineReadModelQuery,
@@ -28,6 +29,9 @@ import {
   type BoundaryObservationError as BoundaryObservationErrorType,
   type DispatchFn,
   type DomainEvent,
+  type EventDefinition,
+  type EventOf,
+  type EventPayloadOf,
   type EventStore,
   type EventsByTagsDescriptor,
   type InputPipeline,
@@ -127,6 +131,68 @@ const BookingCancelledSchema = z.object({
     bookingId: z.string(),
     reason: z.string(),
   }),
+});
+
+const BookingConfirmedPayloadSchema = z.object({
+  bookingId: z.string(),
+  confirmedAt: z.string(),
+  propertyId: z.string(),
+  tenantId: z.string(),
+  checkIn: z.string(),
+  checkOut: z.string(),
+});
+
+const BookingConfirmedEvent = defineEvent({
+  type: "BookingConfirmed",
+  payload: BookingConfirmedPayloadSchema,
+});
+
+type BookingConfirmed = EventOf<typeof BookingConfirmedEvent>;
+type BookingConfirmedPayload = EventPayloadOf<typeof BookingConfirmedEvent>;
+
+const _bookingConfirmedDefinitionCheck: EventDefinition<
+  "BookingConfirmed",
+  typeof BookingConfirmedPayloadSchema
+> = BookingConfirmedEvent;
+const _bookingConfirmedTypeLiteralCheck: "BookingConfirmed" = BookingConfirmedEvent.type;
+type _BookingConfirmedEventInference = Expect<
+  Equal<BookingConfirmed, DomainEvent<"BookingConfirmed", z.output<typeof BookingConfirmedPayloadSchema>>>
+>;
+type _BookingConfirmedPayloadInference = Expect<
+  Equal<BookingConfirmedPayload, z.output<typeof BookingConfirmedPayloadSchema>>
+>;
+
+const _bookingConfirmedCreatedEvent: BookingConfirmed = BookingConfirmedEvent.create({
+  tags: ["booking", "property:property-1"],
+  payload: {
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: "property-1",
+    tenantId: "tenant-1",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+  },
+});
+
+BookingConfirmedEvent.create({
+  tags: ["booking"],
+  // @ts-expect-error event definition create requires schema-derived payload fields
+  payload: {
+    bookingId: "booking-1",
+  },
+});
+
+BookingConfirmedEvent.create({
+  tags: ["booking"],
+  payload: {
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: "property-1",
+    tenantId: "tenant-1",
+    checkIn: "2026-05-01",
+    // @ts-expect-error event definition create rejects mismatched schema-derived field types
+    checkOut: 42,
+  },
 });
 
 const propertySchemas = [BookingCreatedSchema] as const;
@@ -237,6 +303,31 @@ type _ReducerEventInference = Expect<
 type _ReducerFoldStateInference = Expect<
   Equal<ReturnType<typeof bookingReducer.fold>, BookingReducerState>
 >;
+
+const bookingConfirmedReducer = defineReducer({
+  name: "booking-confirmed-history",
+  schemas: [BookingConfirmedEvent.schema] as const,
+  initial: initialBookingReducerState,
+  reduce: (state, event): BookingReducerState => {
+    const _eventCheck: BookingConfirmed = event;
+    switch (event.type) {
+      case "BookingConfirmed": {
+        const _bookingIdCheck: string = event.payload.bookingId;
+        const _payloadCheck: BookingConfirmedPayload = event.payload;
+        return {
+          available: false,
+          bookedCount: state.bookedCount + 1,
+          cancellationReasons: state.cancellationReasons,
+        };
+      }
+    }
+  },
+});
+
+type _BookingConfirmedReducerEventInference = Expect<
+  ReducerEvent<typeof bookingConfirmedReducer.schemas> extends BookingConfirmed ? true : false
+>;
+const _bookingConfirmedFoldState: BookingReducerState = bookingConfirmedReducer.fold([]);
 
 const acceptBookingReducer = (
   _reducer: ReducerDefinition<
@@ -393,6 +484,45 @@ type BookingCreated = DomainEvent<
     checkOut: string;
   }
 >;
+
+const _createBookingConfirmedSlice = defineCommand<
+  CreateBookingInput,
+  CreateBookingInput,
+  z.output<typeof createBookingOutputSchema>,
+  BookingConfirmed,
+  never
+>({
+  name: "create-booking-confirmed",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: (ctx): BookingConfirmed =>
+    BookingConfirmedEvent.create({
+      tags: ["booking", `property:${ctx.propertyId}`, `tenant:${ctx.tenantId}`],
+      payload: {
+        bookingId: "booking-1",
+        confirmedAt: "2026-04-27T00:00:00.000Z",
+        propertyId: ctx.propertyId,
+        tenantId: ctx.tenantId,
+        checkIn: ctx.checkIn,
+        checkOut: ctx.checkOut,
+      },
+    }),
+  output: (event) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+});
+
+const _eventDefinitionReducer = defineReducer({
+  name: "event-definition-reducer",
+  // @ts-expect-error reducer APIs still take schemas, not whole event definitions
+  schemas: [BookingConfirmedEvent] as const,
+  initial: initialBookingReducerState,
+  reduce: (state: BookingReducerState) => state,
+});
 
 // ── Public read-model registration API type flow ──────────────────────
 
