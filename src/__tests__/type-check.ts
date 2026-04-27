@@ -27,6 +27,7 @@ import {
   processorEvent,
   projection,
   queryDescriptor,
+  readModelEvent,
   type AppConfig,
   type BoundaryObservation,
   type BoundaryObservationError as BoundaryObservationErrorType,
@@ -47,6 +48,7 @@ import {
   type ProjectionAdapter,
   type ProjectionGetter,
   type ProjectionQuery,
+  type ReadModelEventBinding,
   type ReadModelNotFound,
   type ReadModelRegistration,
   type ReadOnlyReadModelRegistration,
@@ -440,6 +442,57 @@ const _processorReadBinding = processorEvent({
     // @ts-expect-error processor reducer read state field stays boolean
     const _badAvailable: string = reads.propertyState.available;
     return undefined;
+  },
+});
+
+const _readModelEventReadBinding = readModelEvent({
+  schema: ProcessorReadEventSchema,
+  reads: {
+    pricing: (event) => getDescriptor(pricingModel, event.payload.propertyId),
+    pricingRows: (event) =>
+      queryDescriptor({ model: pricingModel, where: { propertyId: event.payload.propertyId } }),
+    propertyState: (event) =>
+      eventsByTagsDescriptor([`property:${event.payload.propertyId}`], bookingReducer),
+  },
+  handler(event, ctx) {
+    const _eventPropertyId: string = event.payload.propertyId;
+    const maybePricing: PricingRow | undefined = ctx.pricing;
+    const rows: ReadonlyArray<PricingRow> = ctx.pricingRows;
+    const state: BookingReducerState = ctx.propertyState;
+    const _price: number | undefined = maybePricing?.pricePerNight;
+    const _rowPrice: number | undefined = rows[0]?.pricePerNight;
+    const _bookedCount: number = state.bookedCount;
+    if (maybePricing === undefined) return undefined;
+    ctx.project(maybePricing);
+    // @ts-expect-error read-model event get read exposes PricingRow, not arbitrary fields
+    const _badMissingField = ctx.pricing?.missingField;
+    // @ts-expect-error read-model event query row field stays number
+    const _badRowPrice: string = ctx.pricingRows[0]?.pricePerNight;
+    // @ts-expect-error read-model event reducer read state field stays boolean
+    const _badAvailable: string = ctx.propertyState.available;
+    return undefined;
+  },
+});
+
+const _readModelEventCtxHelpersBinding: ReadModelEventBinding<
+  PricingRow,
+  typeof ProcessorReadEventSchema,
+  { readonly pricing: PricingRow | undefined }
+> = readModelEvent({
+  schema: ProcessorReadEventSchema,
+  reads: {
+    pricing: (event) => getDescriptor(pricingModel, event.payload.propertyId),
+  },
+  handler(event, ctx) {
+    const _getResult: Promise<Result<{ value: PricingRow }, ReadModelNotFound>> = ctx.get(
+      event.payload.propertyId,
+    );
+    if (ctx.pricing === undefined) return undefined;
+    const projectionResult = ctx.project(ctx.pricing);
+    const _projectedPricing: PricingRow = projectionResult.value;
+    // @ts-expect-error ctx.project requires the read-model row shape
+    ctx.project({ propertyId: event.payload.propertyId, pricePerNight: "bad" });
+    return projectionResult;
   },
 });
 
