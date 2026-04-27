@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ok } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
@@ -8,19 +9,6 @@ import { defineEvent } from "./event";
 import { defineProcessor, processorEvent } from "./processor";
 import { defineReadModel, getDescriptor } from "./read-model";
 import type { EffectResult } from "./types";
-
-// ── Test helpers ────────────────────────────────────────────────────────
-
-function extractUserEmail(reads: unknown): string {
-  if (typeof reads !== "object" || reads === null) return "unknown";
-  if (!("user" in reads)) return "unknown";
-  const u: unknown = reads.user;
-  if (typeof u !== "object" || u === null) return "unknown";
-  if (!("email" in u)) return "unknown";
-  const email: unknown = u.email;
-  if (typeof email !== "string") return "unknown";
-  return email;
-}
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -185,7 +173,7 @@ describe("defineProcessor", () => {
             user: (event: TestEvent) => getDescriptor(userModel, event.payload.userId),
           },
           handler: (_event, reads): EffectResult => {
-            const email = extractUserEmail(reads);
+            const email = reads.user?.email ?? "unknown";
             return { type: "effect", kind: "test", email };
           },
         }),
@@ -222,6 +210,61 @@ describe("defineProcessor", () => {
       kind: "test",
       email: "alice@example.com",
     });
+  });
+
+  test("processor malformed read row rejects before effect dispatch", async () => {
+    const eventStore = createInMemoryEventStore();
+    const { adapter: effectAdapter, captured } = createCapturingEffectAdapter();
+    const userId = "00000000-0000-4000-8000-000000000001";
+    let handlerCalled = false;
+
+    const processor = defineProcessor({
+      name: "malformed-read-processor",
+      events: [
+        processorEvent({
+          schema: TestEventSchema,
+          reads: {
+            user: (event: TestEvent) => getDescriptor(userModel, event.payload.userId),
+          },
+          handler: (_event, reads): EffectResult => {
+            handlerCalled = true;
+            return { type: "effect", kind: "test", email: reads.user?.email ?? "unknown" };
+          },
+        }),
+      ],
+    });
+
+    createApp({
+      eventStore,
+      slices: [],
+      effectAdapters: [effectAdapter],
+      processors: [processor],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: { name: userModel.name, execute: async () => undefined },
+          get: async () => ok({ value: { id: userId, email: 42 } }),
+          constraints: {},
+          tableName: userModel.name,
+        },
+      ],
+    });
+
+    await expect(
+      eventStore.append([
+        {
+          type: "TestEventHappened",
+          tags: [`user:${userId}`],
+          payload: { userId, email: "bad@example.com" },
+        },
+      ]),
+    ).rejects.toMatchObject({
+      _tag: "ReadModelSchemaError",
+      readModelName: "user",
+    });
+
+    expect(handlerCalled).toBe(false);
+    expect(captured).toHaveLength(0);
   });
 
   test("processor handler returns void: no effect dispatched", async () => {

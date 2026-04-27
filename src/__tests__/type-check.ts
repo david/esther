@@ -22,8 +22,11 @@ import {
   derive,
   eventsByTagsDescriptor,
   generate,
+  getDescriptor,
   lookup,
+  processorEvent,
   projection,
+  queryDescriptor,
   type AppConfig,
   type BoundaryObservation,
   type BoundaryObservationError as BoundaryObservationErrorType,
@@ -406,6 +409,39 @@ const _bookingEventsDescriptor = eventsByTagsDescriptor(["booking"], bookingRedu
 type _EventsByTagsDescriptorState = Expect<
   Equal<EventsByTagsState<typeof _bookingEventsDescriptor>, BookingReducerState>
 >;
+
+const ProcessorReadEventSchema = z.object({
+  type: z.literal("ProcessorReadRequested"),
+  tags: z.array(z.string()),
+  payload: z.object({ propertyId: z.string() }),
+});
+
+const _processorReadBinding = processorEvent({
+  schema: ProcessorReadEventSchema,
+  reads: {
+    pricing: (event) => getDescriptor(pricingModel, event.payload.propertyId),
+    pricingRows: (event) =>
+      queryDescriptor({ model: pricingModel, where: { propertyId: event.payload.propertyId } }),
+    propertyState: (event) =>
+      eventsByTagsDescriptor([`property:${event.payload.propertyId}`], bookingReducer),
+  },
+  handler(event, reads) {
+    const _eventPropertyId: string = event.payload.propertyId;
+    const maybePricing: PricingRow | undefined = reads.pricing;
+    const rows: ReadonlyArray<PricingRow> = reads.pricingRows;
+    const state: BookingReducerState = reads.propertyState;
+    const _price: number | undefined = maybePricing?.pricePerNight;
+    const _rowPrice: number | undefined = rows[0]?.pricePerNight;
+    const _bookedCount: number = state.bookedCount;
+    // @ts-expect-error processor get read exposes PricingRow, not arbitrary fields
+    const _badMissingField = reads.pricing?.missingField;
+    // @ts-expect-error processor query read row field stays number
+    const _badRowPrice: string = reads.pricingRows[0]?.pricePerNight;
+    // @ts-expect-error processor reducer read state field stays boolean
+    const _badAvailable: string = reads.propertyState.available;
+    return undefined;
+  },
+});
 
 declare const _eventStoreForTypeCheck: EventStore;
 const _eventStoreQueryByTagsResult: Promise<TagQueryResult<BookingReducerState>> =
