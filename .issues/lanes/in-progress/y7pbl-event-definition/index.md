@@ -6,7 +6,7 @@
 
 ## Current status
 
-Plan approved by `plan/checks/01-plan-sanity.md`. Breakdown wrote `impl/01.md` through `impl/04.md`. No lane move.
+Implementation checkpoints complete. Diff review recorded in `review/diff/01-review-diff.md`; no actionable findings. Gates passed per `impl/checkpoints/04.md`. No lane move.
 
 ## Implementation tasks
 
@@ -15,14 +15,12 @@ Plan approved by `plan/checks/01-plan-sanity.md`. Breakdown wrote `impl/01.md` t
 - `impl/03.md` — Use event definitions in read-model projection binding
 - `impl/04.md` — Use event definitions in processor binding and finish gates
 
-Pending implementation tasks: 4
+Pending implementation tasks: 0
+
+## Review
+
+- `review/diff/01-review-diff.md` — semantic diff review for `origin/main...HEAD`; no actionable code findings.
 
 ## Next suggested step
 
-{{/skill:impl y7pbl-event-definition}}
-
-Skill-loop alternative:
-
-```bash
-/skill-loop 4 /skill:impl y7pbl-event-definition
-```
+{{/skill:qa y7pbl-event-definition}}
