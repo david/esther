@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: revised plan ready for plan check
+Status: revised plan approved; ready for breakdown
 
 ## Active artifacts
 Description:
@@ -17,6 +17,7 @@ Plan:
 
 Plan checks:
 - plan/checks/01-plan-sanity.md — needs revision: remove docs-only gate-skip path and require full repo gates.
+- plan/checks/02-revised-plan-sanity.md — approved: revised plan requires full repo gates and has no blockers.
 
 ## Next suggested step
-- {{/skill:plan-check q8xeq-update-llms}}
+- {{/skill:breakdown q8xeq-update-llms --from .issues/lanes/backlog/q8xeq-update-llms/plan/02-implementation-plan.md}}
