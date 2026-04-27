@@ -1,6 +1,6 @@
 # Improve processor and read-binding typing
 
-Lane: backlog
+Lane: in-progress
 
 ## Latest research
 
@@ -27,14 +27,16 @@ Runnable tasks written:
 3. [Pin read-model event ctx read inference](impl/03.md)
 4. [Update public notes and run full gates](impl/04.md)
 
+## Latest review
+
+1. [Review Diff Digest — processor typing](review/diff/01-review-diff.md) — no actionable review findings; highest-risk area is intended stricter `ReadModelSchemaError` fail-fast behavior for malformed descriptor read rows.
+
 ## Current status
 
-Plan approved and broken down. Plan strengthens `ReadInterpreter.resolve(...)` to preserve `ReadDescriptor<T>` as `Promise<T>`, adds schema validation for read-model `get`/`query` descriptor results, pins processor/read-model event read inference in type-level tests, and preserves event/storage/adapter contracts.
+Implementation complete. `ReadInterpreter.resolve(...)` preserves `ReadDescriptor<T>` as `Promise<T>`, read-model `get`/`query` descriptor results are schema-validated, processor/read-model event read inference is pinned in type-level tests, and event/storage/adapter contracts stay unchanged.
 
-Pending implementation tasks: 4.
+Full verification recorded in `impl/checkpoints/04.md`: `bun run typecheck`, `bun run lint`, and `bun run test` pass.
 
 ## Suggested next step
 
-Use {{/skill:impl 94dtw-processor-typing}}.
-
-For child-session loop, use {{/skill-loop 4 /skill:impl 94dtw-processor-typing}}.
+Use {{/skill:gates 94dtw-processor-typing}} to record formal gate artifact before QA.
