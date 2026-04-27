@@ -3,6 +3,7 @@ import type { z } from "zod";
 import type { InputPipeline, Step } from "./compose";
 import type { EventStore } from "./event-store";
 import type { ReducerDefinition } from "./reducer";
+import { validateReadModelRow, validateReadModelRows } from "./read-model-validation";
 import type {
   OrderDirection,
   ReadModelHandle,
@@ -10,12 +11,11 @@ import type {
   ReadModelQueryHandle,
   WhereEntry,
 } from "./read-model";
-import {
-  ReadModelSchemaError as mkReadModelSchemaError,
-  type BoundaryObservation,
-  type DomainEvent,
-  type ReadModelSchemaError,
-  type SliceError,
+import type {
+  BoundaryObservation,
+  DomainEvent,
+  ReadModelSchemaError,
+  SliceError,
 } from "./types";
 
 // ── ProjectionStore ───────────────────────────────────────────────────
@@ -68,51 +68,6 @@ function addField<TObj, TKey extends string, TValue>(
   value: TValue,
 ): TObj & { readonly [K in TKey]: TValue } {
   return { ...obj, [key]: value } as TObj & { readonly [K in TKey]: TValue };
-}
-
-function formatReadModelIssues(issues: ReadonlyArray<z.ZodIssue>): ReadonlyArray<string> {
-  return issues.map((issue) => {
-    const path = issue.path.map(String).join(".");
-    return path.length === 0 ? issue.message : `${path}: ${issue.message}`;
-  });
-}
-
-function validateReadModelRow(input: {
-  readonly model: { readonly name: string; readonly schema: z.ZodType };
-  readonly row: unknown;
-  readonly queryName?: string | undefined;
-}): Result<unknown, ReadModelSchemaError> {
-  const parseResult = input.model.schema.safeParse(input.row);
-  if (!parseResult.success) {
-    return err(
-      mkReadModelSchemaError(
-        input.model.name,
-        formatReadModelIssues(parseResult.error.issues),
-        input.queryName,
-      ),
-    );
-  }
-  return ok(parseResult.data);
-}
-
-function validateReadModelRows(input: {
-  readonly model: { readonly name: string; readonly schema: z.ZodType };
-  readonly rows: ReadonlyArray<unknown>;
-  readonly queryName?: string | undefined;
-}): Result<ReadonlyArray<unknown>, ReadModelSchemaError> {
-  const validatedRows: unknown[] = [];
-  for (const row of input.rows) {
-    const result = validateReadModelRow({
-      model: input.model,
-      row,
-      queryName: input.queryName,
-    });
-    if (result.isErr()) {
-      return err(result.error);
-    }
-    validatedRows.push(result.value);
-  }
-  return ok(validatedRows);
 }
 
 type ProjectionReadError = ReadModelNotFound | ReadModelSchemaError;

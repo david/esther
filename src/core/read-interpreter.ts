@@ -1,4 +1,5 @@
 import type { EventStore } from "./event-store";
+import { validateReadModelGetResult, validateReadModelQueryResult } from "./read-model-validation";
 import type {
   EventsByTagsDescriptor,
   GetDescriptor,
@@ -23,14 +24,11 @@ import type { ProjectionStore } from "./slice";
 //  - `eventsByTags`: calls `eventStore.queryByTags(tags, reducer)` and
 //    returns the folded state.
 //
-// The return type is `Promise<unknown>` because the three variants
-// produce different shapes (`T | undefined`, `ReadonlyArray<T>`, and
-// the fold's arbitrary output). Callers that know which descriptor
-// they passed can narrow on their side; task 03 will add typed
-// helpers at the handler-surface level.
+// The return type preserves the `ReadDescriptor<T>` result type. Adapter
+// rows are parsed at this boundary before typed handlers can consume them.
 
 export type ReadInterpreter = {
-  readonly resolve: <T>(descriptor: ReadDescriptor<T>) => Promise<unknown>;
+  readonly resolve: <T>(descriptor: ReadDescriptor<T>) => Promise<T>;
 };
 
 export type ReadInterpreterDeps = {
@@ -42,24 +40,33 @@ export type ReadInterpreterDeps = {
 export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterpreter {
   const { eventStore, projectionStore, projectionQuery } = deps;
 
-  async function resolveGet<T>(descriptor: GetDescriptor<T>): Promise<unknown> {
+  async function resolveGet<T>(descriptor: GetDescriptor<T>): Promise<T> {
     const result = await projectionStore.get(descriptor.model.name, descriptor.id);
-    if (result.isErr()) {
-      return undefined;
+    const parsed = validateReadModelGetResult<T>({
+      model: descriptor.model,
+      row: result.isErr() ? undefined : result.value.value,
+    });
+    if (parsed.isErr()) {
+      throw parsed.error;
     }
-    return result.value.value;
+    return parsed.value;
   }
 
   async function resolveQuery<T extends ReadonlyArray<unknown>>(
     descriptor: QueryDescriptor<T>,
-  ): Promise<ReadonlyArray<unknown>> {
-    return projectionQuery.query(
+  ): Promise<T> {
+    const rows = await projectionQuery.query(
       descriptor.model.name,
       descriptor.entries,
       descriptor.orderBy,
       descriptor.limit,
       undefined,
     );
+    const parsed = validateReadModelQueryResult({ model: descriptor.model, rows });
+    if (parsed.isErr()) {
+      throw parsed.error;
+    }
+    return parsed.value;
   }
 
   async function resolveEventsByTags<T>(descriptor: EventsByTagsDescriptor<T>): Promise<T> {
@@ -68,7 +75,7 @@ export function createReadInterpreter(deps: ReadInterpreterDeps): ReadInterprete
   }
 
   return {
-    async resolve<T>(descriptor: ReadDescriptor<T>): Promise<unknown> {
+    async resolve<T>(descriptor: ReadDescriptor<T>): Promise<T> {
       switch (descriptor._tag) {
         case "get":
           return resolveGet(descriptor);
