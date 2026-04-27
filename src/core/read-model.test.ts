@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ok } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { createInMemoryProjectionAdapter } from "../adapters/in-memory/read-model";
@@ -466,23 +467,12 @@ describe("read model events", () => {
       handler: (_event, ctx) => {
         if (ctx.current === undefined) return undefined;
         const member = ctx.current;
-        if (
-          typeof member !== "object" ||
-          member === null ||
-          !("id" in member) ||
-          !("name" in member) ||
-          !("age" in member) ||
-          !("active" in member) ||
-          !("createdAt" in member)
-        ) {
-          return undefined;
-        }
         return ctx.project({
-          id: String(member.id),
-          name: String(member.name),
-          age: Number(member.age),
+          id: member.id,
+          name: member.name,
+          age: member.age,
           active: false,
-          createdAt: String(member.createdAt),
+          createdAt: member.createdAt,
         });
       },
     };
@@ -543,6 +533,87 @@ describe("read model events", () => {
       const value = result.value.value;
       expect(value.active).toBe(false);
     }
+  });
+
+  test("malformed read row rejects before projection dispatch", async () => {
+    const eventStore = createInMemoryEventStore();
+    const memberLookup = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+    });
+    type Member = z.infer<typeof memberSchema>;
+    const memberId = "550e8400-e29b-41d4-a716-446655440003";
+    let handlerCalled = false;
+    let projectionExecuted = false;
+
+    const model = defineReadModel({
+      name: "member",
+      key: "id",
+      schema: memberSchema,
+      events: [
+        readModelEvent<
+          Member,
+          typeof MemberDeactivatedSchema,
+          { readonly current: Member | undefined }
+        >({
+          schema: MemberDeactivatedSchema,
+          reads: {
+            current: (event) => getDescriptor(memberLookup, event.payload.memberId),
+          },
+          handler: (_event, ctx) => {
+            handlerCalled = true;
+            if (ctx.current === undefined) return undefined;
+            return ctx.project({ ...ctx.current, active: false });
+          },
+        }),
+      ],
+    });
+
+    createApp({
+      eventStore,
+      slices: [],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: {
+            name: model.name,
+            execute: async () => {
+              projectionExecuted = true;
+            },
+          },
+          get: async () =>
+            ok({
+              value: {
+                id: memberId,
+                name: "Dana",
+                age: "bad",
+                active: true,
+                createdAt: "2026-01-01T00:00:00Z",
+              },
+            }),
+          constraints: {},
+          tableName: model.name,
+          handle: model,
+        },
+      ],
+    });
+
+    await expect(
+      eventStore.append([
+        {
+          type: "MemberDeactivated",
+          tags: [`member:${memberId}`],
+          payload: { memberId },
+        },
+      ]),
+    ).rejects.toMatchObject({
+      _tag: "ReadModelSchemaError",
+      readModelName: "member",
+    });
+
+    expect(handlerCalled).toBe(false);
+    expect(projectionExecuted).toBe(false);
   });
 
   test("handler that returns undefined: no projection dispatched", async () => {
