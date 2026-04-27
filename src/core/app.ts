@@ -36,7 +36,7 @@ export type AppConfig = {
   /** @deprecated Prefer `readModels`. */
   readonly projectionAdapters?: ReadonlyArray<ProjectionAdapterEntry> | undefined;
   readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
-  readonly inputAdapter: InputAdapterBinding;
+  readonly inputAdapter?: InputAdapterBinding | undefined;
   readonly slices: ReadonlyArray<RegisterableOperation>;
   readonly processors?: ReadonlyArray<Processor> | undefined;
   /** @deprecated Prefer per-model `query` on `readModels`. */
@@ -191,14 +191,14 @@ export function createApp(config: AppConfig): App {
     return entry.execute(input);
   }
 
-  inputAdapter.bind(dispatch);
+  inputAdapter?.bind(dispatch);
 
   return {
     async start() {
-      await inputAdapter.adapter.start();
+      await inputAdapter?.adapter.start();
     },
     async stop() {
-      await inputAdapter.adapter.stop();
+      await inputAdapter?.adapter.stop();
     },
     dispatch,
   };

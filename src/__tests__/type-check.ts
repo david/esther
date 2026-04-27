@@ -543,6 +543,11 @@ const _inMemoryExecuteCheck: Promise<void> = inMemoryPricingAdapter.execute(
   pricingModel.project({ propertyId: "property-1", pricePerNight: 100 }),
 );
 
+const _directDispatchConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+  slices: [],
+};
+
 const _inMemoryReadModelsConfig: AppConfig = {
   eventStore: createInMemoryEventStore(),
   readModels: [inMemoryPricingRegistration],
@@ -1170,6 +1175,11 @@ type _WidenedOperationResultCheck = Expect<
 const _dynamicOperationInput: OperationInput<OperationByName<typeof _widenedOperations, string>> = {
   anyRuntimeShape: true,
 };
+const _directDynamicDispatchApp = createApp({
+  eventStore: createInMemoryEventStore(),
+  slices: _typedOperations,
+});
+
 const _dynamicDispatchApp = createApp({
   eventStore: createInMemoryEventStore(),
   inputAdapter: createInMemoryAdapter(),
