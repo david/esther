@@ -353,6 +353,7 @@ const routes = defineFastifyRoutes<typeof slices>()([
     method: "POST",
     path: "/orders",
     slice: "place-order",
+    // Runs before app dispatch; thrown parse errors use host/Fastify error handling.
     input: ({ body }) => placeOrderInputSchema.parse(body),
     respond: ({ result, reply }) => reply.send({ ok: result.isOk() }),
   },
@@ -362,7 +363,7 @@ const inputAdapter = createFastifyInputAdapter({ port: 3000, routes });
 createApp({ eventStore, readModels: [orderSummaryProjection], inputAdapter, slices });
 ```
 
-Fastify route helpers type request-to-operation mapping only. Authorization/session/token checks remain host responsibility.
+Fastify route helpers type request-to-operation mapping only. `route.input(request)` runs before app dispatch; thrown parser/validation errors are host/Fastify error-handler responsibility. Authorization/session/token checks remain host responsibility.
 
 For Postgres:
 
@@ -408,7 +409,7 @@ type SliceError =
 - `ReadModelNotFound` — `{ _tag: "ReadModelNotFound", name, id }` from required projection lookups
 - `ReadModelSchemaError` — `{ _tag: "ReadModelSchemaError", readModelName, queryName?, issues, message }` when a persisted row exists but does not satisfy the declared read-model schema
 
-The Fastify adapter maps `ConstraintError` and `ConcurrencyError` to HTTP 409, `SchemaError` to 400, `ReadModelNotFound` to 404, and other errors to 422.
+The Fastify adapter maps errors returned from dispatch `Result`s: `ConstraintError` and `ConcurrencyError` to HTTP 409, `SchemaError` to 400, `ReadModelNotFound` to 404, and other errors to 422. Exceptions thrown before dispatch, such as typed route `input` parser failures, use host/Fastify error handling.
 
 ## Rules
 
