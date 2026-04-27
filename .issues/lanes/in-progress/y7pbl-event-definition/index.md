@@ -6,7 +6,7 @@
 
 ## Current status
 
-Implementation checkpoints complete. Diff review recorded in `review/diff/01-review-diff.md`; no actionable findings. Gates passed per `impl/checkpoints/04.md`. No lane move.
+Implementation checkpoints complete. Diff review recorded in `review/diff/01-review-diff.md`; no actionable findings. Gates passed per `impl/checkpoints/04.md`. QA passed per `qa/summary.md`. PR opened at https://github.com/david/esther/pull/7. No lane move until PR is merged to `main`.
 
 ## Implementation tasks
 
@@ -23,4 +23,4 @@ Pending implementation tasks: 0
 
 ## Next suggested step
 
-{{/skill:qa y7pbl-event-definition}}
+{{Review and merge https://github.com/david/esther/pull/7, then run /skill:deploy y7pbl-event-definition --move-done after merge if lane repair is needed.}}
