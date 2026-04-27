@@ -14,10 +14,14 @@ Research artifacts written:
 
 1. [Implementation Plan — Improve processor and read-binding typing](plan/01-implementation-plan.md)
 
+## Latest plan check
+
+1. [Plan Check — plan/01-implementation-plan.md](plan/checks/01-plan-sanity.md) — approved
+
 ## Current status
 
-Plan complete. Plan strengthens `ReadInterpreter.resolve(...)` to preserve `ReadDescriptor<T>` as `Promise<T>`, adds schema validation for read-model `get`/`query` descriptor results, pins processor/read-model event read inference in type-level tests, and preserves event/storage/adapter contracts.
+Plan approved. Plan strengthens `ReadInterpreter.resolve(...)` to preserve `ReadDescriptor<T>` as `Promise<T>`, adds schema validation for read-model `get`/`query` descriptor results, pins processor/read-model event read inference in type-level tests, and preserves event/storage/adapter contracts.
 
 ## Suggested next step
 
-Use {{/skill:plan-check 94dtw-processor-typing}}.
+Use {{/skill:breakdown 94dtw-processor-typing --from plan/01-implementation-plan.md}}.
