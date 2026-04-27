@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extractEventType } from "./event";
 import type { ReadInterpreter } from "./read-interpreter";
 import type { ReadDescriptor } from "./read-model";
 import type { EffectResult, StoredEvent } from "./types";
@@ -108,34 +109,6 @@ export function defineProcessor(def: {
   };
 }
 
-// ── Event type extraction ───────────────────────────────────────────────
+// ── Event type extraction compatibility ────────────────────────────────
 
-/**
- * Extract the literal event type string from a zod schema.
- * The schema must have a `type` field that is a `z.literal(...)`.
- * Throws if the schema does not expose a literal type.
- */
-export function extractEventType(schema: z.ZodType): string {
-  if (!(schema instanceof z.ZodObject)) {
-    throw new Error(
-      "Processor event schema must be a z.object with a 'type' field containing a z.literal",
-    );
-  }
-
-  const { type: typeField } = schema.shape;
-  if (typeField === undefined) {
-    throw new Error("Processor event schema must have a 'type' field");
-  }
-
-  if (!(typeField instanceof z.ZodLiteral)) {
-    throw new Error(
-      "Processor event schema 'type' field must be a z.literal, got a non-literal zod type",
-    );
-  }
-
-  if (typeof typeField.value !== "string") {
-    throw new Error("Processor event schema 'type' literal must be a string");
-  }
-
-  return typeField.value;
-}
+export { extractEventType } from "./event";
