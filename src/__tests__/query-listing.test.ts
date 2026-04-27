@@ -187,11 +187,14 @@ describe("query slice list projections", () => {
           reads: {
             rows: () => queryDescriptor({ model: songs, where: {} }),
           },
-          handler: (_event, reads: { readonly rows: ReadonlyArray<SongRow> }) => ({
-            type: "effect",
-            kind: "song-query-count",
-            count: reads.rows.length,
-          }),
+          handler: (_event, reads) => {
+            const rows: ReadonlyArray<SongRow> = reads.rows;
+            return {
+              type: "effect",
+              kind: "song-query-count",
+              count: rows.length,
+            };
+          },
         }),
       ],
     });
