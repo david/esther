@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: review complete; 2 implementation tasks complete; 2 review findings open
+Status: review complete; 2 implementation tasks complete; 1 follow-up implementation task pending; 2 review findings open
 
 ## Active artifacts
 Description:
@@ -22,8 +22,9 @@ Plan checks:
 Implementation tasks:
 - impl/01.md — update event-history docs to reducer API — complete; checkpoint `impl/checkpoints/01.md`
 - impl/02.md — update app, read-model, processor, and adapter docs — complete; checkpoint `impl/checkpoints/02.md`
+- impl/03.md — clarify Fastify route input parse errors — pending follow-up for `review/findings/01-fastify-route-parse-contract.md`
 
-Pending implementation tasks: 0
+Pending implementation tasks: 1
 
 Review:
 - review/diff/01-review-diff.md — semantic docs-only review; source/persistence/auth unchanged; two docs-contract follow-ups found.
@@ -31,4 +32,5 @@ Review:
 - review/findings/02-transfer-example-credit-counterpart.md — transfer example shows debit without visible credit counterpart.
 
 ## Next suggested step
-- {{/skill:breakdown q8xeq-update-llms --from review/findings/01-fastify-route-parse-contract.md}}
+- {{/skill:impl q8xeq-update-llms}}
+- {{/skill-loop 1 /skill:impl q8xeq-update-llms}}
