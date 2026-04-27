@@ -12,6 +12,7 @@ import {
   state, tagQuery, projection,
   defineEvent, defineReducer,
   defineReadModel, defineReadModelQuery, readModelEvent,
+  getDescriptor, queryDescriptor, eventsByTagsDescriptor,
   defineProcessor, processorEvent,
   defineCommand, defineQuery,
   createApp,
@@ -298,6 +299,22 @@ const orderSummaryModel = defineReadModel({
 });
 ```
 
+Read-model event and processor handlers can declare descriptor reads. Handler fields are inferred from descriptors: `getDescriptor(...)` -> `T | undefined`, `queryDescriptor(...)` -> `ReadonlyArray<T>`, and `eventsByTagsDescriptor(...)` -> reducer state. Read-model `get` hits and `query` rows are schema-validated before handler code runs; malformed rows throw `ReadModelSchemaError`, so projections/effects do not execute with bad data.
+
+```typescript
+readModelEvent({
+  schema: OrderPlaced.schema,
+  reads: {
+    existing: (event) => getDescriptor(orderSummaryModel, event.payload.orderId),
+  },
+  handler: (event, ctx) => ctx.project({
+    orderId: event.payload.orderId,
+    customerId: ctx.existing?.customerId ?? event.payload.customerId,
+    total: event.payload.total,
+  }),
+});
+```
+
 Processors emit effect descriptors. Effect adapters execute side effects:
 
 ```typescript
@@ -306,9 +323,17 @@ const sendOrderEmail = defineProcessor({
   events: [
     processorEvent({
       schema: OrderPlaced.schema,
-      handler: (event) => ({
+      reads: {
+        customerOrders: (event) =>
+          queryDescriptor({
+            model: orderSummaryModel,
+            where: { customerId: event.payload.customerId },
+          }),
+      },
+      handler: (event, reads) => ({
         type: "effect" as const,
         email: { to: event.payload.customerId, subject: "Order placed" },
+        priorOrderCount: reads.customerOrders.length,
       }),
     }),
   ],
