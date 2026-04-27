@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: third review complete; 4 implementation tasks complete; 0 implementation tasks pending; 0 review findings open
+Status: QA passed; 4 implementation tasks complete; 0 implementation tasks pending; 0 review findings open; 0 QA failures
 
 ## Active artifacts
 Description:
@@ -34,5 +34,9 @@ Review:
 - review/findings/01-fastify-route-parse-contract.md — addressed by impl/03; Fastify route input parser behavior now clarified in `llms.txt`.
 - review/findings/02-transfer-example-credit-counterpart.md — addressed by impl/04; full example now states debit-leg scope and target-credit producer is not shown.
 
+QA:
+- qa/tasks/qa-llms-doc-review.md — passed; agent-executable documentation QA for `llms.txt`.
+- qa/summary.md — QA suite summary; verdict passed.
+
 ## Next suggested step
-- {{/skill:gates q8xeq-update-llms}}
+- {{/skill:deploy q8xeq-update-llms}}
