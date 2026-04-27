@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: revised plan approved; ready for breakdown
+Status: breakdown complete; 2 pending implementation tasks
 
 ## Active artifacts
 Description:
@@ -19,5 +19,12 @@ Plan checks:
 - plan/checks/01-plan-sanity.md — needs revision: remove docs-only gate-skip path and require full repo gates.
 - plan/checks/02-revised-plan-sanity.md — approved: revised plan requires full repo gates and has no blockers.
 
+Implementation tasks:
+- impl/01.md — update event-history docs to reducer API
+- impl/02.md — update app, read-model, processor, and adapter docs
+
+Pending implementation tasks: 2
+
 ## Next suggested step
-- {{/skill:breakdown q8xeq-update-llms --from .issues/lanes/backlog/q8xeq-update-llms/plan/02-implementation-plan.md}}
+- {{/skill:impl q8xeq-update-llms}}
+- {{/skill-loop 2 /skill:impl q8xeq-update-llms}}
