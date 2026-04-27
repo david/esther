@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: second review complete; 3 implementation tasks complete; 1 implementation task pending; 1 review finding open
+Status: third review complete; 4 implementation tasks complete; 0 implementation tasks pending; 0 review findings open
 
 ## Active artifacts
 Description:
@@ -23,18 +23,16 @@ Implementation tasks:
 - impl/01.md — update event-history docs to reducer API — complete; checkpoint `impl/checkpoints/01.md`
 - impl/02.md — update app, read-model, processor, and adapter docs — complete; checkpoint `impl/checkpoints/02.md`
 - impl/03.md — clarify Fastify route input parse errors — complete; checkpoint `impl/checkpoints/03.md`
-- impl/04.md — clarify transfer credit counterpart — pending
+- impl/04.md — clarify transfer credit counterpart — complete; checkpoint `impl/checkpoints/04.md`
 
-Pending implementation tasks: 1
+Pending implementation tasks: 0
 
 Review:
 - review/diff/01-review-diff.md — semantic docs-only review; source/persistence/auth unchanged; two docs-contract follow-ups found.
-- review/diff/02-review-diff.md — follow-up semantic review after Fastify parser docs fix; no runtime/source risk found; transfer counterpart finding remains.
+- review/diff/02-review-diff.md — follow-up semantic review after Fastify parser docs fix; no runtime/source risk found; transfer counterpart finding remained.
+- review/diff/03-review-diff.md — follow-up semantic review after transfer debit docs fix; no runtime/source risk found; prior transfer finding addressed.
 - review/findings/01-fastify-route-parse-contract.md — addressed by impl/03; Fastify route input parser behavior now clarified in `llms.txt`.
-- review/findings/02-transfer-example-credit-counterpart.md — open; transfer example shows debit without visible credit counterpart.
+- review/findings/02-transfer-example-credit-counterpart.md — addressed by impl/04; full example now states debit-leg scope and target-credit producer is not shown.
 
 ## Next suggested step
-- {{/skill:impl q8xeq-update-llms}}
-
-## Skill-loop alternative
-- {{/skill-loop 1 /skill:impl q8xeq-update-llms}}
+- {{/skill:gates q8xeq-update-llms}}

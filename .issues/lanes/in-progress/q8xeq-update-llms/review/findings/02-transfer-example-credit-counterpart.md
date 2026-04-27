@@ -45,6 +45,12 @@ Acceptable fixes:
 3. Replace money transfer with a single-subject example where one emitted event fully represents domain behavior.
 4. If true framework guidance is one transfer event with both accounts in payload, adjust reducer/tags carefully so account balance history handles debit vs credit correctly without stale raw `schemas + fold` APIs.
 
+## Resolution
+
+Status: addressed by `impl/04.md` and `review/diff/03-review-diff.md`.
+
+`llms.txt` now states the full example models only the source-account debit leg, the command emits one `MoneyDebited` event, and target-account credit is produced by another command/process not shown. `MoneyCredited` is documented as reducer input for credits produced by another flow.
+
 ## Acceptance check
 
 - Full example no longer suggests a complete money transfer with no visible target-account credit path.
