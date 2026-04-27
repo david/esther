@@ -46,16 +46,6 @@ const userModel = defineReadModel({
   schema: userSchema,
 });
 
-function createNoopInputAdapter() {
-  return {
-    adapter: {
-      start: async () => {},
-      stop: async () => {},
-    },
-    bind: () => {},
-  };
-}
-
 function createCapturingEffectAdapter(): {
   adapter: EffectAdapter;
   captured: EffectResult[];
@@ -94,7 +84,6 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
@@ -146,7 +135,6 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
@@ -206,7 +194,6 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
@@ -256,7 +243,6 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       effectAdapters: [effectAdapter],
       processors: [processor],

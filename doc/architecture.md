@@ -47,7 +47,7 @@ A query resolves read-only state through `state().pipe(...)` and returns validat
 - zero or more projection adapters
 - optional projection query adapter
 - optional effect adapters
-- one input adapter binding
+- optional input adapter binding for transport/runtime invocation
 - registered slices and processors
 
 Keep framework-wide orchestration in core. Keep runtime-specific behavior in adapters.
@@ -55,13 +55,13 @@ Keep framework-wide orchestration in core. Keep runtime-specific behavior in ada
 ### Invocation model
 Application modules declare behavior through slices, read models, processors, and adapter configuration. They should not directly orchestrate command/query invocation by calling a typed in-process app client.
 
-Input adapters are the runtime invocation boundary. They receive external input as `unknown`, choose or receive a slice name at runtime, and call the dynamic app dispatch function:
+Input adapters are the runtime invocation boundary when transport is configured. They receive external input as `unknown`, choose or receive a slice name at runtime, and call the dynamic app dispatch function:
 
 ```ts
 dispatch(sliceName: string, input: unknown)
 ```
 
-Core then validates input with the slice schema and executes the existing command/query pipeline. Type safety for user-facing entry points should be expressed in adapter configuration or typed route/binding helpers, while the runtime adapter-to-core boundary remains dynamic.
+Apps without transport can call the same dynamic `app.dispatch(sliceName, input)` boundary directly. Core then validates input with the slice schema and executes the existing command/query pipeline. Type safety for user-facing entry points should be expressed in adapter configuration or typed route/binding helpers, while the runtime adapter-to-core boundary remains dynamic.
 
 ## Architectural boundaries
 

@@ -246,16 +246,6 @@ describe("defineReadModel constraints", () => {
 
 // ── Read model events ─────────────────────────────────────────────────
 
-function createNoopInputAdapter() {
-  return {
-    adapter: {
-      start: async () => {},
-      stop: async () => {},
-    },
-    bind: () => {},
-  };
-}
-
 const MemberAddedSchema = z.object({
   type: z.literal("MemberAdded"),
   tags: z.array(z.string()),
@@ -303,7 +293,6 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       projectionAdapters: [
         {
@@ -383,7 +372,6 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       projectionAdapters: [
         {
@@ -510,7 +498,6 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       projectionAdapters: [
         {
@@ -586,7 +573,6 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      inputAdapter: createNoopInputAdapter(),
       slices: [],
       projectionAdapters: [
         {
