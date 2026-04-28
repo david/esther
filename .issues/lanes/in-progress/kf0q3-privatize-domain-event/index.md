@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: semantic diff review complete; no actionable review findings; ready for gates
+Status: gates passed; ready for QA planning
 
 ## Active artifacts
 Description:
@@ -23,9 +23,10 @@ Implementation tasks:
 
 Review:
 - review/diff/01-review-diff.md — no actionable findings
+- review/findings/01-gate-results.md — gates passed
 
 ## Next suggested step
-- {{/skill:gates kf0q3-privatize-domain-event}}
+- {{/skill:plan-qa kf0q3-privatize-domain-event}}
 
 ## Skill-loop alternative
 - {{/skill-loop 3 /skill:impl kf0q3-privatize-domain-event}}
