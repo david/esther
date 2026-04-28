@@ -1,8 +1,8 @@
 # bs43i-tighten-query-where Index
 
 ## Current state
-Lane: backlog
-Status: breakdown complete; 4 pending implementation tasks
+Lane: in-progress
+Status: implementation complete; review-diff complete; ready for gates artifact
 
 ## Active artifacts
 Description:
@@ -22,8 +22,14 @@ Implementation tasks:
 - impl/03.md — reuse schema-aware validation in read-model queries
 - impl/04.md — run final gates and drift check
 
-Pending implementation tasks: 4
+Implementation checkpoints:
+- impl/checkpoints/01.md — aligned
+- impl/checkpoints/02.md — aligned
+- impl/checkpoints/03.md — aligned
+- impl/checkpoints/04.md — aligned; records `bun run typecheck`, `bun run lint`, and `bun run test` pass
+
+Review:
+- review/diff/01-review-diff.md — semantic diff review for `origin/main..HEAD`; no code follow-up findings
 
 ## Next suggested step
-- {{/skill:impl bs43i-tighten-query-where}}
-- Skill-loop alternative: {{/skill-loop 4 /skill:impl bs43i-tighten-query-where}}
+- {{/skill:gates bs43i-tighten-query-where}}
