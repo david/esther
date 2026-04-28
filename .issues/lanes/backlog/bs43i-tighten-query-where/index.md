@@ -2,11 +2,14 @@
 
 ## Current state
 Lane: backlog
-Status: intake
+Status: plan written
 
 ## Active artifacts
 Description:
 - description.md
 
+Plan:
+- plan/01-implementation-plan.md
+
 ## Next suggested step
-- {{/skill:plan bs43i-tighten-query-where}}
+- {{/skill:plan-check bs43i-tighten-query-where}}
