@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; tasks 01-03 checkpoint aligned; ready for review
+Status: semantic diff review complete; no actionable review findings; ready for gates
 
 ## Active artifacts
 Description:
@@ -21,8 +21,11 @@ Implementation tasks:
 - impl/02.md — aligned; checkpoint impl/checkpoints/02.md
 - impl/03.md — aligned; checkpoint impl/checkpoints/03.md
 
+Review:
+- review/diff/01-review-diff.md — no actionable findings
+
 ## Next suggested step
-- {{/skill:review-diff kf0q3-privatize-domain-event}}
+- {{/skill:gates kf0q3-privatize-domain-event}}
 
 ## Skill-loop alternative
 - {{/skill-loop 3 /skill:impl kf0q3-privatize-domain-event}}
