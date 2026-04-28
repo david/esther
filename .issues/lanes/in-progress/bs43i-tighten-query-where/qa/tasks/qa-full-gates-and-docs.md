@@ -6,7 +6,7 @@ browser_session: none
 device: desktop
 depends_on:
   - qa-where-runtime-fail-fast
-mode: needs-cli-domain
+mode: auto-cli
 workflow:
   name: none
   path: none
@@ -16,22 +16,21 @@ cli:
     - test: verify full repository runtime behavior
     - lint: verify ESLint and dependency-cruiser architecture rules
     - typecheck: verify full public TypeScript contract
-    - docs: assert `llms.txt` documents primitive-only read-model `where` grammar
   covered:
     - bun run test
     - bun run lint
     - bun run typecheck
   missing:
-    - docs: documented command to assert `llms.txt` read-model `where` grammar includes string/number/boolean equality, string/number range, string/number/boolean `in`, and object/array fields as non-queryable
+    - none
 
 ## Goal
-Verify full repo gates stay green and the public LLM-facing read-model `where` docs remain aligned with primitive-only query grammar.
+Verify full repo gates stay green and `llms.txt` documents primitive-only read-model `where` grammar.
 
 ## Setup Notes
 - Use current branch checkout for issue `bs43i-tighten-query-where`.
-- No browser, database, or persisted fixture state needed.
+- No browser, database, external service, or persisted fixture state needed.
 - Automated gate commands are documented in `doc/commands.md`.
-- Docs assertion is blocked until repo documents a command for checking `llms.txt` contract text.
+- Docs assertion uses direct repository file inspection, not missing CLI domain: read `llms.txt` and verify public contract text.
 
 ## Start
 - URL: none
@@ -51,10 +50,10 @@ Verify full repo gates stay green and the public LLM-facing read-model `where` d
    Locate: `package.json` script `typecheck`
    Action: Run `bun run typecheck`
    Expect: Command exits 0 with `tsgo --noEmit -p tsconfig.json` success.
-4. Page: CLI shell at repository root
-   Locate: missing documented docs assertion command
-   Action: Block until smallest docs-check command/domain exists.
-   Expect: Command can verify `llms.txt` read-model `where` grammar text without manual inspection.
+4. Page: Repository file inspection
+   Locate: `llms.txt` read-model query / `where` grammar section
+   Action: Read section and compare documented grammar to issue contract.
+   Expect: Section states equality supports string/number/boolean fields, range supports string/number fields, `in` supports string/number/boolean fields, and object/array fields are not queryable by `where`.
 
 ## Verification Details
 | Item | Location / anchor | Setup value | Expected result | Notes |
@@ -62,16 +61,20 @@ Verify full repo gates stay green and the public LLM-facing read-model `where` d
 | Full tests | `bun run test` | current branch | all runtime tests pass | covers regression beyond focused read-model tests |
 | Lint/dependency boundaries | `bun run lint` | current branch | ESLint and dependency-cruiser pass | guards architecture and dead code regressions |
 | Full typecheck | `bun run typecheck` | current branch | full TS contract passes | repeats public DSL safety in CI-equivalent form |
-| LLM-facing docs | `llms.txt` read-model query section | current branch | docs state primitive-only `where` grammar and object/array non-queryability | blocked by missing documented docs assertion command |
+| LLM-facing docs | `llms.txt` read-model query / `where` grammar section | current branch | docs state primitive-only `where` grammar and object/array non-queryability | direct tracked-file inspection; no missing CLI domain |
 
 ## Pass Criteria
 - `bun run test`, `bun run lint`, and `bun run typecheck` exit 0.
-- A documented docs assertion command verifies `llms.txt` read-model `where` grammar.
+- `llms.txt` read-model query section documents:
+  - equality for string/number/boolean fields
+  - range for string/number fields
+  - `in` for string/number/boolean fields
+  - object/array fields are not queryable by `where`
 
 ## Failure Capture
 - failing step number
-- exact command
-- command exit code
-- first failing diagnostic/test/lint rule
-- `llms.txt` section mismatch, if docs assertion exists
-- full command output
+- exact command, if command step failed
+- command exit code, if command step failed
+- first failing diagnostic/test/lint rule, if gate failed
+- `llms.txt` section anchor and missing/mismatched contract text, if docs check failed
+- full command output for command failures
