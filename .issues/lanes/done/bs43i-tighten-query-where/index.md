@@ -1,8 +1,8 @@
 # bs43i-tighten-query-where Index
 
 ## Current state
-Lane: in-progress
-Status: implementation complete; review-diff complete; gates passed; auto QA passed
+Lane: done
+Status: shipped; PR #10 merged to main; lane moved to done
 
 ## Active artifacts
 Description:
@@ -38,5 +38,14 @@ QA:
 - qa/tasks/qa-where-runtime-fail-fast.md — auto-cli runtime fail-fast verification; passed
 - qa/tasks/qa-full-gates-and-docs.md — full gates plus direct `llms.txt` docs inspection; passed
 
+Deploy:
+- deploy/01-pr.md — PR #10 created
+- deploy/02-release.md — PR #10 merged; lane moved to done
+
+## Closure evidence
+- PR: https://github.com/david/esther/pull/10
+- Main head after merge: `a11a035481f9363d221953825028feed00a70cc9`
+- CI: GitHub Actions `check` passed
+
 ## Next suggested step
-- {{/skill:deploy bs43i-tighten-query-where}}
+- No repo-local deploy action remains. If external tracker exists, close only after explicit review/approval.
