@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: gates passed; ready for QA planning
+Status: QA planned; ready for auto-qa execution
 
 ## Active artifacts
 Description:
@@ -25,8 +25,12 @@ Review:
 - review/diff/01-review-diff.md — no actionable findings
 - review/findings/01-gate-results.md — gates passed
 
+QA:
+- qa/summary.md — one auto-cli task planned
+- qa/tasks/qa-api-contract-gates.md — pending
+
 ## Next suggested step
-- {{/skill:plan-qa kf0q3-privatize-domain-event}}
+- {{/skill:auto-qa kf0q3-privatize-domain-event}}
 
 ## Skill-loop alternative
 - {{/skill-loop 3 /skill:impl kf0q3-privatize-domain-event}}
