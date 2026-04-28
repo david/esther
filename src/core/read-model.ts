@@ -195,6 +195,146 @@ function isPrimitive(v: unknown): v is string | number | boolean {
   return t === "string" || t === "number" || t === "boolean";
 }
 
+type WhereOperatorObject = {
+  readonly in?: unknown;
+  readonly gte?: unknown;
+  readonly lte?: unknown;
+};
+
+type QueryableZodTypeName = "ZodString" | "ZodNumber" | "ZodBoolean";
+
+function isWhereOperatorObject(clause: unknown): clause is WhereOperatorObject {
+  if (typeof clause !== "object" || clause === null) return false;
+  return !Array.isArray(clause);
+}
+
+function throwInvalidWhere(modelName: string, field: string, reason: string): never {
+  throw new Error(`Invalid where clause for read model "${modelName}" field "${field}": ${reason}`);
+}
+
+function getQueryableFieldKind(
+  modelName: string,
+  field: string,
+  fieldType: unknown,
+): QueryableZodTypeName {
+  const kind = getZodTypeName(fieldType);
+  switch (kind) {
+    case "ZodString":
+    case "ZodNumber":
+    case "ZodBoolean":
+      return kind;
+    case "ZodArray":
+    case "ZodObject":
+      throwInvalidWhere(modelName, field, `field type ${kind} is not queryable`);
+    default:
+      throwInvalidWhere(modelName, field, `field type ${kind} is not supported for where`);
+  }
+}
+
+function valueKindDescription(kind: QueryableZodTypeName): string {
+  switch (kind) {
+    case "ZodString":
+      return "strings";
+    case "ZodNumber":
+      return "numbers";
+    case "ZodBoolean":
+      return "booleans";
+  }
+}
+
+function normalizeEqualityValue(
+  modelName: string,
+  field: string,
+  kind: QueryableZodTypeName,
+  value: unknown,
+): string | number | boolean {
+  if (kind === "ZodString" && typeof value === "string") return value;
+  if (kind === "ZodNumber" && typeof value === "number") return value;
+  if (kind === "ZodBoolean" && typeof value === "boolean") return value;
+  throwInvalidWhere(modelName, field, `value must be ${valueKindDescription(kind)}`);
+}
+
+function normalizeRangeValue(
+  modelName: string,
+  field: string,
+  kind: QueryableZodTypeName,
+  value: unknown,
+): string | number {
+  if (kind === "ZodBoolean") {
+    throwInvalidWhere(modelName, field, "gte/lte are only supported for string and number fields");
+  }
+  if (kind === "ZodString" && typeof value === "string") return value;
+  if (kind === "ZodNumber" && typeof value === "number") return value;
+  throwInvalidWhere(modelName, field, `value must be ${valueKindDescription(kind)}`);
+}
+
+function normalizeInValues(
+  modelName: string,
+  field: string,
+  kind: QueryableZodTypeName,
+  values: unknown,
+): ReadonlyArray<string | number | boolean> {
+  if (!Array.isArray(values)) {
+    throwInvalidWhere(modelName, field, "in values must be an array");
+  }
+  const normalized: Array<string | number | boolean> = [];
+  for (const value of values) {
+    normalized.push(normalizeEqualityValue(modelName, field, kind, value));
+  }
+  return normalized;
+}
+
+function normalizeWhereForModel<T>(
+  model: ReadModelHandle<T>,
+  where: Where<T>,
+): ReadonlyArray<WhereEntry> {
+  const entries: WhereEntry[] = [];
+  const shape = model.schema.shape;
+  for (const [field, clause] of Object.entries(where)) {
+    if (clause === undefined) continue;
+
+    const fieldType = shape[field];
+    if (fieldType === undefined) {
+      throwInvalidWhere(model.name, field, "unknown field");
+    }
+    const kind = getQueryableFieldKind(model.name, field, fieldType);
+
+    if (isWhereOperatorObject(clause) && "in" in clause) {
+      entries.push({
+        field,
+        op: "in",
+        values: normalizeInValues(model.name, field, kind, clause.in),
+      });
+      continue;
+    }
+
+    if (isWhereOperatorObject(clause) && ("gte" in clause || "lte" in clause)) {
+      if (clause.gte !== undefined) {
+        entries.push({
+          field,
+          op: "gte",
+          value: normalizeRangeValue(model.name, field, kind, clause.gte),
+        });
+      }
+      if (clause.lte !== undefined) {
+        entries.push({
+          field,
+          op: "lte",
+          value: normalizeRangeValue(model.name, field, kind, clause.lte),
+        });
+      }
+      continue;
+    }
+
+    entries.push({
+      field,
+      op: "eq",
+      value: normalizeEqualityValue(model.name, field, kind, clause),
+    });
+  }
+  return entries;
+}
+
 function normalizeWhere<T>(where: Where<T>): ReadonlyArray<WhereEntry> {
   const entries: WhereEntry[] = [];
   for (const [field, clause] of Object.entries(where)) {
@@ -229,7 +369,7 @@ export function queryDescriptor<TRow>(input: {
   readonly orderBy?: keyof TRow & string;
   readonly limit?: number;
 }): QueryDescriptor<ReadonlyArray<TRow>> {
-  const entries = normalizeWhere(input.where);
+  const entries = normalizeWhereForModel(input.model, input.where);
   const tag: "query" = "query";
   const base = {
     _tag: tag,
