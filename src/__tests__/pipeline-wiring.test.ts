@@ -14,8 +14,9 @@ import {
   defineReducer,
   derive,
   type AppendOptions,
-  type DomainEvent,
+  defineEvent,
   type EffectAdapter,
+  type EventOf,
   type EventStore,
   defineCommand,
   defineReadModel,
@@ -33,16 +34,14 @@ import {
 // minimum scaffolding needed: a unique input schema, a single event type,
 // and an output schema flexible enough for the various assertion shapes.
 
-type ProbeEvent = DomainEvent<
-  "Probe",
-  { readonly a?: number | undefined; readonly marker?: string | undefined }
->;
-
-const ProbeSchema = z.object({
-  type: z.literal("Probe"),
-  tags: z.array(z.string()),
+const ProbeEventDefinition = defineEvent({
+  type: "Probe",
   payload: z.object({ a: z.number().optional(), marker: z.string().optional() }),
 });
+
+type ProbeEvent = EventOf<typeof ProbeEventDefinition>;
+
+const ProbeSchema = ProbeEventDefinition.schema;
 
 const probeSchemas = [ProbeSchema] as const;
 
