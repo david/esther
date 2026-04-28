@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Issue in progress.
+- Lane: done.
 - Implementation complete for documenting command `compose().add(...)` and query `state().pipe(...)` as intentional separate current public concepts.
 
 ## Artifacts
@@ -16,11 +16,12 @@
 - [review/diff/01-review-diff.md](review/diff/01-review-diff.md) — semantic diff review; no actionable findings.
 - [review/findings/01-gate-results.md](review/findings/01-gate-results.md) — full repo gates passed.
 - [qa/summary.md](qa/summary.md) — manual documentation QA passed.
-- [deploy/01-preflight.md](deploy/01-preflight.md) — deploy blocked by stacked local `main` state.
+- [deploy/01-preflight.md](deploy/01-preflight.md) — earlier deploy blocked by stacked local `main` state.
+- [deploy/02-release.md](deploy/02-release.md) — shipped evidence and lane repair after `main` matched `origin/main`.
 
 ## Latest finding
 
-Deploy preflight blocked. Preconditions passed for implementation, review, gates, and QA, but current local `main` is 24 commits ahead of `origin/main` and includes unrelated `94dtw-processor-typing` work. No push, PR, lane move, or external closure performed.
+Work is complete and shipped to `origin/main` through `230bcf1`. Previous deploy blocker is gone because local `main` matches `origin/main`. Issue moved to done as workflow lane repair.
 
 ## Implementation tasks
 
@@ -30,4 +31,4 @@ Pending implementation tasks: 0.
 
 ## Suggested next step
 
-Choose one: `{{/skill:deploy 94dtw}}`, isolate `vah3v` onto a fresh branch from `origin/main`, or explicitly approve a stacked `vah3v` PR including `94dtw` changes.
+No implementation next step. If an external tracker exists, close it only after explicit review/approval.
