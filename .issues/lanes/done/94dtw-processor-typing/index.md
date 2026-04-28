@@ -1,6 +1,6 @@
 # Improve processor and read-binding typing
 
-Lane: in-progress
+Lane: done
 
 ## Latest research
 
@@ -34,15 +34,16 @@ Runnable tasks written:
 ## Latest deploy
 
 1. [Deploy — PR creation / 2026-04-27](deploy/01-pr.md) — PR opened: https://github.com/david/esther/pull/8
+2. [Deploy — PR merge / 2026-04-28](deploy/02-release.md) — PR merged to `main`; lane moved to done.
 
 ## Current status
 
-PR open for review. `ReadInterpreter.resolve(...)` preserves `ReadDescriptor<T>` as `Promise<T>`, read-model `get`/`query` descriptor results are schema-validated, processor/read-model event read inference is pinned in type-level tests, and event/storage/adapter contracts stay unchanged.
+PR merged to `main`: https://github.com/david/esther/pull/8. `ReadInterpreter.resolve(...)` preserves `ReadDescriptor<T>` as `Promise<T>`, read-model `get`/`query` descriptor results are schema-validated, processor/read-model event read inference is pinned in type-level tests, and event/storage/adapter contracts stay unchanged.
 
 Full verification recorded in `review/findings/01-gate-results.md`: `bun run typecheck`, `bun run lint`, and `bun run test` pass. QA recorded in `qa/summary.md`: 3 passed, 0 failed, 0 skipped.
 
-Lane remains `in-progress` until PR merges to `main`.
+Lane moved to `done` after PR merge evidence was recorded.
 
 ## Suggested next step
 
-Review https://github.com/david/esther/pull/8. After merge to `main`, use {{/skill:deploy 94dtw-processor-typing --move-done}}.
+No workflow action required for `94dtw-processor-typing`.
