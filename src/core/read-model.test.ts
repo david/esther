@@ -819,6 +819,31 @@ describe("defineReadModelQuery", () => {
   });
 
   const argsSchema = z.object({ minAge: z.number() });
+  const unsafeSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    age: z.number(),
+    active: z.boolean(),
+    tags: z.array(z.string()),
+    metadata: z.object({ source: z.string() }),
+  });
+  type UnsafeRow = z.infer<typeof unsafeSchema>;
+  const unsafeSource = defineReadModel({
+    name: "member_query_source",
+    key: "id",
+    schema: unsafeSchema,
+  });
+  const unsafeWhere = (where: unknown): Where<UnsafeRow> => where as Where<UnsafeRow>;
+  const buildUnsafeQuery = (queryName: string, where: unknown) => {
+    const handle = defineReadModelQuery({
+      name: queryName,
+      source: unsafeSource,
+      args: z.object({}),
+      resolve: () => ({ where: unsafeWhere(where) }),
+    });
+
+    return () => handle.buildQuery({});
+  };
 
   test("returns handle with correct tag, name, and source", () => {
     const handle = defineReadModelQuery({
@@ -904,6 +929,7 @@ describe("defineReadModelQuery", () => {
     expect(result.sourceName).toBe("member");
     expect(result.entries).toEqual([{ field: "age", op: "gte", value: 21 }]);
     expect(result.orderBy).toBe("age");
+    expect(result.orderDirection).toBe("asc");
     expect(result.limit).toBe(10);
   });
 
@@ -920,6 +946,36 @@ describe("defineReadModelQuery", () => {
     const result = handle.buildQuery({ names: ["Alice", "Bob"] });
 
     expect(result.entries).toEqual([{ field: "name", op: "in", values: ["Alice", "Bob"] }]);
+  });
+
+  test("buildQuery throws for unsafe unknown fields", () => {
+    expect(buildUnsafeQuery("members_bad_unknown", { missing: "x" })).toThrow(
+      /read model query "members_bad_unknown" source "member_query_source" field "missing": unknown field/,
+    );
+  });
+
+  test("buildQuery throws for unsafe object and array field primitive-shaped clauses", () => {
+    expect(buildUnsafeQuery("members_bad_tags", { tags: "vip" })).toThrow(
+      /read model query "members_bad_tags" source "member_query_source" field "tags": field type ZodArray is not queryable/,
+    );
+    expect(buildUnsafeQuery("members_bad_metadata", { metadata: "manual" })).toThrow(
+      /read model query "members_bad_metadata" source "member_query_source" field "metadata": field type ZodObject is not queryable/,
+    );
+  });
+
+  test("buildQuery throws for unsafe boolean range clauses", () => {
+    expect(buildUnsafeQuery("members_bad_boolean_range", { active: { lte: true } })).toThrow(
+      /read model query "members_bad_boolean_range" source "member_query_source" field "active": gte\/lte are only supported/,
+    );
+  });
+
+  test("buildQuery throws for unsafe wrong primitive kinds and non-primitive in values", () => {
+    expect(buildUnsafeQuery("members_bad_string_in", { name: { in: [1] } })).toThrow(
+      /read model query "members_bad_string_in" source "member_query_source" field "name": value must be strings/,
+    );
+    expect(buildUnsafeQuery("members_bad_object_in", { name: { in: [{ value: "Alice" }] } })).toThrow(
+      /read model query "members_bad_object_in" source "member_query_source" field "name": value must be strings/,
+    );
   });
 
   test("rejects query-on-query (source is a ReadModelQueryHandle)", () => {
