@@ -18,11 +18,6 @@ export type EventRecordInput<TType extends string = string, TPayload = unknown> 
   readonly payload: TPayload;
 };
 
-export type DomainEvent<TType extends string = string, TPayload = unknown> = EventRecordInput<
-  TType,
-  TPayload
->;
-
 export type StoredEvent<TType extends string = string, TPayload = unknown> = EventRecordInput<
   TType,
   TPayload
