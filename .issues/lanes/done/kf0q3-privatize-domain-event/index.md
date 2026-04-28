@@ -1,8 +1,8 @@
 # kf0q3-privatize-domain-event Index
 
 ## Current state
-Lane: in-progress
-Status: PR opened; awaiting review/merge
+Lane: done
+Status: PR merged; repo-local workflow complete
 
 ## Active artifacts
 Description:
@@ -31,10 +31,14 @@ QA:
 
 Deploy:
 - deploy/01-pr.md — PR opened: https://github.com/david/esther/pull/9; lane not moved until merge
+- deploy/02-release.md — PR merged via rebase; lane moved to done
+
+## Closure evidence
+- PR merged: https://github.com/david/esther/pull/9
+- Merge method: rebase
+- Main tip after merge: `9bd871d6995ced46a374396619041ddc54487268`
+- Lane moved: `.issues/lanes/in-progress/kf0q3-privatize-domain-event` → `.issues/lanes/done/kf0q3-privatize-domain-event`
+- External issue closure: not applicable; no external issue linked in `description.md`.
 
 ## Next suggested step
-- Review and merge PR: https://github.com/david/esther/pull/9
-- After merge: {{/skill:deploy kf0q3-privatize-domain-event --move-done}}
-
-## Skill-loop alternative
-- {{/skill-loop 3 /skill:impl kf0q3-privatize-domain-event}}
+- None.
