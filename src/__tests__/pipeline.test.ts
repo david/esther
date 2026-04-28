@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
-import type { DomainEvent } from "../index";
 import {
   compose,
   createApp,
@@ -9,6 +8,7 @@ import {
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
   defineCommand,
+  defineEvent,
   defineQuery,
   defineReadModel,
   defineReducer,
@@ -18,6 +18,7 @@ import {
   ReadModelNotFound,
   state,
   tagQuery,
+  type EventOf,
 } from "../index";
 
 // ── Test domain ──────────────────────────────────────────────────────
@@ -41,6 +42,14 @@ function lenientOutputSchema<TOutput>(): z.ZodType<TOutput> {
 
 const accountPayload = z.object({ accountId: z.string(), amount: z.number() });
 
+const DepositedEvent = defineEvent({ type: "Deposited", payload: accountPayload });
+const WithdrawnEvent = defineEvent({ type: "Withdrawn", payload: accountPayload });
+const CreditAppliedEvent = defineEvent({ type: "CreditApplied", payload: accountPayload });
+
+type Deposited = EventOf<typeof DepositedEvent>;
+type Withdrawn = EventOf<typeof WithdrawnEvent>;
+type CreditApplied = EventOf<typeof CreditAppliedEvent>;
+
 const DepositedSchema = z.object({
   type: z.literal("Deposited"),
   tags: z.array(z.string()),
@@ -61,10 +70,7 @@ const CreditAppliedSchema = z.object({
 
 const accountSchemas = [DepositedSchema, WithdrawnSchema, CreditAppliedSchema] as const;
 
-type AccountEvent =
-  | z.infer<typeof DepositedSchema>
-  | z.infer<typeof WithdrawnSchema>
-  | z.infer<typeof CreditAppliedSchema>;
+type AccountEvent = Deposited | Withdrawn | CreditApplied;
 
 type Balance = { balance: number };
 
@@ -101,7 +107,7 @@ const depositSlice = defineCommand<
   DepositInput,
   DepositCtx,
   z.output<typeof depositOutputSchema>,
-  DomainEvent<"Deposited", { accountId: string; amount: number }>,
+  Deposited,
   never
 >({
   name: "deposit",
@@ -109,11 +115,11 @@ const depositSlice = defineCommand<
   outputSchema: depositOutputSchema,
   input: compose<DepositInput>().add(accountState<DepositInput>()),
   validate: [],
-  event: (ctx) => ({
-    type: "Deposited" as const,
-    tags: [`account:${ctx.accountId}`],
-    payload: { accountId: ctx.accountId, amount: ctx.amount },
-  }),
+  event: (ctx) =>
+    DepositedEvent.create({
+      tags: [`account:${ctx.accountId}`],
+      payload: { accountId: ctx.accountId, amount: ctx.amount },
+    }),
   output: (event, ctx) =>
     ok({
       account: { balance: ctx.account.balance + event.payload.amount },
@@ -139,7 +145,7 @@ const withdrawSlice = defineCommand<
   WithdrawInput,
   WithdrawCtx,
   z.output<typeof withdrawOutputSchema>,
-  DomainEvent<"Withdrawn", { accountId: string; amount: number }>,
+  Withdrawn,
   { readonly type: "InsufficientFunds"; code: string; message: string }
 >({
   name: "withdraw",
@@ -160,11 +166,11 @@ const withdrawSlice = defineCommand<
       return [];
     },
   ],
-  event: (ctx) => ({
-    type: "Withdrawn" as const,
-    tags: [`account:${ctx.accountId}`],
-    payload: { accountId: ctx.accountId, amount: ctx.amount },
-  }),
+  event: (ctx) =>
+    WithdrawnEvent.create({
+      tags: [`account:${ctx.accountId}`],
+      payload: { accountId: ctx.accountId, amount: ctx.amount },
+    }),
   output: (event, ctx) =>
     ok({
       account: { balance: ctx.account.balance - event.payload.amount },
@@ -184,8 +190,6 @@ async function readBalance(
 }
 
 // ── Credit slice ─────────────────────────────────────────────────────
-
-type CreditApplied = DomainEvent<"CreditApplied", { accountId: string; amount: number }>;
 
 const creditInputSchema = z.object({
   accountId: z.string(),
@@ -213,11 +217,11 @@ const creditSlice = defineCommand<
   outputSchema: creditOutputSchema,
   input: compose<CreditInput>().add(accountState<CreditInput>()),
   validate: [],
-  event: (ctx) => ({
-    type: "CreditApplied" as const,
-    tags: [`account:${ctx.accountId}`],
-    payload: { accountId: ctx.accountId, amount: ctx.amount },
-  }),
+  event: (ctx) =>
+    CreditAppliedEvent.create({
+      tags: [`account:${ctx.accountId}`],
+      payload: { accountId: ctx.accountId, amount: ctx.amount },
+    }),
   output: (event, ctx) =>
     ok({
       accountId: event.payload.accountId,
@@ -229,13 +233,17 @@ const rejectInputSchema = z.object({ accountId: z.string() });
 
 const rejectOutputSchema = z.object({ rejected: z.boolean() });
 
+const emptyPayloadSchema = z.object({}).strict().transform((): Record<never, never> => ({}));
+const _RejectAttemptedEvent = defineEvent({ type: "RejectAttempted", payload: emptyPayloadSchema });
+type RejectAttempted = EventOf<typeof _RejectAttemptedEvent>;
+
 type RejectError = { readonly type: "AlwaysFails"; code: "ALWAYS_FAILS"; message: string };
 
 const rejectSlice = defineCommand<
   z.output<typeof rejectInputSchema>,
   z.output<typeof rejectInputSchema>,
   z.output<typeof rejectOutputSchema>,
-  DomainEvent<"RejectAttempted", Record<string, never>>,
+  RejectAttempted,
   RejectError
 >({
   name: "reject",
@@ -1091,7 +1099,7 @@ describe("replay", () => {
       DepositInput,
       DepositCtx,
       z.output<typeof depositOutputSchema>,
-      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      Deposited,
       never
     >({
       name: "replay-deposit",
@@ -1099,11 +1107,11 @@ describe("replay", () => {
       outputSchema: depositOutputSchema,
       input: compose<DepositInput>().add(accountState<DepositInput>()),
       validate: [],
-      event: (ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${ctx.accountId}`],
-        payload: { accountId: ctx.accountId, amount: ctx.amount },
-      }),
+      event: (ctx) =>
+        DepositedEvent.create({
+          tags: [`account:${ctx.accountId}`],
+          payload: { accountId: ctx.accountId, amount: ctx.amount },
+        }),
       output: (event, ctx) =>
         ok({
           account: { balance: ctx.account.balance + event.payload.amount },
@@ -1233,7 +1241,7 @@ describe("end-to-end integration", () => {
       DepositInput,
       DepositCtx,
       z.output<typeof depositOutputSchema>,
-      DomainEvent<"Deposited", { accountId: string; amount: number }>,
+      Deposited,
       never
     >({
       name: "deposit-e2e",
@@ -1241,11 +1249,11 @@ describe("end-to-end integration", () => {
       outputSchema: depositOutputSchema,
       input: compose<DepositInput>().add(accountState<DepositInput>()),
       validate: [],
-      event: (ctx) => ({
-        type: "Deposited" as const,
-        tags: [`account:${ctx.accountId}`],
-        payload: { accountId: ctx.accountId, amount: ctx.amount },
-      }),
+      event: (ctx) =>
+        DepositedEvent.create({
+          tags: [`account:${ctx.accountId}`],
+          payload: { accountId: ctx.accountId, amount: ctx.amount },
+        }),
       output: (event, ctx) =>
         ok({
           account: { balance: ctx.account.balance + event.payload.amount },

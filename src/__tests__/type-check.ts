@@ -32,7 +32,6 @@ import {
   type BoundaryObservation,
   type BoundaryObservationError as BoundaryObservationErrorType,
   type DispatchFn,
-  type DomainEvent,
   type EventDefinition,
   type EventOf,
   type EventRecordInput,
@@ -128,6 +127,11 @@ const BookingCreatedSchema = z.object({
     checkIn: z.string(),
     checkOut: z.string(),
   }),
+});
+
+const BookingCreatedEvent = defineEvent({
+  type: "BookingCreated",
+  payload: BookingCreatedSchema.shape.payload,
 });
 
 const BookingCancelledSchema = z.object({
@@ -583,17 +587,7 @@ void _eventStoreForTypeCheck.queryByTags(["booking"], propertySchemas, () => ini
 
 // ── Typed domain event ─────────────────────────────────────────────────
 
-type BookingCreated = DomainEvent<
-  "BookingCreated",
-  {
-    bookingId: string;
-    confirmedAt: string;
-    propertyId: string;
-    tenantId: string;
-    checkIn: string;
-    checkOut: string;
-  }
->;
+type BookingCreated = EventOf<typeof BookingCreatedEvent>;
 
 const _createBookingConfirmedSlice = defineCommand<
   CreateBookingInput,
@@ -796,18 +790,18 @@ const _createBookingSlice = defineCommand<
     },
   ],
 
-  event: (ctx): BookingCreated => ({
-    type: "BookingCreated",
-    tags: ["booking", `property:${ctx.propertyId}`, `tenant:${ctx.tenantId}`],
-    payload: {
-      bookingId: ctx.bookingId,
-      confirmedAt: ctx.confirmedAt,
-      propertyId: ctx.propertyId,
-      tenantId: ctx.tenantId,
-      checkIn: ctx.checkIn,
-      checkOut: ctx.checkOut,
-    },
-  }),
+  event: (ctx): BookingCreated =>
+    BookingCreatedEvent.create({
+      tags: ["booking", `property:${ctx.propertyId}`, `tenant:${ctx.tenantId}`],
+      payload: {
+        bookingId: ctx.bookingId,
+        confirmedAt: ctx.confirmedAt,
+        propertyId: ctx.propertyId,
+        tenantId: ctx.tenantId,
+        checkIn: ctx.checkIn,
+        checkOut: ctx.checkOut,
+      },
+    }),
 
   output: (event, _ctx) =>
     ok({
@@ -835,18 +829,18 @@ const _rawAsyncInputSlice = defineCommand({
       bookingId: crypto.randomUUID(),
     }),
   validate: [],
-  event: (ctx: CreateBookingCtx): BookingCreated => ({
-    type: "BookingCreated",
-    tags: ["booking"],
-    payload: {
-      bookingId: ctx.bookingId,
-      confirmedAt: ctx.confirmedAt,
-      propertyId: ctx.propertyId,
-      tenantId: ctx.tenantId,
-      checkIn: ctx.checkIn,
-      checkOut: ctx.checkOut,
-    },
-  }),
+  event: (ctx: CreateBookingCtx): BookingCreated =>
+    BookingCreatedEvent.create({
+      tags: ["booking"],
+      payload: {
+        bookingId: ctx.bookingId,
+        confirmedAt: ctx.confirmedAt,
+        propertyId: ctx.propertyId,
+        tenantId: ctx.tenantId,
+        checkIn: ctx.checkIn,
+        checkOut: ctx.checkOut,
+      },
+    }),
   output: (event: BookingCreated) =>
     ok({
       bookingId: event.payload.bookingId,
@@ -1066,12 +1060,12 @@ type TypedCommandError = {
   readonly message: string;
 };
 
-type TypedCommandAccepted = DomainEvent<
-  "TypedCommandAccepted",
-  {
-    readonly commandId: string;
-  }
->;
+const TypedCommandAcceptedEvent = defineEvent({
+  type: "TypedCommandAccepted",
+  payload: z.object({ commandId: z.string() }),
+});
+
+type TypedCommandAccepted = EventOf<typeof TypedCommandAcceptedEvent>;
 
 const _typedNamedCommand = defineCommand({
   name: "typed-command",
@@ -1079,11 +1073,11 @@ const _typedNamedCommand = defineCommand({
   outputSchema: typedCommandOutputSchema,
   input: compose<TypedCommandInput>(),
   validate: [(_ctx: TypedCommandInput): ReadonlyArray<TypedCommandError> => []],
-  event: (ctx: TypedCommandInput): TypedCommandAccepted => ({
-    type: "TypedCommandAccepted",
-    tags: ["typed-command"],
-    payload: { commandId: ctx.commandId },
-  }),
+  event: (ctx: TypedCommandInput): TypedCommandAccepted =>
+    TypedCommandAcceptedEvent.create({
+      tags: ["typed-command"],
+      payload: { commandId: ctx.commandId },
+    }),
   output: (
     _event: TypedCommandAccepted,
     _ctx: TypedCommandInput,
