@@ -1,8 +1,8 @@
 # kf0q3-privatize-domain-event Index
 
 ## Current state
-Lane: backlog
-Status: breakdown complete; 3 pending implementation tasks
+Lane: in-progress
+Status: implementation started; task 01 checkpoint aligned; 2 pending implementation tasks
 
 ## Active artifacts
 Description:
@@ -17,12 +17,12 @@ Plan checks:
 - plan/checks/02-revised-plan-sanity.md — approved; plan/02 ready for implementation
 
 Implementation tasks:
-- impl/01.md — pending
+- impl/01.md — aligned; checkpoint impl/checkpoints/01.md
 - impl/02.md — pending
 - impl/03.md — pending
 
 ## Next suggested step
-- {{/skill:impl kf0q3-privatize-domain-event}}
+- {{/skill:impl kf0q3-privatize-domain-event --task 02}}
 
 ## Skill-loop alternative
 - {{/skill-loop 3 /skill:impl kf0q3-privatize-domain-event}}

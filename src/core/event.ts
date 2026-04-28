@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DomainEvent } from "./types";
+import type { EventRecordInput } from "./types";
 
 export type EventDefinition<
   TType extends string,
@@ -15,12 +15,12 @@ export type EventDefinition<
   readonly create: (input: {
     readonly tags: ReadonlyArray<string>;
     readonly payload: z.output<TPayloadSchema>;
-  }) => DomainEvent<TType, z.output<TPayloadSchema>>;
+  }) => EventRecordInput<TType, z.output<TPayloadSchema>>;
 };
 
 export type EventOf<TDefinition extends EventDefinition<string, z.ZodType>> =
   TDefinition extends EventDefinition<infer TType, infer TPayloadSchema>
-    ? DomainEvent<TType, z.output<TPayloadSchema>>
+    ? EventRecordInput<TType, z.output<TPayloadSchema>>
     : never;
 
 export type EventPayloadOf<TDefinition extends EventDefinition<string, z.ZodType>> =

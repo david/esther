@@ -35,6 +35,7 @@ import {
   type DomainEvent,
   type EventDefinition,
   type EventOf,
+  type EventRecordInput,
   type EventPayloadOf,
   type EventStore,
   type EventsByTagsDescriptor,
@@ -161,7 +162,10 @@ const _bookingConfirmedDefinitionCheck: EventDefinition<
 > = BookingConfirmedEvent;
 const _bookingConfirmedTypeLiteralCheck: "BookingConfirmed" = BookingConfirmedEvent.type;
 type _BookingConfirmedEventInference = Expect<
-  Equal<BookingConfirmed, DomainEvent<"BookingConfirmed", z.output<typeof BookingConfirmedPayloadSchema>>>
+  Equal<
+    BookingConfirmed,
+    EventRecordInput<"BookingConfirmed", z.output<typeof BookingConfirmedPayloadSchema>>
+  >
 >;
 type _BookingConfirmedPayloadInference = Expect<
   Equal<BookingConfirmedPayload, z.output<typeof BookingConfirmedPayloadSchema>>
@@ -499,6 +503,23 @@ const _readModelEventCtxHelpersBinding: ReadModelEventBinding<
 declare const _eventStoreForTypeCheck: EventStore;
 const _eventStoreQueryByTagsResult: Promise<TagQueryResult<BookingReducerState>> =
   _eventStoreForTypeCheck.queryByTags(["booking"], bookingReducer);
+
+const _customStoreAppendInput: EventRecordInput<
+  "BookingCreated",
+  z.output<typeof BookingCreatedSchema>["payload"]
+> = {
+  type: "BookingCreated",
+  tags: ["booking", "property:property-1"],
+  payload: {
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: "property-1",
+    tenantId: "tenant-1",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+  },
+};
+const _eventStoreAppendResult = _eventStoreForTypeCheck.append([_customStoreAppendInput]);
 
 const _fakeTagQuery = tagQuery({
   key: "fakeReducer" as const,

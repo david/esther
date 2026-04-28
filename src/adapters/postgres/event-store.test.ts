@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
 import { defineReducer } from "../../core/reducer";
-import type { DomainEvent } from "../../core/types";
+import type { EventRecordInput } from "../../core/types";
 import { ConstraintError } from "../../core/types";
 import { createMockSql } from "./mock-sql";
 import { createPostgresEventStore, isConstraintViolation, mapConstraintError } from "./index";
@@ -163,7 +163,7 @@ function event(
   type: string,
   tags: ReadonlyArray<string>,
   payload: unknown = {},
-): DomainEvent<string, unknown> {
+): EventRecordInput<string, unknown> {
   return { type, tags, payload };
 }
 
@@ -222,7 +222,9 @@ function createEventStoreHarness(): {
       const tags = boundaryTagsFromParams(params);
       return rows
         .filter((row) => tags.every((tag) => row.tags.includes(tag)))
-        .sort((left, right) => (left.position < right.position ? -1 : left.position > right.position ? 1 : 0))
+        .sort((left, right) =>
+          left.position < right.position ? -1 : left.position > right.position ? 1 : 0,
+        )
         .map((row) => ({
           id: row.id,
           type: row.type,

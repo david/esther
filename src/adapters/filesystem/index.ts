@@ -16,7 +16,7 @@ import {
   EventId,
   SchemaError,
   type ConcurrencyError as ConcurrencyErrorType,
-  type DomainEvent,
+  type EventRecordInput,
   type SliceError,
   type StoredEvent,
   type TagQueryResult,
@@ -355,7 +355,7 @@ function validateAppendPrecondition(
   );
 }
 
-function validateEventsForStorage(events: ReadonlyArray<DomainEvent>): Result<void, SliceError> {
+function validateEventsForStorage(events: ReadonlyArray<EventRecordInput>): Result<void, SliceError> {
   for (const event of events) {
     for (const tag of event.tags) {
       const tagValidation = validateTag(tag);
@@ -379,7 +379,7 @@ function maxBigInt(left: bigint, right: bigint): bigint {
 
 function planStoredEvents(
   root: string,
-  eventsToAppend: ReadonlyArray<DomainEvent>,
+  eventsToAppend: ReadonlyArray<EventRecordInput>,
   firstPosition: bigint,
 ): Result<ReadonlyArray<PlannedStoredEvent>, SliceError> {
   const planned: PlannedStoredEvent[] = [];

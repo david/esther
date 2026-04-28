@@ -13,7 +13,7 @@ import type {
 } from "./read-model";
 import type {
   BoundaryObservation,
-  DomainEvent,
+  EventRecordInput,
   ReadModelSchemaError,
   SliceError,
 } from "./types";
@@ -840,7 +840,7 @@ export type Command<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends DomainEvent,
+  TEvent extends EventRecordInput,
   TError extends { readonly type: string },
   TName extends string = string,
 > = RegisterableOperation<TName> & {
@@ -963,7 +963,7 @@ export type CommandDefinition<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends DomainEvent,
+  TEvent extends EventRecordInput,
   TError extends { readonly type: string },
   TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
@@ -984,7 +984,7 @@ export function defineCommand<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends DomainEvent,
+  TEvent extends EventRecordInput,
   TError extends { readonly type: string } = never,
   TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
@@ -1007,7 +1007,7 @@ export function defineCommand<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends DomainEvent,
+  TEvent extends EventRecordInput,
   TError extends { readonly type: string } = never,
   TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
@@ -1029,7 +1029,7 @@ export function defineCommand<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends DomainEvent,
+  TEvent extends EventRecordInput,
   TError extends { readonly type: string } = never,
   TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,

@@ -148,6 +148,7 @@ export type {
   ConcurrencyError,
   DomainEvent,
   EffectResult,
+  EventRecordInput,
   SchemaError,
   SliceError,
   StoredEvent,

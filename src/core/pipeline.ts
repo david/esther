@@ -4,7 +4,7 @@ import type { Command, ProjectionStore, Query } from "./slice";
 import {
   BoundaryObservationError,
   type BoundaryObservation,
-  type DomainEvent,
+  type EventRecordInput,
   SchemaError,
   type SliceError,
 } from "./types";
@@ -39,7 +39,7 @@ export async function executeCommand<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends DomainEvent,
+  TEvent extends EventRecordInput,
   TError extends { readonly type: string },
 >(
   slice: Command<TInput, TCtx, TOutput, TEvent, TError>,
@@ -110,7 +110,7 @@ function finishCommand<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends DomainEvent,
+  TEvent extends EventRecordInput,
   TError extends { readonly type: string },
 >(
   slice: Command<TInput, TCtx, TOutput, TEvent, TError>,
