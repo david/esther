@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: QA planned; ready for auto-qa execution
+Status: PR opened; awaiting review/merge
 
 ## Active artifacts
 Description:
@@ -26,11 +26,15 @@ Review:
 - review/findings/01-gate-results.md — gates passed
 
 QA:
-- qa/summary.md — one auto-cli task planned
-- qa/tasks/qa-api-contract-gates.md — pending
+- qa/summary.md — passed
+- qa/tasks/qa-api-contract-gates.md — passed
+
+Deploy:
+- deploy/01-pr.md — PR opened: https://github.com/david/esther/pull/9; lane not moved until merge
 
 ## Next suggested step
-- {{/skill:auto-qa kf0q3-privatize-domain-event}}
+- Review and merge PR: https://github.com/david/esther/pull/9
+- After merge: {{/skill:deploy kf0q3-privatize-domain-event --move-done}}
 
 ## Skill-loop alternative
 - {{/skill-loop 3 /skill:impl kf0q3-privatize-domain-event}}
