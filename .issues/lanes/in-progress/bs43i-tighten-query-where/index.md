@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; review-diff complete; gates passed; ready for QA planning
+Status: implementation complete; review-diff complete; gates passed; QA plan ready
 
 ## Active artifacts
 Description:
@@ -32,5 +32,11 @@ Review:
 - review/diff/01-review-diff.md — semantic diff review for `origin/main..HEAD`; no code follow-up findings
 - review/findings/01-gate-results.md — full gates passed: `bun run test`, `bun run lint`, `bun run typecheck`
 
+QA:
+- qa/summary.md — QA plan with 2 auto-cli tasks and 1 needs-cli-domain docs assertion task
+- qa/tasks/qa-where-type-grammar.md — auto-cli type grammar verification
+- qa/tasks/qa-where-runtime-fail-fast.md — auto-cli runtime fail-fast verification
+- qa/tasks/qa-full-gates-and-docs.md — full gates plus blocked automated `llms.txt` docs assertion
+
 ## Next suggested step
-- {{/skill:plan-qa bs43i-tighten-query-where}}
+- {{/skill:auto-qa bs43i-tighten-query-where}}
