@@ -1,30 +1,163 @@
 # Esther — Event Sourcing Framework
 
-> DCB-based event sourcing for TypeScript. No aggregates, tag-based event queries, database constraint enforcement.
+> TypeScript event-sourcing framework built around Dynamic Consistency Boundaries (DCB). No aggregates. Events carry tags. Reads are declared through typed DSL descriptors. Adapters do I/O.
 
-## Imports
+## Package exports
+
+Main export (`esther`) contains core DSL, app wiring, in-memory event/input/projection adapters, CLI input adapter, and filesystem event/checkpoint stores:
 
 ```typescript
 import { z } from "zod";
-import { ok, err } from "neverthrow";
+import { ok, err, type Result } from "neverthrow";
 import {
-  compose, castTagQuery, derive, generate, lookup,
-  state, tagQuery, projection,
-  defineEvent, defineReducer,
-  defineReadModel, defineReadModelQuery, readModelEvent,
-  getDescriptor, queryDescriptor, eventsByTagsDescriptor,
-  defineProcessor, processorEvent,
-  defineCommand, defineQuery,
+  // app + operation DSL
   createApp,
-  createInMemoryEventStore, createInMemoryProjectionAdapter, createInMemoryAdapter,
+  compose,
+  state,
+  defineCommand,
+  defineQuery,
+
+  // event + reducer DSL
+  defineEvent,
+  defineReducer,
+
+  // command/query descriptor DSL
+  tagQuery,
+  castTagQuery,
+  lookup,
+  derive,
+  generate,
+  projection,
+
+  // read-model DSL
+  defineReadModel,
+  defineReadModelQuery,
+  readModelEvent,
+  getDescriptor,
+  queryDescriptor,
+  eventsByTagsDescriptor,
+
+  // processors/effects
+  defineProcessor,
+  processorEvent,
+  createEffectAdapterRegistry,
+
+  // in-memory adapters
+  createInMemoryEventStore,
+  createInMemoryProjectionAdapter,
+  createInMemoryAdapter,
+
+  // CLI + filesystem adapters also re-exported from main
+  createCliInputAdapter,
+  createFilesystemEventStore,
+  createFilesystemCheckpointStore,
+
+  // framework error constructors
+  EventId,
+  ConstraintError,
+  BoundaryObservationError,
+  ReadModelSchemaError,
+  ReadModelNotFound,
 } from "esther";
-import type { DomainEvent, EffectAdapter, EventOf, ReadModelHandle, ReadModelQueryHandle } from "esther";
-import { createFastifyInputAdapter, defineFastifyRoutes } from "esther/fastify";
+
+import type {
+  App,
+  AppConfig,
+  DomainEvent,
+  StoredEvent,
+  EventOf,
+  EventPayloadOf,
+  EventDefinition,
+  ReducerDefinition,
+  ReducerEvent,
+  EventStore,
+  AppendOptions,
+  TagQueryResult,
+  SliceError,
+  ValidationError,
+  SchemaError,
+  ConcurrencyError,
+  BoundaryObservation,
+  ConstraintMetadata,
+  EffectAdapter,
+  EffectAdapterRegistry,
+  EffectResult,
+  InputAdapter,
+  InputAdapterBinding,
+  DispatchFn,
+  ReadModelHandle,
+  ReadModelQueryHandle,
+  ReadModelRegistration,
+  WritableReadModelRegistration,
+  ReadOnlyReadModelRegistration,
+  ProjectionAdapter,
+  ProjectionGetter,
+  ProjectionQuery,
+  ProjectionResult,
+  Operation,
+  Where,
+  WhereClause,
+  WhereRange,
+  WhereIn,
+  OrderDirection,
+  OperationName,
+  OperationByName,
+  OperationInput,
+  OperationOutput,
+  OperationError,
+  OperationResult,
+  RegisterableOperation,
+} from "esther";
 ```
+
+Adapter subpaths:
+
+```typescript
+import {
+  createFastifyInputAdapter,
+  defineFastifyRoutes,
+} from "esther/fastify";
+import type {
+  FastifyAdapterConfig,
+  FastifyInputAdapter,
+  FastifyRouteBinding,
+  FastifyRouteConfigEntry,
+  FastifyRouteMethod,
+  FastifyRouteRequest,
+} from "esther/fastify";
+
+import {
+  createPostgresEventStore,
+  createPostgresProjectionAdapter,
+  generateCreateTableDDL,
+} from "esther/postgres";
+
+import {
+  createFilesystemEventStore,
+  createFilesystemCheckpointStore,
+} from "esther/filesystem";
+
+import { createCliInputAdapter } from "esther/cli";
+
+import {
+  EstherProvider,
+  useProjection,
+  useDispatch,
+  createInMemoryReadModelStore,
+  createNotifyingReadModelStore,
+} from "esther/react";
+import type {
+  ProjectionState,
+  ReadModelStore,
+  NotifyingReadModelStore,
+} from "esther/react";
+```
+
+`esther/test` currently points at in-memory event/input adapter exports. Main `esther` export is canonical for `createInMemoryProjectionAdapter`.
 
 ## Events
 
-Event wire shape stays `{ type, tags, payload }`. Prefer `defineEvent(...)` for schema + constructor:
+Event wire shape is always `{ type, tags, payload }`. `defineEvent(...)` gives schema + constructor without changing serialized shape.
 
 ```typescript
 const OrderPlaced = defineEvent({
@@ -37,34 +170,71 @@ const OrderPlaced = defineEvent({
 });
 
 type OrderPlacedEvent = EventOf<typeof OrderPlaced>;
-OrderPlaced.schema; // { type, tags, payload }
+type OrderPlacedPayload = EventPayloadOf<typeof OrderPlaced>;
+
+OrderPlaced.type; // "OrderPlaced"
+OrderPlaced.payloadSchema; // payload schema
+OrderPlaced.schema; // z.object({ type: z.literal(...), tags: z.array(z.string()), payload })
 OrderPlaced.create({ tags, payload }); // DomainEvent<"OrderPlaced", ...>
 ```
 
-Raw `DomainEvent<...>` remains useful for advanced type interop, but `defineEvent` does not change serialized event shape.
+Raw `DomainEvent<...>` is useful for advanced interop, but prefer `defineEvent(...)` for app code.
 
-## Tags
+## Tags and DCB
 
-Plain strings queried by intersection. Use prefixed patterns:
+Tags are plain strings queried by intersection. Design tags around consistency and query needs:
 
 ```typescript
 ["order", `order:${orderId}`, `customer:${customerId}`]
 ```
 
-## Read models
+DCB consistency is tag-boundary based. Command-side event-history reads (`tagQuery`, `castTagQuery`) record observed tag boundaries. At append:
 
-Define a read model with `defineReadModel`. Returns a `ReadModelHandle<T>` used by read-model event bindings and `projection()` state reads:
+- zero observations → append without precondition
+- one observation → append with `{ boundaryTags, expectedPosition }`
+- more than one observation → fail with `BoundaryObservationError`
+
+Direct `eventStore.append(events, options)` treats present options as active precondition. `expectedPosition: undefined` means selected boundary must be empty. `boundaryTags: undefined` or `[]` means global stream boundary. Conflict returns `ConcurrencyError`.
+
+## Reducers and event-history reads
+
+Event-history reads use `defineReducer(...)`. Reducers take event schemas, not whole event definitions.
 
 ```typescript
-const OrderPlaced = defineEvent({
-  type: "OrderPlaced",
-  payload: z.object({
-    orderId: z.string().uuid(),
-    customerId: z.string().uuid(),
-    total: z.number(),
-  }),
+const ProductStocked = defineEvent({
+  type: "ProductStocked",
+  payload: z.object({ productId: z.string(), quantity: z.number() }),
 });
 
+const ProductRemoved = defineEvent({
+  type: "ProductRemoved",
+  payload: z.object({ productId: z.string(), quantity: z.number() }),
+});
+
+type InventoryState = { readonly quantity: number };
+
+const inventoryReducer = defineReducer({
+  name: "inventory-state",
+  schemas: [ProductStocked.schema, ProductRemoved.schema] as const,
+  initial: { quantity: 0 } satisfies InventoryState,
+  reduce: (state, event): InventoryState => {
+    switch (event.type) {
+      case "ProductStocked":
+        return { quantity: state.quantity + event.payload.quantity };
+      case "ProductRemoved":
+        return { quantity: state.quantity - event.payload.quantity };
+    }
+  },
+});
+```
+
+`eventStore.queryByTags(tags, reducer)` returns `{ state, maxPosition }` and validates stored events against reducer schemas before folding. Raw `queryByTags(tags, schemas, fold)` is not public API.
+
+## Read models
+
+Use `defineReadModel(...)`. Returns `ReadModelHandle<T>` with `name`, `key`, `schema`, `constraints`, `.project(value, operation?)`, and optional event bindings.
+
+```typescript
 const orderSummaryModel = defineReadModel({
   name: "order_summary",
   key: "orderId",
@@ -75,38 +245,44 @@ const orderSummaryModel = defineReadModel({
     lineItems: z.array(z.object({ sku: z.string(), quantity: z.number() })),
   }),
   constraints: {
-    unique: [["customerId"]], // optional — database enforces uniqueness
+    unique: [["customerId"]],
   },
   events: [
     readModelEvent({
       schema: OrderPlaced.schema,
-      handler: (event, ctx) => ctx.project({
-        orderId: event.payload.orderId,
-        customerId: event.payload.customerId,
-        total: event.payload.total,
-        lineItems: [],
-      }),
+      handler: (event, ctx) =>
+        ctx.project({
+          orderId: event.payload.orderId,
+          customerId: event.payload.customerId,
+          total: event.payload.total,
+          lineItems: [],
+        }),
     }),
   ],
 });
 ```
 
-Schema fields support `z.string()`, `z.number()`, `z.boolean()`, `z.array(...)`, `z.object(...)`, plus `z.string().uuid()` and `z.string().datetime()`. Postgres stores arrays/objects as JSONB. The `key` must reference a field in the schema. The `name` must match `[a-zA-Z][a-zA-Z0-9_]*`.
+Read-model rules:
 
-### Read model queries
+- `name` and schema field names must match `[a-zA-Z][a-zA-Z0-9_]*`.
+- `key` must be schema field.
+- Supported field schemas: `z.string()`, `z.number()`, `z.boolean()`, `z.array(...)`, `z.object(...)`, plus `z.string().uuid()` and `z.string().datetime()` checks.
+- Postgres maps `string().uuid()` → `UUID`, `string().datetime()` → `TIMESTAMPTZ`, string → `TEXT`, number → `INTEGER`, boolean → `BOOLEAN`, arrays/objects → `JSONB`.
+- `constraints.unique` columns must exist in schema. Database adapters enforce actual constraints.
+- `.project(value, operation?)` returns `ProjectionResult<T>`. `operation` defaults to `"upsert"`; allowed: `"insert"`, `"update"`, `"upsert"`, `"delete"`.
 
-Use `defineReadModelQuery` for parameterized lookups against a read model. Query logic (where/orderBy/limit) is encapsulated in the definition — consumers pass typed arguments, never inline query logic.
+## Read-model queries
+
+Use `defineReadModelQuery(...)` for named parameterized lookups. Query logic belongs in query definitions, not slices.
 
 ```typescript
-// Alternate-key lookup
 const usersByEmail = defineReadModelQuery({
   name: "users_by_email",
   source: usersModel,
-  args: z.object({ email: z.string() }),
+  args: z.object({ email: z.string().email() }),
   resolve: (args) => ({ where: { email: args.email }, limit: 1 }),
 });
 
-// Parameterized query
 const latestOrderOfWorship = defineReadModelQuery({
   name: "latest_order_of_worship",
   source: orderOfWorshipModel,
@@ -120,170 +296,243 @@ const latestOrderOfWorship = defineReadModelQuery({
 });
 ```
 
-Use query models in `projection()` steps by passing `args` instead of `id`:
+Where grammar:
 
 ```typescript
-projection({
-  key: "user" as const,
-  model: usersByEmail,
-  args: (ctx) => ({ email: ctx.email }),
-  required: true,
-})
+where: {
+  customerId: "customer-1",           // equality
+  total: { gte: 100, lte: 500 },       // range
+  status: { in: ["open", "paid"] },   // membership
+}
 ```
 
-Use `many: true` for query-many lookup; state binds as `ReadonlyArray<T>`:
+Rules:
+
+- `source` must be `ReadModelHandle`, not another `ReadModelQueryHandle`.
+- `orderDirection` defaults to `"asc"`; allowed: `"asc" | "desc"`.
+- `limit` is optional; adapter validates non-negative integer where applicable.
+- Query args are typed by `args` schema; current runtime `buildQuery` does not parse args itself. Parse external input at adapter/slice boundary.
+- `projection({ model: queryHandle, args })` uses `projectionStore.query` for first row.
+- `projection({ model: queryHandle, args, many: true })` uses `projectionStore.queryMany` and returns every matching row.
+
+**Never put WHERE/ORDER BY/filtering logic inline in command/query handlers.** Define read-model query and reference it by name.
+
+## Declarative read descriptors for projectors/processors
+
+`readModelEvent(...)` and `processorEvent(...)` handlers can declare reads:
 
 ```typescript
-projection({
-  key: "orders" as const,
-  model: ordersByCustomer,
-  args: (ctx) => ({ customerId: ctx.customerId }),
-  many: true,
-})
-```
-
-**Never write query logic (WHERE, ORDER BY, filtering) inline in a slice.** If you need a filtered or sorted lookup, define a `defineReadModelQuery` and reference it by name.
-
-Use `ctx.project(value, operation?)` inside `readModelEvent(...)` handlers to build a `ProjectionResult`. The `operation` parameter defaults to `"upsert"`; other options: `"insert"`, `"update"`, `"delete"`.
-
-## Command DSL
-
-### Why API names differ
-
-Commands use `compose().add(...)`; queries use `state().pipe(...)`. This split is intentional in current public API: command input pipelines prepare appendable context and command-side event-history reads can derive DCB append preconditions, while query state resolvers prepare read-only response context. Shared helpers such as `tagQuery(...)` and `generate(...)` keep phase-specific semantics; they do not imply one shared operation model.
-
-Event-history reads use `defineReducer(...)` and reducer-backed `tagQuery(...)`:
-
-```typescript
-const ProductStocked = defineEvent({
-  type: "ProductStocked",
-  payload: z.object({ productId: z.string(), quantity: z.number() }),
-});
-
-type InventoryState = { quantity: number };
-const inventoryReducer = defineReducer({
-  name: "inventory-state",
-  schemas: [ProductStocked.schema] as const,
-  initial: { quantity: 0 } satisfies InventoryState,
-  reduce: (state, event): InventoryState => ({
-    quantity: state.quantity + event.payload.quantity,
-  }),
-});
-
-defineCommand({
-  name: "place-order",
-  inputSchema: placeOrderInputSchema,
-  outputSchema: placeOrderOutputSchema,
-
-  // input: resolve typed context declaratively via compose pipeline
-  input: compose<PlaceOrderInput>()
-    .add(tagQuery({
-      key: "inventory" as const,
-      tags: (ctx) => ["product", `product:${ctx.productId}`],
-      reducer: inventoryReducer,
-    })),
-
-  // validate: array of pure predicates that return error arrays
-  validate: [
-    (ctx) => {
-      if (ctx.inventory.quantity < ctx.amount)
-        return [{ type: "OutOfStock" as const, message: "Not enough" }];
-      return [];
-    },
-  ],
-
-  // event: construct the single domain event (no Result wrapper)
-  event: (ctx) => OrderPlaced.create({
-    tags: ["order", `customer:${ctx.customerId}`],
-    payload: { orderId: crypto.randomUUID(), customerId: ctx.customerId, total: ctx.total },
-  }),
-
-  // output: shape the response from the appended event + ctx
-  output: (event, _ctx) => ok({ orderId: event.payload.orderId }),
-
-  // outputErr (optional): handler map keyed by error type
-  outputErr: {
-    OutOfStock: (errors, _ctx) => err(errors[0]!),
+readModelEvent({
+  schema: OrderPlaced.schema,
+  reads: {
+    existing: (event) => getDescriptor(orderSummaryModel, event.payload.orderId),
+    customerOrders: (event) =>
+      queryDescriptor({
+        model: orderSummaryModel,
+        where: { customerId: event.payload.customerId },
+        orderBy: "total",
+        limit: 10,
+      }),
+    priorState: (event) =>
+      eventsByTagsDescriptor([`customer:${event.payload.customerId}`], customerReducer),
+  },
+  handler: (event, ctx) => {
+    // ctx.existing: T | undefined
+    // ctx.customerOrders: ReadonlyArray<T>
+    // ctx.priorState: reducer state
+    return ctx.project({
+      orderId: event.payload.orderId,
+      customerId: ctx.existing?.customerId ?? event.payload.customerId,
+      total: event.payload.total,
+      lineItems: [],
+    });
   },
 });
 ```
 
-For complex command input pipelines, compose framework-owned descriptors with `compose().add(...)`:
+Descriptor result typing:
+
+- `getDescriptor(model, id)` → `T | undefined`
+- `queryDescriptor({ model, where, orderBy?, limit? })` → `ReadonlyArray<T>`
+- `eventsByTagsDescriptor(tags, reducer)` → reducer state
+
+Rows from `get` and `query` are schema-validated before user handler runs. Malformed row throws `ReadModelSchemaError`; projection/effect handler does not receive bad data.
+
+## Command DSL
+
+Commands use `compose().add(...)` for input pipeline. Queries use `state().pipe(...)`. Split is intentional: command event-history reads can derive DCB append preconditions; query reads are read-only.
+
+Command shape:
+
+```typescript
+type PlaceOrderInput = z.output<typeof placeOrderInputSchema>;
+type PlaceOrderOutput = z.output<typeof placeOrderOutputSchema>;
+type OutOfStock = { readonly type: "OutOfStock"; readonly message: string };
+
+const placeOrder = defineCommand<
+  PlaceOrderInput,
+  PlaceOrderInput & { readonly inventory: InventoryState; readonly orderId: string },
+  PlaceOrderOutput,
+  OrderPlacedEvent,
+  OutOfStock
+>({
+  name: "place-order",
+  inputSchema: placeOrderInputSchema,
+  outputSchema: placeOrderOutputSchema,
+
+  input: compose<PlaceOrderInput>()
+    .add(
+      tagQuery({
+        key: "inventory" as const,
+        tags: (ctx) => ["product", `product:${ctx.productId}`],
+        reducer: inventoryReducer,
+      }),
+    )
+    .add(generate({ key: "orderId" as const, fn: () => crypto.randomUUID() })),
+
+  validate: [
+    (ctx) => {
+      if (ctx.inventory.quantity < ctx.amount) {
+        return [{ type: "OutOfStock" as const, message: "Not enough stock" }];
+      }
+      return [];
+    },
+  ],
+
+  event: (ctx) =>
+    OrderPlaced.create({
+      tags: ["order", `order:${ctx.orderId}`, `customer:${ctx.customerId}`],
+      payload: { orderId: ctx.orderId, customerId: ctx.customerId, total: ctx.total },
+    }),
+
+  output: (event, _ctx) => ok({ orderId: event.payload.orderId }),
+
+  outputErr: {
+    OutOfStock: (errors, _ctx) => err(errors[0]),
+  },
+});
+```
+
+Command execution order:
+
+1. parse `inputSchema`
+2. execute descriptor input pipeline
+3. fail on multiple event-history boundary observations
+4. run every `validate` predicate and collect returned errors
+5. if validation errors exist, call `outputErr` by error type
+6. construct exactly one event via `event(ctx)`
+7. append event with DCB precondition if one boundary was observed
+8. run read-model event bindings via `onAfterInsert`
+9. run processors via `onAfterCommit`
+10. call `output(event, ctx)`
+11. parse `outputSchema`
+
+Command input descriptors:
 
 ```typescript
 input: compose<Input>()
-  .add(tagQuery({ key: "inventory" as const, tags: (ctx) => [...], reducer: inventoryReducer }))
-  .add(lookup({ key: "pricing" as const, model: prices, id: (ctx) => ctx.priceId, absent: { type: "MissingPrice" } as const }))
+  .add(tagQuery({ key: "state" as const, tags: (ctx) => [...], reducer }))
+  .add(lookup({ key: "pricing" as const, model: prices, id: (ctx) => ctx.priceId, absent }))
+  .add(lookup({ key: "user" as const, model: usersByEmail, args: (ctx) => ({ email: ctx.email }), absent }))
+  .add(castTagQuery({ key: "accountHistory" as const, cast, tags: (subject) => [...], reducer }))
   .add(derive({ fn: (ctx) => ok({ normalizedEmail: ctx.email.trim().toLowerCase() }) }))
-  .add(generate({ key: "token" as const, fn: () => crypto.randomUUID() })),
+  .add(generate({ key: "token" as const, fn: () => crypto.randomUUID() }));
 ```
 
-Raw async command `input` functions and raw `.add(async (ctx) => ...)` steps are not part of the public DSL.
+Descriptor semantics:
 
-Projection-backed command descriptors validate persisted rows before binding them. Missing rows map to `ReadModelNotFound` or the descriptor's `absent` domain error; malformed rows surface as framework `ReadModelSchemaError`.
+- `tagQuery` folds reducer over events matching tag intersection and records boundary observation.
+- `lookup` reads projection by `id` or read-model query `args`; missing row maps to descriptor `absent`; malformed row returns `ReadModelSchemaError`.
+- `castTagQuery` first resolves subject through projection lookup/query, binds subject under ``${key}Subject``, then runs reducer history using `tags(subject)` and records boundary observation.
+- `derive` returns `Result<TPatch, TError>` and can add multiple fields.
+- `generate` returns one computed value. Treat it as sync; current type does not unwrap async return types.
 
-`castTagQuery` resolves a subject via declarative projection lookup, then runs reducer-backed event history against that subject:
+Raw async command `input` functions and raw `.add(async (ctx) => ...)` steps are not public DSL.
+
+`outputErr` is a handler map keyed by domain error `type`. If command has domain errors, provide all handlers. If error type has no handler at runtime, framework falls back to first error. Framework errors (`SchemaError`, `ReadModelSchemaError`, `ConcurrencyError`, etc.) bypass `outputErr` and return directly.
+
+## `castTagQuery`
+
+`castTagQuery` supports id-based or query-args subject lookup:
 
 ```typescript
 const accountHistory = castTagQuery({
   key: "accountHistory" as const,
   cast: {
     model: accountsByEmail,
-    id: (ctx) => ctx.email,
-    absent: { type: "NotFound" } as const,
+    args: (ctx: { readonly email: string }) => ({ email: ctx.email }),
+    absent: { type: "AccountNotFound" as const, message: "No account" },
   },
-  tags: (subject) => [`account:${subject.id}`],
+  tags: (account) => [`account:${account.id}`],
   reducer: accountBalanceReducer,
 });
 
 input: compose<Input>().add(accountHistory),
 ```
 
-`castTagQuery` binds reducer state under `key` (`ctx.accountHistory`) and subject under ``${key}Subject`` (`ctx.accountHistorySubject`). Subject-dependent logic belongs in validation or a later `derive(...)`, not inside the reducer. Absent rows map to descriptor `absent`; malformed rows surface as `ReadModelSchemaError`.
-
-Command-side `tagQuery(...)` / `castTagQuery(...)` derive DCB append preconditions. Zero observations append without options; one observation appends with `{ boundaryTags, expectedPosition }`; multiple observations fail with `BoundaryObservationError`. Direct `eventStore.append(events, options)` treats present options as an active precondition; `expectedPosition: undefined` means boundary must be empty; `boundaryTags: undefined` or `[]` means global boundary. Conflicting appends return `ConcurrencyError`.
-
-## Query state pipeline
-
-Queries still use `state<T>().pipe(...)` with reducer-backed `tagQuery`, `projection`, and `generate` steps. Keep query examples on `state().pipe(...)`; keep command examples on `compose().add(...)`.
+Context after cast:
 
 ```typescript
-const orderReducer = defineReducer({
-  name: "order-state",
-  schemas: [OrderPlaced.schema] as const,
-  initial: { status: "missing" } as OrderState,
-  reduce: (state, event): OrderState => ({ ...state, status: event.type }),
-});
+ctx.accountHistory; // reducer state
+ctx.accountHistorySubject; // resolved subject row
+```
 
-defineQuery({
+Subject-dependent logic belongs in validation or later `derive(...)`, not reducer.
+
+## Query DSL
+
+Queries use `state<T>().pipe(...)` with `tagQuery`, `projection`, and `generate`.
+
+```typescript
+const getOrder = defineQuery({
   name: "get-order",
-  inputSchema,
-  outputSchema,
+  inputSchema: z.object({ orderId: z.string().uuid(), tenantId: z.string().uuid() }),
+  outputSchema: z.object({ status: z.string(), tenantName: z.string() }),
 
-  state: state<Input>()
-    .pipe(tagQuery({
-      key: "order" as const,
-      tags: (ctx) => [`order:${ctx.orderId}`],
-      reducer: orderReducer,
-    }))
-    .pipe(projection({
-      key: "settings" as const,
-      model: tenantSettingsModel,
-      id: (ctx) => ctx.tenantId,
-      required: true,
-    })),
+  state: state<{ readonly orderId: string; readonly tenantId: string }>()
+    .pipe(
+      tagQuery({
+        key: "order" as const,
+        tags: (ctx) => [`order:${ctx.orderId}`],
+        reducer: orderReducer,
+      }),
+    )
+    .pipe(
+      projection({
+        key: "settings" as const,
+        model: tenantSettingsModel,
+        id: (ctx) => ctx.tenantId,
+        required: true,
+      }),
+    ),
 
-  handle: (ctx) => ok({ /* shape output from ctx */ }),
+  handle: (ctx) => ok({ status: ctx.order.status, tenantName: ctx.settings.name }),
 });
 ```
 
-- `tagQuery`: queries events by tag intersection and folds with a `defineReducer(...)` definition.
-- `projection`: fetches a read model row. Pass `id` for direct key lookup, or `args` for a `defineReadModelQuery` model. Every returned row is schema-validated before `handle()` runs. `required: true` → fails on missing with `ReadModelNotFound`. `required: false` (default) → wraps missing as `Result<T, ReadModelNotFound>`. Malformed rows always fail with `ReadModelSchemaError`.
-- `generate`: adds a derived value (sync or async) to the context.
+`projection(...)` forms:
 
-## Projectors and processors
+```typescript
+// direct key lookup, optional (default): Result<T, ReadModelNotFound>
+projection({ key: "user" as const, model: usersModel, id: (ctx) => ctx.userId });
 
-Projectors are read-model event bindings attached to `defineReadModel({ events: [...] })`. They are pure: return projection descriptors; adapters perform storage writes after append.
+// direct key lookup, required: T or query fails with ReadModelNotFound
+projection({ key: "user" as const, model: usersModel, id: (ctx) => ctx.userId, required: true });
+
+// named query lookup, first row
+projection({ key: "user" as const, model: usersByEmail, args: (ctx) => ({ email: ctx.email }) });
+
+// named query lookup, many rows: ReadonlyArray<T>
+projection({ key: "orders" as const, model: ordersByCustomer, args: (ctx) => ({ customerId: ctx.customerId }), many: true });
+```
+
+Projection rows are schema-validated before `handle()`. Missing optional direct/query lookup becomes `Result<T, ReadModelNotFound>`. Missing required lookup fails query with `ReadModelNotFound`. Malformed rows fail query with `ReadModelSchemaError`. `many: true` validates every row and fails whole query on first malformed row.
+
+Query `handle(ctx)` returns `Result<TOutput, TError>`. Query input parse errors return `SchemaError`. Query output schema failure currently throws framework-bug error instead of returning `SchemaError`.
+
+## Projectors
+
+Projectors are read-model event bindings attached to `defineReadModel({ events: [...] })`. They are pure: return projection descriptors; adapters perform storage writes.
 
 ```typescript
 const orderSummaryModel = defineReadModel({
@@ -293,33 +542,22 @@ const orderSummaryModel = defineReadModel({
   events: [
     readModelEvent({
       schema: OrderPlaced.schema,
-      handler: (event, ctx) => ctx.project({
-        orderId: event.payload.orderId,
-        customerId: event.payload.customerId,
-        total: event.payload.total,
-      }),
+      handler: (event, ctx) =>
+        ctx.project({
+          orderId: event.payload.orderId,
+          customerId: event.payload.customerId,
+          total: event.payload.total,
+        }),
     }),
   ],
 });
 ```
 
-Read-model event and processor handlers can declare descriptor reads. Handler fields are inferred from descriptors: `getDescriptor(...)` -> `T | undefined`, `queryDescriptor(...)` -> `ReadonlyArray<T>`, and `eventsByTagsDescriptor(...)` -> reducer state. Read-model `get` hits and `query` rows are schema-validated before handler code runs; malformed rows throw `ReadModelSchemaError`, so projections/effects do not execute with bad data.
+Return `undefined` to skip projection write. Do not perform direct I/O in handlers. Use declared `reads` when existing read state is needed.
 
-```typescript
-readModelEvent({
-  schema: OrderPlaced.schema,
-  reads: {
-    existing: (event) => getDescriptor(orderSummaryModel, event.payload.orderId),
-  },
-  handler: (event, ctx) => ctx.project({
-    orderId: event.payload.orderId,
-    customerId: ctx.existing?.customerId ?? event.payload.customerId,
-    total: event.payload.total,
-  }),
-});
-```
+## Processors and effects
 
-Processors emit effect descriptors. Effect adapters execute side effects:
+Processors are pure event handlers that emit effect descriptors. Effect adapters execute side effects.
 
 ```typescript
 const sendOrderEmail = defineProcessor({
@@ -350,9 +588,11 @@ const emailAdapter: EffectAdapter = {
 };
 ```
 
-## Wiring
+Return `undefined` from processor handler to skip effects. `createEffectAdapterRegistry()` can register adapters and execute first matching adapter; missing match throws.
 
-Projection adapters are created per read model and passed to `createApp` as canonical read-model registrations. `inputAdapter` is optional; direct dispatch stays dynamic:
+## App wiring
+
+`createApp(...)` wires one event store, read-model registrations, slices, processors, effect adapters, and optional input adapter.
 
 ```typescript
 const eventStore = createInMemoryEventStore();
@@ -363,61 +603,258 @@ const app = createApp({
   readModels: [orderSummaryProjection],
   processors: [sendOrderEmail],
   effectAdapters: [emailAdapter],
-  slices: [placeOrderSlice, getOrderSlice],
+  slices: [placeOrder, getOrder],
 });
 
 await app.start();
-const result = await app.dispatch("place-order", { ... }); // sliceName: string, input: unknown
+const result = await app.dispatch("place-order", { productId, amount: 1 });
+await app.stop();
 ```
 
-The projection registration provides write, point-lookup, query capability, constraints, and event bindings to app wiring. It also remains destructurable as `{ adapter, get, query }` for replay helpers and focused adapter tests. Legacy `projectionAdapters` table/view entries and `projectionQuery` are deprecated compatibility paths only.
+`app.dispatch(sliceName: string, input: unknown)` is intentionally dynamic. Unknown input is parsed by slice schema. Typed invocation belongs in adapter route/binding config, not public in-process app clients.
 
-Typed invocation belongs at adapter route/binding config, not a public in-process typed app client:
+`readModels` canonical registrations:
 
 ```typescript
-const slices = [placeOrderSlice, getOrderSlice] as const;
+// writable table registration from adapter factory
+const usersProjection = createInMemoryProjectionAdapter(usersModel);
 
-const routes = defineFastifyRoutes<typeof slices>()([
-  {
-    method: "POST",
-    path: "/orders",
-    slice: "place-order",
-    // Runs before app dispatch; thrown parse errors use host/Fastify error handling.
-    input: ({ body }) => placeOrderInputSchema.parse(body),
-    respond: ({ result, reply }) => reply.send({ ok: result.isOk() }),
-  },
-]);
+// read-only view registration
+const usersView: ReadOnlyReadModelRegistration<UserRow> = {
+  kind: "view",
+  name: "users_view",
+  get: async (id) => usersProjection.get(id),
+  query: async (entries, orderBy, limit, orderDirection) =>
+    usersProjection.query(entries, orderBy, limit, orderDirection),
+};
 
-const inputAdapter = createFastifyInputAdapter({ port: 3000, routes });
-createApp({ eventStore, readModels: [orderSummaryProjection], inputAdapter, slices });
+createApp({ eventStore, readModels: [usersProjection, usersView], slices });
 ```
 
-Fastify route helpers type request-to-operation mapping only. `route.input(request)` runs before app dispatch; thrown parser/validation errors are host/Fastify error-handler responsibility. Authorization/session/token checks remain host responsibility.
-
-For Postgres:
+`createInMemoryProjectionAdapter(handle)` and `createPostgresProjectionAdapter(sql, handle)` return writable registrations:
 
 ```typescript
+{
+  kind: "readModel",
+  handle,
+  adapter, // ProjectionAdapter<T>
+  get,     // ProjectionGetter<T>
+  query,   // ProjectionQuery<T>
+}
+```
+
+Legacy `projectionAdapters` and registry-level `projectionQuery` still work but are deprecated compatibility paths. Prefer `readModels` with per-model `query`.
+
+Registration names must be unique. Writable adapter name must match handle name.
+
+## In-memory adapters
+
+```typescript
+const eventStore = createInMemoryEventStore();
+const projection = createInMemoryProjectionAdapter(readModel);
+const inputAdapter = createInMemoryAdapter();
+
+const app = createApp({ eventStore, readModels: [projection], inputAdapter, slices });
+await inputAdapter.adapter.dispatch("slice-name", input); // after app binding
+```
+
+In-memory event store supports append preconditions, tag queries, `onAfterInsert`, and `onAfterCommit`. In-memory projection adapter supports `insert`, `update`, `upsert`, `delete`, `get`, and query filtering/order/limit in memory.
+
+## Postgres adapters
+
+```typescript
+import postgres from "postgres";
 import {
   createPostgresEventStore,
   createPostgresProjectionAdapter,
   generateCreateTableDDL,
 } from "esther/postgres";
+
+const sql = postgres(connectionString);
+const eventStore = createPostgresEventStore({ sql });
+const usersProjection = createPostgresProjectionAdapter(sql, usersModel);
+const ddl = generateCreateTableDDL(usersModel);
 ```
 
-Use `generateCreateTableDDL(handle)` to produce a migration for a read model table.
+Postgres event store:
+
+- stores events in `events` table with `id`, `type`, `tags`, `payload`, `position`, `timestamp`
+- queries tags by JSONB containment and folds through reducer
+- serializes appends with transaction advisory lock
+- runs `onAfterInsert` inside append transaction; failure rolls back
+- runs `onAfterCommit` after commit
+- maps PostgreSQL unique/FK/check violations (`23505`, `23503`, `23514`) to `ConstraintError` using registered read-model constraint metadata
+
+Postgres projection adapter:
+
+- uses generated columns from read-model schema
+- `insert`, `update`, `upsert`, `delete` map to SQL
+- JSONB values must be JSON-compatible
+- `get` and `query` parse rows through read-model schema
+- rejects unknown `where`/`orderBy` columns
+- validates `limit` non-negative integer
+
+`generateCreateTableDDL(handle)` emits `-- migrate:up` / `-- migrate:down` SQL with primary key and unique constraints.
+
+## Filesystem adapter
+
+```typescript
+const eventStore = createFilesystemEventStore({
+  root: "/var/lib/my-app/events",
+  lockTimeoutMs: 30_000,
+  lockPollIntervalMs: 20,
+});
+
+const checkpoints = createFilesystemCheckpointStore({ root: "/var/lib/my-app/events" });
+await checkpoints.saveCheckpoint({ name: "worker-a", position: 42n, updatedAt: new Date() });
+const checkpoint = await checkpoints.loadCheckpoint("worker-a");
+```
+
+Filesystem event store:
+
+- append-only JSON event files under `root/events`
+- stores allocator in `root/internal/position.json`
+- builds tag indexes under `root/indexes/tags`
+- writes via temp file + rename
+- uses directory lock `root/internal/append.lock`
+- supports append preconditions, tag queries, `onAfterInsert`, `onAfterCommit`
+- validates tags: non-empty, no NUL
+- shards event files by tag priority: `issue:*`, then `parent:*`, then `kind:*`, then first tag, else `unassigned/root`
+
+Checkpoint store persists JSON files under `root/checkpoints`. Checkpoint names cannot be empty, `.`, `..`, or contain path separators.
+
+## CLI input adapter
+
+```typescript
+const inputAdapter = createCliInputAdapter();
+const app = createApp({ eventStore, inputAdapter, slices });
+
+await app.start(); // no-op
+const result = await inputAdapter.adapter.dispatch({
+  sliceName: "place-order",
+  input: { productId: "p1", amount: 1 },
+});
+```
+
+CLI adapter has no transport server. It binds app dispatch and exposes one-shot `adapter.dispatch({ sliceName, input })`. Dispatch before binding throws `"CLI adapter not bound to app"`.
+
+## Fastify input adapter
+
+Typed explicit routes:
+
+```typescript
+const operations = [placeOrder, getOrder] as const;
+
+const routes = defineFastifyRoutes<typeof operations>()([
+  {
+    method: "POST",
+    path: "/orders",
+    slice: "place-order",
+    input: ({ body }) => placeOrderInputSchema.parse(body),
+    respond: ({ result, reply }) => {
+      if (result.isOk()) return reply.status(201).send(result.value);
+      return reply.status(422).send({ error: result.error });
+    },
+  },
+  {
+    method: "GET",
+    path: "/orders/:orderId",
+    slice: "get-order",
+    input: ({ params }) => getOrderInputSchema.parse(params),
+  },
+]);
+
+const inputAdapter = createFastifyInputAdapter({
+  port: 3000,
+  hostname: "127.0.0.1",
+  routes,
+});
+
+createApp({ eventStore, readModels: [orderSummaryProjection], inputAdapter, slices: operations });
+```
+
+Fastify route helper behavior:
+
+- `defineFastifyRoutes<typeof operations>()([...])` preserves tuple operation names and types route `input` return values.
+- `route.input(request)` runs before app dispatch; thrown parse errors use host/Fastify error handling.
+- `route.respond({ result, request, reply })` gets operation-specific `Result` type.
+- If no `respond`, default response is `{ data }` on ok.
+- Default error mapping: `ConstraintError` + `ConcurrencyError` → 409, `SchemaError` → 400, `ReadModelNotFound` → 404, all other returned errors → 422.
+- Authorization/session/token checks remain host responsibility.
+
+If no explicit route matches, adapter wildcard dispatches:
+
+- path parts joined by `/` become slice name
+- GET uses `request.query` as input
+- other methods use `request.body` as input
+
+`FastifyRouteRequest` exposes `body`, `query`, `params`, `headers`, `method`, `url`, and raw `request`.
+
+## React adapter
+
+React adapter is consumption-side state/dispatch helper.
+
+```tsx
+import {
+  EstherProvider,
+  useProjection,
+  useDispatch,
+  createInMemoryReadModelStore,
+  createNotifyingReadModelStore,
+} from "esther/react";
+
+const readModelStore = createNotifyingReadModelStore(createInMemoryReadModelStore());
+
+function App({ children }: { readonly children: React.ReactNode }) {
+  return (
+    <EstherProvider readModelStore={readModelStore} dispatch={dispatch}>
+      {children}
+    </EstherProvider>
+  );
+}
+
+function OrderView({ orderId }: { readonly orderId: string }) {
+  const order = useProjection<OrderSummary>("order_summary", orderId);
+  const dispatch = useDispatch();
+
+  if (order.status === "loading") return <p>Loading</p>;
+  if (order.status === "not-found") return <p>Missing</p>;
+  return <p>{order.value.total}</p>;
+}
+```
+
+`ProjectionState<T>`:
+
+```typescript
+type ProjectionState<T> =
+  | { readonly status: "loading" }
+  | { readonly status: "found"; readonly value: T }
+  | { readonly status: "not-found" };
+```
+
+`ReadModelStore` has `get`, `set`, `delete`. `NotifyingReadModelStore` adds `subscribe(listener)`. `useProjection` subscribes to store changes and refetches. Hooks must be used under `EstherProvider`. `useDispatch` throws if provider missing; default provider dispatch throws `"dispatch not configured in EstherProvider"` if no dispatch prop supplied.
 
 ## Event store hooks
 
 Apps normally use read-model event bindings and processors. Low-level hooks remain available for adapters/infrastructure:
 
-- `onAfterInsert` — runs inside append transaction; failures roll back event.
-- `onAfterCommit` — runs after transaction commits; fire-and-forget.
+```typescript
+eventStore.onAfterInsert({ eventTypes: ["OrderPlaced"] }, async (event) => {});
+eventStore.onAfterCommit({ tags: ["customer:123"] }, async (event) => {});
+```
 
-Filter by `{ eventTypes: [...] }` or `{ tags: [...] }`. Handlers are async and return `Promise<void>`.
+Filters:
+
+- `{ eventTypes: [...] }` matches event type
+- `{ tags: [...] }` matches events containing every tag
+
+Handlers return `Promise<void>`. In Postgres, `onAfterInsert` runs inside append transaction; `onAfterCommit` runs after commit. In-memory and filesystem simulate same order but are not full SQL transactions.
 
 ## Errors
 
-Command execution returns `Result<TOutput, SliceError>`. The `SliceError` union:
+Operation dispatch returns `Result<TOutput, SliceError | TDomainError>` unless framework throws for unknown slice, bad query output schema, handler bugs, or hard adapter I/O failure.
+
+Framework error union:
 
 ```typescript
 type SliceError =
@@ -430,35 +867,115 @@ type SliceError =
   | ReadModelSchemaError;
 ```
 
-- `ValidationError` — `{ code, message }` from `validate` or `handle`
-- `ConcurrencyError` — `{ _tag: "ConcurrencyError", expectedPosition, actualPosition, boundaryTags, message }` from append precondition conflict
-- `BoundaryObservationError` — `{ _tag: "BoundaryObservationError", observations, message }` when one command observes multiple event-history boundaries
-- `ConstraintError` — `{ _tag: "ConstraintError", constraint, columns, table, message }` from database constraint violations (unique, FK, check). Projector writes that violate a constraint roll back the event and return this.
-- `SchemaError` — `{ _tag: "SchemaError", message, issues }` from Zod input/output parsing
-- `ReadModelNotFound` — `{ _tag: "ReadModelNotFound", name, id }` from required projection lookups
-- `ReadModelSchemaError` — `{ _tag: "ReadModelSchemaError", readModelName, queryName?, issues, message }` when a persisted row exists but does not satisfy the declared read-model schema
+Shapes:
 
-The Fastify adapter maps errors returned from dispatch `Result`s: `ConstraintError` and `ConcurrencyError` to HTTP 409, `SchemaError` to 400, `ReadModelNotFound` to 404, and other errors to 422. Exceptions thrown before dispatch, such as typed route `input` parser failures, use host/Fastify error handling.
+```typescript
+type ValidationError = {
+  readonly type: "ValidationError";
+  readonly code: string;
+  readonly message: string;
+};
 
-## Rules
+type ConcurrencyError = {
+  readonly _tag: "ConcurrencyError";
+  readonly message: string;
+  readonly expectedPosition: bigint | undefined;
+  readonly actualPosition: bigint | undefined;
+  readonly boundaryTags: ReadonlyArray<string> | undefined;
+};
 
-1. All user functions return `Result` -- never throw.
-2. Prefer `defineEvent(...)`; raw `DomainEvent<...>` is advanced type interop.
-3. `event` returns a single domain event directly — no `ok()`, no array.
-4. For queries: use `key: "foo" as const` on tagQuery/projection keys for literal type inference.
-5. Queries: start state with `state<z.output<typeof inputSchema>>()`.
-6. Schemas (`inputSchema`/`outputSchema`) are shared contracts -- define externally for client reuse.
-7. Projectors/processors are pure -- side effects go in effect adapters.
-8. Tags are your query model -- design them for the queries you need.
-9. The `output(event, ctx)` function shapes the command result from the appended event and the final context. `outputErr(error, ctx)` maps `input`/`validate` errors.
-10. Define read models with `defineReadModel`; attach projection bindings with `readModelEvent(...)`; use `projection()` for read state.
-11. App modules (commands, queries, read-model event bindings, processors) must not do I/O directly. Declare descriptors; adapters perform I/O.
-12. Query logic belongs in read model definitions. Never write WHERE/ORDER BY/filtering inline in a command or query — encapsulate it in a `defineReadModelQuery`.
-13. `app.dispatch(sliceName, input)` is dynamic; typed operation invocation belongs in adapter route/binding config.
+type BoundaryObservationError = {
+  readonly _tag: "BoundaryObservationError";
+  readonly message: string;
+  readonly observations: ReadonlyArray<{
+    readonly tags: ReadonlyArray<string>;
+    readonly maxPosition: bigint | undefined;
+  }>;
+};
+
+type ConstraintError = {
+  readonly _tag: "ConstraintError";
+  readonly constraint: string;
+  readonly columns: ReadonlyArray<string>;
+  readonly table: string;
+  readonly message: string;
+};
+
+type SchemaError = {
+  readonly _tag: "SchemaError";
+  readonly message: string;
+  readonly issues: ReadonlyArray<string>;
+};
+
+type ReadModelNotFound = {
+  readonly _tag: "ReadModelNotFound";
+  readonly name: string;
+  readonly id: string;
+};
+
+type ReadModelSchemaError = {
+  readonly _tag: "ReadModelSchemaError";
+  readonly readModelName: string;
+  readonly queryName?: string;
+  readonly issues: ReadonlyArray<string>;
+  readonly message: string;
+};
+```
+
+Notes:
+
+- Domain validation errors are user-defined `{ type: string, ... }` values returned from `validate` or descriptor input errors. They are not `ValidationError` unless user chooses that shape.
+- `SchemaError` comes from input parse failures and command output parse failures.
+- `ReadModelNotFound` comes from required projection reads or missing optional reads wrapped as `Result`.
+- `ReadModelSchemaError` means persisted row failed declared read-model schema.
+- `ConstraintError` usually comes from database unique/FK/check violations during projector writes; in Postgres this rolls back append transaction.
+- Unknown slice in `app.dispatch` throws `Error("Unknown slice: ...")`.
+
+## Public API type helpers
+
+Use operation helpers for adapter typing:
+
+```typescript
+const operations = [placeOrder, getOrder] as const;
+
+type Name = OperationName<typeof operations>; // "place-order" | "get-order"
+type PlaceOrderOperation = OperationByName<typeof operations, "place-order">;
+type Input = OperationInput<PlaceOrderOperation>;
+type Output = OperationOutput<PlaceOrderOperation>;
+type Error = OperationError<PlaceOrderOperation>;
+type DispatchResult = OperationResult<PlaceOrderOperation>;
+```
+
+If operations widen to `ReadonlyArray<RegisterableOperation>`, helper types widen to `string` / `unknown`. Preserve tuples with `as const` for typed adapter configs.
+
+## Rules and gotchas
+
+1. Prefer `defineEvent(...)`; raw `DomainEvent<...>` is advanced interop.
+2. Reducers use schemas: `schemas: [Event.schema] as const`, not event definitions.
+3. Commands use `compose().add(...)`; queries use `state().pipe(...)`.
+4. Command `input` must be descriptor pipeline, not raw async function.
+5. Command `.add(...)` accepts descriptor helpers only, not raw step functions.
+6. Command `validate` predicates return arrays of domain errors; framework collects all validation errors.
+7. Command `event(ctx)` returns one domain event directly — no `ok()`, no array.
+8. Command `output(event, ctx)` returns `Result<TOutput, TError>`.
+9. `outputErr` maps domain errors by `type`; framework errors bypass it.
+10. Query `handle(ctx)` returns `Result<TOutput, TError>`.
+11. `generate` should be sync in typed DSL.
+12. Use `key: "foo" as const` on `tagQuery`, `projection`, `lookup`, `generate` for literal context fields.
+13. Query state starts with `state<z.output<typeof inputSchema>>()` or equivalent named input type.
+14. Define input/output schemas externally for reuse by clients/adapters.
+15. Read-model query logic belongs in `defineReadModelQuery`; never inline filtering/sorting in slices.
+16. Projectors/processors are pure; direct I/O belongs in adapters.
+17. Effect adapters execute side effects from processor effect descriptors.
+18. App modules must not call DB/HTTP/filesystem/queues directly.
+19. `app.dispatch(sliceName, input)` is dynamic; typed calls belong in adapter route/binding config.
+20. Keep core free of adapter imports; adapters must not import sibling adapters.
+21. No `Record<string, unknown>` as value type in new code; use explicit shapes or `Record<never, never>` for intentionally empty object.
+22. Keep `llms.txt` updated when public API, DSL behavior, adapter usage, errors, or canonical examples change.
 
 ## Full example
 
-This example models only the source-account debit leg of a transfer. The command emits one `MoneyDebited` event; a target-account credit is produced by another command/process not shown here.
+Debit side of money transfer. Command emits one `MoneyDebited` event. Credit side would be separate command/process.
 
 ```typescript
 const transferInputSchema = z.object({
@@ -469,8 +986,8 @@ const transferInputSchema = z.object({
 type TransferInput = z.output<typeof transferInputSchema>;
 
 const transferOutputSchema = z.object({ transferId: z.string().uuid() });
+type TransferOutput = z.output<typeof transferOutputSchema>;
 
-// Reducer input for credits produced by another flow, not by this debit command.
 const MoneyCredited = defineEvent({
   type: "MoneyCredited",
   payload: z.object({ accountId: z.string().uuid(), amount: z.number().positive() }),
@@ -487,7 +1004,7 @@ const MoneyDebited = defineEvent({
 });
 type MoneyDebitedEvent = EventOf<typeof MoneyDebited>;
 
-type AccountBalance = { balance: number };
+type AccountBalance = { readonly balance: number };
 
 const accountBalanceReducer = defineReducer({
   name: "account-balance",
@@ -501,13 +1018,21 @@ const accountBalanceReducer = defineReducer({
   },
 });
 
-type TransferCtx = TransferInput & { readonly fromBalance: AccountBalance };
-type TransferError = { type: "InsufficientFunds"; code: "INSUFFICIENT_FUNDS"; message: string };
+type TransferCtx = TransferInput & {
+  readonly fromBalance: AccountBalance;
+  readonly transferId: string;
+};
 
-export const transferSlice = defineCommand<
+type TransferError = {
+  readonly type: "InsufficientFunds";
+  readonly code: "INSUFFICIENT_FUNDS";
+  readonly message: string;
+};
+
+const transferMoney = defineCommand<
   TransferInput,
   TransferCtx,
-  { transferId: string },
+  TransferOutput,
   MoneyDebitedEvent,
   TransferError
 >({
@@ -516,30 +1041,45 @@ export const transferSlice = defineCommand<
   outputSchema: transferOutputSchema,
 
   input: compose<TransferInput>()
-    .add(tagQuery({
-      key: "fromBalance" as const,
-      tags: (ctx) => ["account", `account:${ctx.fromAccountId}`],
-      reducer: accountBalanceReducer,
-    })),
+    .add(
+      tagQuery({
+        key: "fromBalance" as const,
+        tags: (ctx) => ["account", `account:${ctx.fromAccountId}`],
+        reducer: accountBalanceReducer,
+      }),
+    )
+    .add(generate({ key: "transferId" as const, fn: () => crypto.randomUUID() })),
 
   validate: [
     (ctx) => {
-      if (ctx.fromBalance.balance < ctx.amount)
-        return [{ type: "InsufficientFunds", code: "INSUFFICIENT_FUNDS", message: "Not enough balance" }];
+      if (ctx.fromBalance.balance < ctx.amount) {
+        return [
+          {
+            type: "InsufficientFunds" as const,
+            code: "INSUFFICIENT_FUNDS" as const,
+            message: "Not enough balance",
+          },
+        ];
+      }
       return [];
     },
   ],
 
-  event: (ctx) => MoneyDebited.create({
-    tags: ["transfer", `account:${ctx.fromAccountId}`],
-    payload: {
-      transferId: crypto.randomUUID(),
-      accountId: ctx.fromAccountId,
-      counterpartyAccountId: ctx.toAccountId,
-      amount: ctx.amount,
-    },
-  }),
+  event: (ctx) =>
+    MoneyDebited.create({
+      tags: ["transfer", `transfer:${ctx.transferId}`, `account:${ctx.fromAccountId}`],
+      payload: {
+        transferId: ctx.transferId,
+        accountId: ctx.fromAccountId,
+        counterpartyAccountId: ctx.toAccountId,
+        amount: ctx.amount,
+      },
+    }),
 
   output: (event, _ctx) => ok({ transferId: event.payload.transferId }),
+
+  outputErr: {
+    InsufficientFunds: (errors, _ctx) => err(errors[0]),
+  },
 });
 ```
