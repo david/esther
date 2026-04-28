@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: plan revised; needs plan check
+Status: plan approved; ready for breakdown
 
 ## Active artifacts
 Description:
@@ -14,6 +14,7 @@ Plan:
 
 Plan checks:
 - plan/checks/01-plan-sanity.md — needs revision; low-level event input public contract not locked
+- plan/checks/02-revised-plan-sanity.md — approved; plan/02 ready for breakdown
 
 ## Next suggested step
-- {{/skill:plan-check kf0q3-privatize-domain-event}}
+- {{/skill:breakdown kf0q3-privatize-domain-event --from .issues/lanes/backlog/kf0q3-privatize-domain-event/plan/02-implementation-plan.md}}
