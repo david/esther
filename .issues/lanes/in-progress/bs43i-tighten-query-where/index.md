@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; review-diff complete; gates passed; QA plan repaired
+Status: implementation complete; review-diff complete; gates passed; auto QA passed
 
 ## Active artifacts
 Description:
@@ -33,10 +33,10 @@ Review:
 - review/findings/01-gate-results.md — full gates passed: `bun run test`, `bun run lint`, `bun run typecheck`
 
 QA:
-- qa/summary.md — QA plan repaired with 3 auto-cli tasks
-- qa/tasks/qa-where-type-grammar.md — auto-cli type grammar verification
-- qa/tasks/qa-where-runtime-fail-fast.md — auto-cli runtime fail-fast verification
-- qa/tasks/qa-full-gates-and-docs.md — full gates plus direct `llms.txt` docs inspection
+- qa/summary.md — auto QA passed with 3 auto-cli tasks
+- qa/tasks/qa-where-type-grammar.md — auto-cli type grammar verification; passed
+- qa/tasks/qa-where-runtime-fail-fast.md — auto-cli runtime fail-fast verification; passed
+- qa/tasks/qa-full-gates-and-docs.md — full gates plus direct `llms.txt` docs inspection; passed
 
 ## Next suggested step
-- {{/skill:auto-qa bs43i-tighten-query-where}}
+- {{/skill:deploy bs43i-tighten-query-where}}

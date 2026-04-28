@@ -11,3 +11,9 @@
 ## Fixture state
 - Current branch checkout only.
 - No DB/browser state.
+
+## Auto QA run — 2026-04-28T22:47:30Z
+- Preflight: `git status --porcelain` clean.
+- Data migration preflight: `be/` directory absent; `cd be && bun run migrate:data:check` not applicable in this repo.
+- Command: `bun run typecheck`.
+- Result: exit 0.

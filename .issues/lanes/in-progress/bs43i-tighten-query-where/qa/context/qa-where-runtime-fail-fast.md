@@ -12,3 +12,8 @@
 ## Fixture state
 - Current branch checkout only.
 - No DB/browser state.
+
+## Auto QA run — 2026-04-28T22:47:30Z
+- Dependency `qa-where-type-grammar`: passed.
+- Command: `bun test src/core/read-model.test.ts`.
+- Result: exit 0; 48 pass, 0 fail, 77 expect() calls.

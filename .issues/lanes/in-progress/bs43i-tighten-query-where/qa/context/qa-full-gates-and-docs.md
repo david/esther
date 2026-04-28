@@ -41,6 +41,13 @@ status: ready:auto-cli
 - `cli-dev` DB query / raw SQL / internal script
 - one-off docs assertion script
 
+## Auto QA run — 2026-04-28T22:47:30Z
+- Dependency `qa-where-runtime-fail-fast`: passed.
+- `bun run test`: exit 0; 272 pass, 0 fail, 659 expect() calls.
+- `bun run lint`: exit 0; ESLint and dependency-cruiser passed.
+- `bun run typecheck`: exit 0; `tsgo --noEmit -p tsconfig.json` passed.
+- `llms.txt` lines 301-317: expected primitive-only `where` grammar present.
+
 ## Notes
 - `doc/qa.md`, `doc/qa-users.md`, and QA workflow docs are absent in this repo.
 - No browser workflow applies to this TypeScript library DSL change.
