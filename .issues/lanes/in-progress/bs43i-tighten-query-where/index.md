@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; review-diff complete; ready for gates artifact
+Status: implementation complete; review-diff complete; gates passed; ready for QA planning
 
 ## Active artifacts
 Description:
@@ -30,6 +30,7 @@ Implementation checkpoints:
 
 Review:
 - review/diff/01-review-diff.md — semantic diff review for `origin/main..HEAD`; no code follow-up findings
+- review/findings/01-gate-results.md — full gates passed: `bun run test`, `bun run lint`, `bun run typecheck`
 
 ## Next suggested step
-- {{/skill:gates bs43i-tighten-query-where}}
+- {{/skill:plan-qa bs43i-tighten-query-where}}
