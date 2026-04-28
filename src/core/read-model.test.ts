@@ -9,9 +9,11 @@ import {
   defineReadModel,
   defineReadModelQuery,
   eventsByTagsDescriptor,
+  queryDescriptor,
   getDescriptor,
   readModelEvent,
   type ReadModelEventBinding,
+  type Where,
 } from "./read-model";
 import { defineReducer } from "./reducer";
 
@@ -696,6 +698,114 @@ describe("read model events", () => {
 
     expect(model.events).toBeDefined();
     expect(model.events).toHaveLength(1);
+  });
+});
+
+// ── queryDescriptor ──────────────────────────────────────────────────
+
+describe("queryDescriptor", () => {
+  const schema = z.object({
+    id: z.string(),
+    name: z.string(),
+    age: z.number(),
+    score: z.number(),
+    active: z.boolean(),
+    createdAt: z.string().datetime(),
+    tags: z.array(z.string()),
+    metadata: z.object({ source: z.string() }),
+  });
+  type Row = z.infer<typeof schema>;
+  const model = defineReadModel({ name: "member_queries", key: "id", schema });
+  const unsafeWhere = (where: unknown): Where<Row> => where as Where<Row>;
+
+  test("emits entries for valid primitive equality, range, and in clauses", () => {
+    const descriptor = queryDescriptor({
+      model,
+      where: {
+        name: "Alice",
+        createdAt: { gte: "2026-01-01T00:00:00Z", lte: "2026-12-31T23:59:59Z" },
+        age: { gte: 18, lte: 65 },
+        score: { in: [10, 20] },
+        active: { in: [true, false] },
+      },
+    });
+
+    expect(descriptor.entries).toEqual([
+      { field: "name", op: "eq", value: "Alice" },
+      { field: "createdAt", op: "gte", value: "2026-01-01T00:00:00Z" },
+      { field: "createdAt", op: "lte", value: "2026-12-31T23:59:59Z" },
+      { field: "age", op: "gte", value: 18 },
+      { field: "age", op: "lte", value: 65 },
+      { field: "score", op: "in", values: [10, 20] },
+      { field: "active", op: "in", values: [true, false] },
+    ]);
+  });
+
+  test("skips undefined where field entries", () => {
+    const descriptor = queryDescriptor({
+      model,
+      where: unsafeWhere({ name: undefined, age: 30 }),
+    });
+
+    expect(descriptor.entries).toEqual([{ field: "age", op: "eq", value: 30 }]);
+  });
+
+  test("throws for unsafe unknown fields", () => {
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ missing: "x" }) })).toThrow(
+      /read model "member_queries" field "missing": unknown field/,
+    );
+  });
+
+  test("throws for unsafe object and array field equality", () => {
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ tags: "vip" }) })).toThrow(
+      /read model "member_queries" field "tags": field type ZodArray is not queryable/,
+    );
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ metadata: "manual" }) })).toThrow(
+      /read model "member_queries" field "metadata": field type ZodObject is not queryable/,
+    );
+  });
+
+  test("throws for unsafe object and array field in clauses", () => {
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ tags: { in: ["vip"] } }) })).toThrow(
+      /read model "member_queries" field "tags": field type ZodArray is not queryable/,
+    );
+    expect(() =>
+      queryDescriptor({ model, where: unsafeWhere({ metadata: { in: ["manual"] } }) }),
+    ).toThrow(
+      /read model "member_queries" field "metadata": field type ZodObject is not queryable/,
+    );
+  });
+
+  test("throws for unsafe object and array field range clauses", () => {
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ tags: { gte: "vip" } }) })).toThrow(
+      /read model "member_queries" field "tags": field type ZodArray is not queryable/,
+    );
+    expect(() =>
+      queryDescriptor({ model, where: unsafeWhere({ metadata: { lte: "manual" } }) }),
+    ).toThrow(
+      /read model "member_queries" field "metadata": field type ZodObject is not queryable/,
+    );
+  });
+
+  test("throws for unsafe boolean range clauses", () => {
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ active: { gte: false } }) })).toThrow(
+      /read model "member_queries" field "active": gte\/lte are only supported/,
+    );
+  });
+
+  test("throws for unsafe wrong primitive kinds", () => {
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ name: { in: [1] } }) })).toThrow(
+      /read model "member_queries" field "name": value must be strings/,
+    );
+    expect(() => queryDescriptor({ model, where: unsafeWhere({ age: "30" }) })).toThrow(
+      /read model "member_queries" field "age": value must be numbers/,
+    );
+  });
+
+  test("throws for unsafe non-primitive in values", () => {
+    expect(() =>
+      queryDescriptor({ model, where: unsafeWhere({ name: { in: [{ value: "Alice" }] } }) }),
+    ).toThrow(/read model "member_queries" field "name": value must be strings/);
   });
 });
 
