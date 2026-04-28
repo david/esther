@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import type { EventStore } from "../core/event-store";
 import { defineReducer } from "../core/reducer";
-import type { DomainEvent } from "../core/types";
+import type { EventRecordInput } from "../core/types";
 
 const APPEND_PRECONDITION_MESSAGE =
   "Append precondition failed: queried tag boundary changed before append";
@@ -34,7 +34,7 @@ function makeEvent(
   type: string,
   tags: ReadonlyArray<string> = [],
   payload: ConformancePayload,
-): DomainEvent<string, ConformancePayload> {
+): EventRecordInput<string, ConformancePayload> {
   return { type, tags, payload };
 }
 

@@ -12,13 +12,18 @@ export const EventId = (value: string): EventId => value as EventId;
 
 // ── Events ─────────────────────────────────────────────────────────────
 
-export type DomainEvent<TType extends string = string, TPayload = unknown> = {
+export type EventRecordInput<TType extends string = string, TPayload = unknown> = {
   readonly type: TType;
   readonly tags: ReadonlyArray<string>;
   readonly payload: TPayload;
 };
 
-export type StoredEvent<TType extends string = string, TPayload = unknown> = DomainEvent<
+export type DomainEvent<TType extends string = string, TPayload = unknown> = EventRecordInput<
+  TType,
+  TPayload
+>;
+
+export type StoredEvent<TType extends string = string, TPayload = unknown> = EventRecordInput<
   TType,
   TPayload
 > & {

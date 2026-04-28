@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
 import { defineReducer } from "../../core/reducer.js";
-import type { DomainEvent } from "../../core/types.js";
+import type { EventRecordInput } from "../../core/types.js";
 import { createFilesystemCheckpointStore, createFilesystemEventStore } from "./index.js";
 
 const StoredEventSchema = z.object({
@@ -58,7 +58,7 @@ function makeEvent(
   type: string,
   tags: ReadonlyArray<string>,
   payload: unknown = {},
-): DomainEvent<string, unknown> {
+): EventRecordInput<string, unknown> {
   return { type, tags, payload };
 }
 

@@ -3,7 +3,7 @@ import type { z } from "zod";
 import type { ReducerDefinition } from "./reducer.js";
 import type {
   AppendResult,
-  DomainEvent,
+  EventRecordInput,
   SliceError,
   StoredEvent,
   TagQueryResult,
@@ -38,7 +38,7 @@ export type AppendOptions = {
 
 export type EventStore = {
   readonly append: (
-    events: ReadonlyArray<DomainEvent>,
+    events: ReadonlyArray<EventRecordInput>,
     options?: AppendOptions,
   ) => Promise<Result<AppendResult, SliceError>>;
 

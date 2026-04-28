@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { defineEventStoreAppendConformanceTests } from "../../__tests__/event-store-append-conformance";
 import { defineReducer } from "../../core/reducer";
-import type { DomainEvent } from "../../core/types";
+import type { EventRecordInput } from "../../core/types";
 import { createInMemoryEventStore } from "./event-store";
 
 const AnyEventSchema = z
@@ -48,7 +48,7 @@ function makeEvent(
   type: string,
   tags: ReadonlyArray<string> = [],
   payload: unknown = {},
-): DomainEvent<string, unknown> {
+): EventRecordInput<string, unknown> {
   return { type, tags, payload };
 }
 
