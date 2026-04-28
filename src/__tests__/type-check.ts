@@ -220,6 +220,8 @@ const _boundaryObservationError: BoundaryObservationErrorType = BoundaryObservat
 const _boundaryObservationSliceError: SliceError = _boundaryObservationError;
 const _boundaryObservationErrorTag: "BoundaryObservationError" = _boundaryObservationError._tag;
 
+// @ts-expect-error raw DomainEvent is not root-public; use defineEvent/EventOf for app events
+type _RemovedDomainEvent = import("../index").DomainEvent;
 // @ts-expect-error runtime executors are internal and not root-public
 const _removedExecuteCommand = undefined as typeof import("../index").executeCommand;
 // @ts-expect-error projection stores are internal and not root-public

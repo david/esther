@@ -146,7 +146,6 @@ export type {
   AppendResult,
   BoundaryObservation,
   ConcurrencyError,
-  DomainEvent,
   EffectResult,
   EventRecordInput,
   SchemaError,

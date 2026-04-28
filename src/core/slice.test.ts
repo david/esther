@@ -7,7 +7,7 @@ import { defineReadModel, defineReadModelQuery } from "./read-model";
 import { defineReducer } from "./reducer";
 import { castTagQuery, defineCommand, derive, lookup, type ValidatePredicate } from "./slice";
 import type { EventStore } from "./event-store";
-import type { DomainEvent } from "./types";
+import type { EventRecordInput } from "./types";
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
@@ -332,7 +332,7 @@ describe("lookup", () => {
 describe("defineCommand outputErr", () => {
   type TestInput = { readonly email: string };
   type TestOutput = { readonly message: string };
-  type TestEvent = DomainEvent & {
+  type TestEvent = EventRecordInput<"TestEvent", Record<never, never>> & {
     readonly type: "TestEvent";
     readonly tags: ReadonlyArray<string>;
     readonly payload: Record<string, never>;

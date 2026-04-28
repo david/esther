@@ -63,7 +63,6 @@ import {
 import type {
   App,
   AppConfig,
-  DomainEvent,
   StoredEvent,
   EventOf,
   EventPayloadOf,
@@ -71,6 +70,7 @@ import type {
   ReducerDefinition,
   ReducerEvent,
   EventStore,
+  EventRecordInput,
   AppendOptions,
   TagQueryResult,
   SliceError,
@@ -175,10 +175,10 @@ type OrderPlacedPayload = EventPayloadOf<typeof OrderPlaced>;
 OrderPlaced.type; // "OrderPlaced"
 OrderPlaced.payloadSchema; // payload schema
 OrderPlaced.schema; // z.object({ type: z.literal(...), tags: z.array(z.string()), payload })
-OrderPlaced.create({ tags, payload }); // DomainEvent<"OrderPlaced", ...>
+OrderPlaced.create({ tags, payload }); // EventOf<typeof OrderPlaced>
 ```
 
-Raw `DomainEvent<...>` is useful for advanced interop, but prefer `defineEvent(...)` for app code.
+Use `defineEvent(...)` and `EventOf<typeof Definition>` for app-authored events.
 
 ## Tags and DCB
 
@@ -195,6 +195,8 @@ DCB consistency is tag-boundary based. Command-side event-history reads (`tagQue
 - more than one observation → fail with `BoundaryObservationError`
 
 Direct `eventStore.append(events, options)` treats present options as active precondition. `expectedPosition: undefined` means selected boundary must be empty. `boundaryTags: undefined` or `[]` means global stream boundary. Conflict returns `ConcurrencyError`.
+
+For custom event stores or adapter-level append interop only, use `EventRecordInput<TType, TPayload>` as the low-level structural input shape. Do not use `EventRecordInput` as app event-authoring guidance; app code should use `defineEvent(...)` and `EventOf<typeof Definition>`.
 
 ## Reducers and event-history reads
 
@@ -950,7 +952,7 @@ If operations widen to `ReadonlyArray<RegisterableOperation>`, helper types wide
 
 ## Rules and gotchas
 
-1. Prefer `defineEvent(...)`; raw `DomainEvent<...>` is advanced interop.
+1. Prefer `defineEvent(...)` and `EventOf<typeof Definition>` for app-authored events; `EventRecordInput` is low-level store/adapter interop only.
 2. Reducers use schemas: `schemas: [Event.schema] as const`, not event definitions.
 3. Commands use `compose().add(...)`; queries use `state().pipe(...)`.
 4. Command `input` must be descriptor pipeline, not raw async function.
