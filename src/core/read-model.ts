@@ -178,23 +178,6 @@ export function getDescriptor<T>(
   return { _tag: "get", model, id };
 }
 
-function isWhereRange(clause: unknown): clause is WhereRange<string | number> {
-  if (typeof clause !== "object" || clause === null) return false;
-  if (Array.isArray(clause)) return false;
-  return "gte" in clause || "lte" in clause;
-}
-
-function isWhereIn(clause: unknown): clause is WhereIn<string | number | boolean> {
-  if (typeof clause !== "object" || clause === null) return false;
-  if (Array.isArray(clause)) return false;
-  return "in" in clause;
-}
-
-function isPrimitive(v: unknown): v is string | number | boolean {
-  const t = typeof v;
-  return t === "string" || t === "number" || t === "boolean";
-}
-
 type WhereOperatorObject = {
   readonly in?: unknown;
   readonly gte?: unknown;
@@ -234,7 +217,8 @@ function getQueryableFieldKind(
     case "ZodArray":
     case "ZodObject":
       throwInvalidWhere(context, field, `field type ${kind} is not queryable`);
-    default:
+    case "ZodLiteral":
+    case "ZodUnknown":
       throwInvalidWhere(context, field, `field type ${kind} is not supported for where`);
   }
 }
@@ -340,34 +324,6 @@ function normalizeWhereForModel<T>(
       op: "eq",
       value: normalizeEqualityValue(context, field, kind, clause),
     });
-  }
-  return entries;
-}
-
-function normalizeWhere<T>(where: Where<T>): ReadonlyArray<WhereEntry> {
-  const entries: WhereEntry[] = [];
-  for (const [field, clause] of Object.entries(where)) {
-    if (clause === undefined) continue;
-
-    if (isWhereIn(clause)) {
-      entries.push({ field, op: "in", values: clause.in });
-      continue;
-    }
-
-    if (isWhereRange(clause)) {
-      if (clause.gte !== undefined) {
-        entries.push({ field, op: "gte", value: clause.gte });
-      }
-      if (clause.lte !== undefined) {
-        entries.push({ field, op: "lte", value: clause.lte });
-      }
-      continue;
-    }
-
-    // equality — clause is a primitive (string | number | boolean)
-    if (isPrimitive(clause)) {
-      entries.push({ field, op: "eq", value: clause });
-    }
   }
   return entries;
 }
