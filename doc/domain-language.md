@@ -42,6 +42,18 @@ Projection-backed command descriptors (`lookup` and `castTagQuery`) always schem
 
 The lower-level `Step<TIn, TOut, TErr>` type and `compose([...])` array form still exist as framework internals / utilities, but they are no longer the public command-input DSL.
 
+## Why command and query pipeline APIs differ
+
+`compose().add(...)` and `state().pipe(...)` are intentionally separate current public concepts, not accidental naming drift. Command input pipelines prepare appendable command context before validation and event append; command-side event-history reads can record DCB boundary observations that become append preconditions. Query state resolvers prepare read-only response context; query reads never append, never derive append preconditions, and can use projection read semantics.
+
+Descriptor categories make the split explicit:
+
+- Command-only descriptors: `lookup`, `castTagQuery`, and `derive`.
+- Query-only descriptors: `projection`.
+- Shared descriptors: `tagQuery` and `generate`; shared helper names do not mean shared operation semantics because each phase interprets them with command or query rules.
+
+This is the current API decision. Future convergence would need a separate migration and type-compatibility design.
+
 ## castTagQuery
 
 A command-side primitive that resolves a *subject* via a declarative lookup, then runs a tag query folded over `(events, subject)`. Use it inside a command `input` pipeline with `compose().add(castTagQuery(...))`.

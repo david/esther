@@ -148,6 +148,10 @@ Use `ctx.project(value, operation?)` inside `readModelEvent(...)` handlers to bu
 
 ## Command DSL
 
+### Why API names differ
+
+Commands use `compose().add(...)`; queries use `state().pipe(...)`. This split is intentional in current public API: command input pipelines prepare appendable context and command-side event-history reads can derive DCB append preconditions, while query state resolvers prepare read-only response context. Shared helpers such as `tagQuery(...)` and `generate(...)` keep phase-specific semantics; they do not imply one shared operation model.
+
 Event-history reads use `defineReducer(...)` and reducer-backed `tagQuery(...)`:
 
 ```typescript
@@ -241,7 +245,7 @@ Command-side `tagQuery(...)` / `castTagQuery(...)` derive DCB append preconditio
 
 ## Query state pipeline
 
-Queries still use `state<T>().pipe(...)` with reducer-backed `tagQuery`, `projection`, and `generate` steps:
+Queries still use `state<T>().pipe(...)` with reducer-backed `tagQuery`, `projection`, and `generate` steps. Keep query examples on `state().pipe(...)`; keep command examples on `compose().add(...)`.
 
 ```typescript
 const orderReducer = defineReducer({
