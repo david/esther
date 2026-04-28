@@ -24,3 +24,20 @@
 - `doc/commands.md` documents `bun run typecheck`, `bun run lint`, and `bun run test`.
 - No project `doc/qa.md`, `doc/qa-users.md`, or workflow docs exist in this repo at planning time.
 - No browser workflow is needed.
+
+## Auto QA setup/execution
+- Role: agent.
+- Device: desktop.
+- Browser session: none.
+- Start URL: none.
+- Repository commit under test: `50f3be2d81964ce6652f68403fbb4aded2ab4412`.
+- Worktree was clean before execution.
+- Data migration preflight command from auto-qa global protocol was attempted, but repo has no `be/` directory and project docs define no data migration command; treated as not applicable, not pending migrations.
+
+## Commands used
+- `bun run typecheck`
+- `bun run lint`
+- `bun run test`
+
+## CLI gaps
+- none
