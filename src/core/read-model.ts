@@ -96,26 +96,35 @@ function isSupportedZodType(zodType: unknown): boolean {
 /**
  * Where clause grammar for `QueryDescriptor`.
  *
- * Each field entry may be:
- *  - a bare value: equality match
- *  - a range: `{ gte?, lte? }`
- *  - a membership check: `{ in: [...] }`
+ * Queryable fields are string, number, and boolean fields only.
+ * Each queryable field entry may be:
+ *  - a bare string, number, or boolean value: equality match
+ *  - a string or number range: `{ gte?, lte? }`
+ *  - a string, number, or boolean membership check: `{ in: [...] }`
  *
- * Entries combine with AND. No OR, no nesting, no joins.
+ * Object and array fields remain supported for storage/projection but are
+ * omitted from `where`. Entries combine with AND. No OR, no nesting, no joins.
  */
-export type WhereRange<V> = {
+type PrimitiveWhereValue = string | number | boolean;
+type RangeWhereValue = string | number;
+
+export type WhereRange<V extends RangeWhereValue = RangeWhereValue> = {
   readonly gte?: V;
   readonly lte?: V;
 };
 
-export type WhereIn<V> = {
+export type WhereIn<V extends PrimitiveWhereValue = PrimitiveWhereValue> = {
   readonly in: ReadonlyArray<V>;
 };
 
-export type WhereClause<V> = V | WhereRange<V> | WhereIn<V>;
+export type WhereClause<V> = [V] extends [RangeWhereValue]
+  ? V | WhereRange<V> | WhereIn<V>
+  : [V] extends [boolean]
+    ? V | WhereIn<V>
+    : never;
 
 export type Where<T> = {
-  readonly [K in keyof T]?: WhereClause<T[K]>;
+  readonly [K in keyof T as WhereClause<T[K]> extends never ? never : K]?: WhereClause<T[K]>;
 };
 
 export type GetDescriptor<T> = {

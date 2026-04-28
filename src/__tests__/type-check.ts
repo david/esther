@@ -58,6 +58,10 @@ import {
   type SliceError,
   type StateResolver,
   type TagQueryResult,
+  type Where,
+  type WhereClause,
+  type WhereIn,
+  type WhereRange,
   type WritableReadModelRegistration,
   state,
   tagQuery,
@@ -269,6 +273,143 @@ const pricingModel = defineReadModel({
 });
 
 type PricingRow = { propertyId: string; pricePerNight: number };
+
+type SearchRow = {
+  readonly id: string;
+  readonly age: number;
+  readonly active: boolean;
+  readonly tags: ReadonlyArray<string>;
+  readonly metadata: { readonly source: string };
+};
+
+type LiteralSearchRow = {
+  readonly status: "open" | "paid";
+  readonly score: 1 | 2;
+  readonly archived: false;
+};
+
+type _StringWhereClause = Expect<
+  Equal<WhereClause<string>, string | WhereRange<string> | WhereIn<string>>
+>;
+type _NumberWhereClause = Expect<
+  Equal<WhereClause<number>, number | WhereRange<number> | WhereIn<number>>
+>;
+type _BooleanWhereClause = Expect<Equal<WhereClause<boolean>, boolean | WhereIn<boolean>>>;
+type _ObjectWhereClause = Expect<Equal<WhereClause<{ readonly source: string }>, never>>;
+type _ArrayWhereClause = Expect<Equal<WhereClause<ReadonlyArray<string>>, never>>;
+type _SearchWhereKeys = Expect<Equal<keyof Where<SearchRow>, "id" | "age" | "active">>;
+
+const _validSearchWhere: Where<SearchRow> = {
+  id: "row-1",
+  age: { gte: 18, lte: 65 },
+  active: { in: [true, false] },
+};
+const _validStringRangeWhere: Where<SearchRow> = { id: { gte: "a", lte: "z" } };
+const _validStringInWhere: Where<SearchRow> = { id: { in: ["row-1", "row-2"] } };
+const _validNumberEqualityWhere: Where<SearchRow> = { age: 42 };
+const _validNumberInWhere: Where<SearchRow> = { age: { in: [1, 2] } };
+const _validBooleanEqualityWhere: Where<SearchRow> = { active: true };
+const _validLiteralWhere: Where<LiteralSearchRow> = {
+  status: { in: ["open", "paid"] },
+  score: { gte: 1, lte: 2 },
+  archived: { in: [false] },
+};
+
+const searchModel = defineReadModel({
+  name: "searchRows",
+  schema: z.object({
+    id: z.string(),
+    age: z.number(),
+    active: z.boolean(),
+    tags: z.array(z.string()),
+    metadata: z.object({ source: z.string() }),
+  }),
+  key: "id",
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    id: "row-1",
+    age: { gte: 18, lte: 65 },
+    active: { in: [true, false] },
+  },
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    // @ts-expect-error object fields are not queryable by where
+    metadata: { source: "manual" },
+  },
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    // @ts-expect-error array fields are not queryable by where
+    tags: ["vip"],
+  },
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    // @ts-expect-error object fields cannot use in clauses
+    metadata: { in: [{ source: "manual" }] },
+  },
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    // @ts-expect-error array fields cannot use in clauses
+    tags: { in: [["vip"]] },
+  },
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    // @ts-expect-error object fields cannot use range clauses
+    metadata: { gte: { source: "manual" } },
+  },
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    // @ts-expect-error array fields cannot use range clauses
+    tags: { lte: ["vip"] },
+  },
+});
+
+queryDescriptor({
+  model: searchModel,
+  where: {
+    // @ts-expect-error boolean fields cannot use range clauses
+    active: { gte: false },
+  },
+});
+
+const _searchByAge = defineReadModelQuery({
+  name: "searchByAge",
+  source: searchModel,
+  args: z.object({ minAge: z.number() }),
+  resolve: (args) => ({ where: { age: { gte: args.minAge } } }),
+});
+
+const _searchByMetadata = defineReadModelQuery({
+  name: "searchByMetadata",
+  source: searchModel,
+  args: z.object({ source: z.string() }),
+  resolve: (args) => ({
+    where: {
+      // @ts-expect-error object fields are storage-only for where clauses
+      metadata: { source: args.source },
+    },
+  }),
+});
 
 // ── Reducer DSL type contract ──────────────────────────────────────────
 

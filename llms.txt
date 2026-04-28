@@ -298,18 +298,23 @@ const latestOrderOfWorship = defineReadModelQuery({
 });
 ```
 
-Where grammar:
+Where grammar supports primitive query fields only:
 
 ```typescript
 where: {
-  customerId: "customer-1",           // equality
-  total: { gte: 100, lte: 500 },       // range
-  status: { in: ["open", "paid"] },   // membership
+  customerId: "customer-1",           // string equality
+  total: { gte: 100, lte: 500 },       // string/number range
+  status: { in: ["open", "paid"] },   // string/number/boolean membership
+  active: true,                        // boolean equality
 }
 ```
 
 Rules:
 
+- `where` equality supports `z.string()`, `z.number()`, and `z.boolean()` fields.
+- `where` range `{ gte?, lte? }` supports `z.string()` and `z.number()` fields only.
+- `where` membership `{ in: [...] }` supports `z.string()`, `z.number()`, and `z.boolean()` fields.
+- `z.array(...)` and `z.object(...)` fields are storage/projection fields only; they are not queryable by `where`.
 - `source` must be `ReadModelHandle`, not another `ReadModelQueryHandle`.
 - `orderDirection` defaults to `"asc"`; allowed: `"asc" | "desc"`.
 - `limit` is optional; adapter validates non-negative integer where applicable.
