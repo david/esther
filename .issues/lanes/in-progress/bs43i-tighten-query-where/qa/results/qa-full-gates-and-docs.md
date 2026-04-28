@@ -1,31 +1,53 @@
-# qa-full-gates-and-docs results
+# QA Result — qa-full-gates-and-docs
 
-verdict: not-run
-run_at: none after repair
-result: pending:auto-cli
+verdict: passed
+run_at: 2026-04-28T22:47:30Z
+mode: auto-cli
 
 ## Task
 - Full gates plus direct `llms.txt` grammar inspection.
 
 ## Commands/workflow run
-- None after repair. This file resets stale blocked result from previous plan.
-
-## Previous blocker resolution
-- Previous result was `blocked:needs-cli-domain` because docs assertion was modeled as requiring missing documented CLI command.
-- Repaired task treats `llms.txt` as tracked source text and asks runner to inspect it directly.
-- No missing CLI domain remains.
+- `bun run test` — exit 0.
+- `bun run lint` — exit 0.
+- `bun run typecheck` — exit 0.
+- Direct read of `llms.txt` read-model query / `where` grammar section.
 
 ## Setup entities/IDs
-- none
+- none; current branch checkout only.
 
 ## Evidence paths
+- `llms.txt` lines 301-317
+- `doc/commands.md`
 - `.issues/lanes/in-progress/bs43i-tighten-query-where/qa/tasks/qa-full-gates-and-docs.md`
-- `.issues/lanes/in-progress/bs43i-tighten-query-where/qa/context/qa-full-gates-and-docs.md`
-- `.issues/lanes/in-progress/bs43i-tighten-query-where/qa/status/qa-full-gates-and-docs.md`
+
+## Evidence
+```text
+$ bun run test
+272 pass
+0 fail
+659 expect() calls
+Ran 272 tests across 21 files.
+
+$ bun run lint
+$ eslint src --max-warnings=0
+$ depcruise src --config .dependency-cruiser.cjs --output-type err
+✔ no dependency violations found (57 modules, 173 dependencies cruised)
+
+$ bun run typecheck
+$ tsgo --noEmit -p tsconfig.json
+```
+
+`llms.txt` evidence:
+- states `Where grammar supports primitive query fields only`.
+- equality supports `z.string()`, `z.number()`, and `z.boolean()` fields.
+- range `{ gte?, lte? }` supports `z.string()` and `z.number()` fields only.
+- membership `{ in: [...] }` supports `z.string()`, `z.number()`, and `z.boolean()` fields.
+- `z.array(...)` and `z.object(...)` fields are storage/projection fields only and not queryable by `where`.
 
 ## Expected vs actual
-- Expected next run: `bun run test`, `bun run lint`, and `bun run typecheck` pass; `llms.txt` documents primitive-only read-model `where` grammar.
-- Actual after repair: not run yet.
+- Expected: full test, lint, and typecheck gates pass; `llms.txt` documents primitive-only `where` grammar.
+- Actual: passed; all commands exited 0 and docs text matches expected contract.
 
 ## Workflow gaps
 - none; CLI/file-inspection task.
@@ -37,4 +59,4 @@ result: pending:auto-cli
 - none; no browser/HTML surface.
 
 ## Next handoff
-- {{/skill:auto-qa bs43i-tighten-query-where}}
+- {{/skill:deploy bs43i-tighten-query-where}}
