@@ -1,38 +1,40 @@
 # qa-full-gates-and-docs results
 
-verdict: blocked
-run_at: 2026-04-28T22:41:56+00:00
-result: blocked:needs-cli-domain
+verdict: not-run
+run_at: none after repair
+result: pending:auto-cli
 
 ## Task
-- Full gates plus automated `llms.txt` grammar assertion.
+- Full gates plus direct `llms.txt` grammar inspection.
 
 ## Commands/workflow run
-- No QA execution run. Requested task set failed CLI-domain gate before setup/test execution.
+- None after repair. This file resets stale blocked result from previous plan.
 
-## Preflight evidence
-- `git status --porcelain`: clean
-- data migration preflight: not applicable; repository has no `be/` directory
+## Previous blocker resolution
+- Previous result was `blocked:needs-cli-domain` because docs assertion was modeled as requiring missing documented CLI command.
+- Repaired task treats `llms.txt` as tracked source text and asks runner to inspect it directly.
+- No missing CLI domain remains.
 
 ## Setup entities/IDs
 - none
 
 ## Evidence paths
+- `.issues/lanes/in-progress/bs43i-tighten-query-where/qa/tasks/qa-full-gates-and-docs.md`
 - `.issues/lanes/in-progress/bs43i-tighten-query-where/qa/context/qa-full-gates-and-docs.md`
 - `.issues/lanes/in-progress/bs43i-tighten-query-where/qa/status/qa-full-gates-and-docs.md`
 
 ## Expected vs actual
-- Expected: documented command verifies `llms.txt` read-model `where` grammar.
-- Actual: `doc/commands.md` documents `bun run typecheck`, `bun run lint`, `bun run test`, `bun run format`, and `bun run build`, but no docs assertion command/domain.
+- Expected next run: `bun run test`, `bun run lint`, and `bun run typecheck` pass; `llms.txt` documents primitive-only read-model `where` grammar.
+- Actual after repair: not run yet.
 
 ## Workflow gaps
-- none; CLI-only task.
+- none; CLI/file-inspection task.
 
 ## Missing CLI domains/actions
-- docs: assert `llms.txt` read-model `where` grammar public contract text.
+- none.
 
 ## HTML discoverability gaps
 - none; no browser/HTML surface.
 
 ## Next handoff
-- {{/skill:plan-qa bs43i-tighten-query-where --repair qa-full-gates-and-docs}}
+- {{/skill:auto-qa bs43i-tighten-query-where}}

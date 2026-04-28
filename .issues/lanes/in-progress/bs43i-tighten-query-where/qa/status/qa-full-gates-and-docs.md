@@ -1,8 +1,13 @@
 # qa-full-gates-and-docs status
 
-status: blocked
-mode: needs-cli-domain
-last_run: 2026-04-28T22:41:56+00:00
-result: blocked: missing documented docs assertion command for `llms.txt` read-model `where` grammar
+status: pending
+mode: auto-cli
+last_run: none after repair
+result: not-run
 blocked_by:
-  - docs: documented command to assert `llms.txt` read-model `where` grammar
+  - none
+
+## Repair note
+- Repaired previous `needs-cli-domain` blocker.
+- `llms.txt` docs assertion now uses direct tracked-file inspection, not missing project CLI domain.
+- Gate commands remain documented in `doc/commands.md`.
