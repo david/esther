@@ -13,10 +13,11 @@
 - [plan/checks/01-plan-sanity.md](plan/checks/01-plan-sanity.md) — approved plan sanity check.
 - [impl/01.md](impl/01.md) — document intentional command/query DSL split.
 - [impl/checkpoints/01.md](impl/checkpoints/01.md) — aligned implementation checkpoint.
+- [review/diff/01-review-diff.md](review/diff/01-review-diff.md) — semantic diff review; no actionable findings.
 
 ## Latest finding
 
-Implementation checkpoint aligned. Split is documented as a current API decision: command descriptors can create DCB append preconditions; query resolvers are read-only and have projection read semantics. Public APIs stay `compose().add(...)` for commands and `state().pipe(...)` for queries.
+Semantic diff review complete. No actionable findings. Change set is docs/workflow only: public guidance now states command `compose().add(...)` and query `state().pipe(...)` are intentionally separate current concepts, with no runtime/API signature changes.
 
 ## Implementation tasks
 
@@ -26,4 +27,4 @@ Pending implementation tasks: 0.
 
 ## Suggested next step
 
-Use `{{/skill:review-diff vah3v}}`.
+Use `{{/skill:gates vah3v}}`.
