@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation tasks complete; pending review
+Status: review-diff complete; pending gates
 
 ## Active artifacts
 Description:
@@ -13,6 +13,9 @@ Plan:
 
 Plan checks:
 - plan/checks/01-plan-sanity.md — approved
+
+Reviews:
+- review/diff/01-review-diff.md — semantic diff digest; no blocking code findings; public API break noted as intended, final gates still needed
 
 Implementation tasks:
 - impl/01.md — Add canonical operations AppConfig contract — checkpoint aligned, then revised by user correction to remove alias
@@ -25,4 +28,4 @@ Pending implementation tasks: 0
 - No deprecated `slices` alias. `AppConfig.operations` only.
 
 ## Next suggested step
-- {{/skill:review-diff k5vbl-rename-slices}}
+- {{/skill:gates k5vbl-rename-slices}}
