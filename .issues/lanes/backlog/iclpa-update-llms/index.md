@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: planned
+Status: plan checked — approved
 
 ## Active artifacts
 Description:
@@ -14,5 +14,8 @@ Research:
 Plan:
 - plan/01-implementation-plan.md
 
+Plan checks:
+- plan/checks/01-plan-sanity.md — approved
+
 ## Next suggested step
-- {{/skill:plan-check iclpa-update-llms}}
+- {{/skill:breakdown iclpa-update-llms --from plan/01-implementation-plan.md}}
