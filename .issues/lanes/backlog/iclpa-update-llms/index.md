@@ -2,11 +2,14 @@
 
 ## Current state
 Lane: backlog
-Status: intake
+Status: researched
 
 ## Active artifacts
 Description:
 - description.md
 
+Research:
+- research/01-current-state.md
+
 ## Next suggested step
-- {{/skill:research iclpa-update-llms}}
+- {{/skill:plan iclpa-update-llms}}
