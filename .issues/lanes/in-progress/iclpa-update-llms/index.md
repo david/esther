@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: review complete — no actionable findings; ready for QA planning
+Status: QA planned — manual docs QA pending
 
 ## Active artifacts
 Description:
@@ -23,5 +23,9 @@ Implementation tasks:
 Review:
 - review/diff/01-review-diff.md — no actionable findings
 
+QA:
+- qa/summary.md — 1 manual task planned
+- qa/tasks/qa-llms-export-surface.md — pending
+
 ## Next suggested step
-- {{/skill:plan-qa iclpa-update-llms}}
+- {{/skill:manual-qa iclpa-update-llms}}
