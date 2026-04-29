@@ -988,6 +988,23 @@ const _inMemoryExecuteCheck: Promise<void> = inMemoryPricingAdapter.execute(
 
 const _directDispatchConfig: AppConfig = {
   eventStore: createInMemoryEventStore(),
+  operations: [],
+};
+
+const _deprecatedSlicesAliasConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+  slices: [],
+};
+
+// @ts-expect-error AppConfig requires either operations or deprecated slices
+const _missingOperationsConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+};
+
+// @ts-expect-error AppConfig rejects mixed operations and slices
+const _mixedOperationsConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+  operations: [],
   slices: [],
 };
 

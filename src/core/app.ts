@@ -30,18 +30,30 @@ export type {
 
 // ── App config ─────────────────────────────────────────────────────────
 
-export type AppConfig = {
+type AppConfigBase = {
   readonly eventStore: EventStore;
   readonly readModels?: ReadonlyArray<ReadModelRegistration> | undefined;
   /** @deprecated Prefer `readModels`. */
   readonly projectionAdapters?: ReadonlyArray<ProjectionAdapterEntry> | undefined;
   readonly effectAdapters?: ReadonlyArray<EffectAdapter> | undefined;
   readonly inputAdapter?: InputAdapterBinding | undefined;
-  readonly slices: ReadonlyArray<RegisterableOperation>;
   readonly processors?: ReadonlyArray<Processor> | undefined;
   /** @deprecated Prefer per-model `query` on `readModels`. */
   readonly projectionQuery?: ProjectionQueryAdapter | undefined;
 };
+
+type AppConfigWithOperations = AppConfigBase & {
+  readonly operations: ReadonlyArray<RegisterableOperation>;
+  readonly slices?: never;
+};
+
+type AppConfigWithDeprecatedSlices = AppConfigBase & {
+  /** @deprecated Prefer `operations`. */
+  readonly slices: ReadonlyArray<RegisterableOperation>;
+  readonly operations?: never;
+};
+
+export type AppConfig = AppConfigWithOperations | AppConfigWithDeprecatedSlices;
 
 // ── App instance ───────────────────────────────────────────────────────
 
@@ -53,8 +65,24 @@ export type App = {
 
 // ── Create app ─────────────────────────────────────────────────────────
 
+function resolveOperationsConfig(config: AppConfig): ReadonlyArray<RegisterableOperation> {
+  const hasOperations = "operations" in config;
+  const hasSlices = "slices" in config;
+
+  if (hasOperations && hasSlices) {
+    throw new Error("AppConfig cannot define both operations and slices; prefer operations");
+  }
+
+  if (hasOperations) {
+    return config.operations;
+  }
+
+  return config.slices;
+}
+
 export function createApp(config: AppConfig): App {
-  const { eventStore, inputAdapter, slices } = config;
+  const { eventStore, inputAdapter } = config;
+  const operations = resolveOperationsConfig(config);
 
   const readModelRegistrations = normalizeReadModelRegistrations({
     readModels: config.readModels,
@@ -174,13 +202,13 @@ export function createApp(config: AppConfig): App {
   // Wire read model event bindings via onAfterInsert
   wireReadModelEvents(projectionAdapters, eventStore, getReadInterpreter());
 
-  // Compile each slice — the compile closure captured the generics
+  // Compile each operation — the compile closure captured the generics
   // at defineCommand/defineQuery time, so no casts here.
   const compiled = new Map<string, CompiledOperation>();
   const deps = { eventStore, projectionStore };
 
-  for (const slice of slices) {
-    compiled.set(slice.name, slice.compile(deps));
+  for (const operation of operations) {
+    compiled.set(operation.name, operation.compile(deps));
   }
 
   async function dispatch(sliceName: string, input: unknown): Promise<Result<unknown, unknown>> {

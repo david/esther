@@ -15,10 +15,10 @@ const pingQuery = defineQuery({
 });
 
 describe("createApp", () => {
-  test("dispatches directly without an input adapter", async () => {
+  test("dispatches operations directly without an input adapter", async () => {
     const app = createApp({
       eventStore: createInMemoryEventStore(),
-      slices: [pingQuery],
+      operations: [pingQuery],
     });
 
     const result = await app.dispatch("ping", { message: "pong" });
@@ -29,10 +29,35 @@ describe("createApp", () => {
     }
   });
 
-  test("throws the existing unknown slice error without an input adapter", async () => {
+  test("dispatches deprecated slices alias", async () => {
     const app = createApp({
       eventStore: createInMemoryEventStore(),
       slices: [pingQuery],
+    });
+
+    const result = await app.dispatch("ping", { message: "alias" });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ message: "alias" });
+    }
+  });
+
+  test("rejects mixed operations and slices config", () => {
+    expect(() =>
+      // @ts-expect-error runtime guard covers unsafe JavaScript callers with both keys
+      createApp({
+        eventStore: createInMemoryEventStore(),
+        operations: [pingQuery],
+        slices: [pingQuery],
+      }),
+    ).toThrow("AppConfig cannot define both operations and slices; prefer operations");
+  });
+
+  test("throws the existing unknown slice error without an input adapter", async () => {
+    const app = createApp({
+      eventStore: createInMemoryEventStore(),
+      operations: [],
     });
 
     await expect(app.dispatch("missing", { message: "pong" })).rejects.toThrow(
