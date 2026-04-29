@@ -63,6 +63,10 @@ import {
 import type {
   App,
   AppConfig,
+  InputPipeline,
+  ProjectionAdapterEntry,
+  ProjectionAdapterTableEntry,
+  ProjectionAdapterViewEntry,
   StoredEvent,
   EventOf,
   EventPayloadOf,
@@ -72,6 +76,7 @@ import type {
   EventStore,
   EventRecordInput,
   AppendOptions,
+  AppendResult,
   TagQueryResult,
   SliceError,
   ValidationError,
@@ -79,27 +84,62 @@ import type {
   ConcurrencyError,
   BoundaryObservation,
   ConstraintMetadata,
+  EventFilter,
+  OnAfterInsertHandler,
+  OnAfterCommitHandler,
   EffectAdapter,
   EffectAdapterRegistry,
   EffectResult,
+  Processor,
+  ProcessorEventBinding,
   InputAdapter,
   InputAdapterBinding,
   DispatchFn,
+  AppDispatchFn,
+  CliDispatchRequest,
+  CliInputAdapter,
+  InMemoryInputAdapter,
+  Checkpoint,
+  CheckpointStore,
+  FilesystemEventStoreConfig,
   ReadModelHandle,
   ReadModelQueryHandle,
   ReadModelRegistration,
   WritableReadModelRegistration,
   ReadOnlyReadModelRegistration,
+  ReadModelEventBinding,
+  ReadDescriptor,
+  GetDescriptor,
+  QueryDescriptor,
+  EventsByTagsDescriptor,
   ProjectionAdapter,
+  ProjectionQueryAdapter,
   ProjectionGetter,
   ProjectionQuery,
   ProjectionResult,
+  Constraints,
   Operation,
   Where,
   WhereClause,
+  WhereEntry,
   WhereRange,
   WhereIn,
   OrderDirection,
+  Command,
+  Query,
+  CommandDefinition,
+  CastTagQueryDescriptor,
+  CommandLookupDescriptor,
+  CommandLookupByArgsDescriptor,
+  CommandLookupByIdDescriptor,
+  StateResolver,
+  DeriveStep,
+  GenerateStep,
+  OutputErrHandlers,
+  ProjectionStep,
+  QueryProjectionStep,
+  TagQueryStep,
+  ValidatePredicate,
   OperationName,
   OperationByName,
   OperationInput,
@@ -109,6 +149,8 @@ import type {
   RegisterableOperation,
 } from "esther";
 ```
+
+Public package entrypoints from `package.json`: `esther`, `esther/cli`, `esther/postgres`, `esther/filesystem`, `esther/fastify`, `esther/test`, and `esther/react`.
 
 Adapter subpaths:
 
@@ -130,14 +172,26 @@ import {
   createPostgresEventStore,
   createPostgresProjectionAdapter,
   generateCreateTableDDL,
+  isConstraintViolation,
+  mapConstraintError,
 } from "esther/postgres";
+import type { PostgresEventStoreConfig } from "esther/postgres";
 
 import {
   createFilesystemEventStore,
   createFilesystemCheckpointStore,
 } from "esther/filesystem";
+import type {
+  FilesystemEventStoreConfig,
+  Checkpoint,
+  CheckpointStore,
+} from "esther/filesystem";
 
 import { createCliInputAdapter } from "esther/cli";
+import type { CliDispatchRequest, CliInputAdapter, DispatchFn as CliDispatchFn } from "esther/cli";
+
+import { createInMemoryEventStore, createInMemoryAdapter } from "esther/test";
+import type { DispatchFn as InMemoryDispatchFn, InMemoryInputAdapter } from "esther/test";
 
 import {
   EstherProvider,
@@ -153,7 +207,9 @@ import type {
 } from "esther/react";
 ```
 
-`esther/test` currently points at in-memory event/input adapter exports. Main `esther` export is canonical for `createInMemoryProjectionAdapter`.
+`esther/test` exports only `createInMemoryEventStore`, `createInMemoryAdapter`, `DispatchFn`, and `InMemoryInputAdapter`. Main `esther` export is canonical for `createInMemoryProjectionAdapter`; it is not exported from `esther/test`.
+
+Root `DispatchFn` is the in-memory input adapter dispatch type. Root `AppDispatchFn` aliases the core input-adapter dispatch boundary. Both remain dynamic `(sliceName: string, input: unknown)` helper types, not typed in-process app clients.
 
 ## Events
 
@@ -277,7 +333,7 @@ Read-model rules:
 
 ## Read-model queries
 
-Use `defineReadModelQuery(...)` for named parameterized lookups. Query logic belongs in query definitions, not slices.
+Use `defineReadModelQuery(...)` for named parameterized lookups. Query logic belongs in query definitions, not operations.
 
 ```typescript
 const usersByEmail = defineReadModelQuery({
@@ -320,7 +376,7 @@ Rules:
 - `source` must be `ReadModelHandle`, not another `ReadModelQueryHandle`.
 - `orderDirection` defaults to `"asc"`; allowed: `"asc" | "desc"`.
 - `limit` is optional; adapter validates non-negative integer where applicable.
-- Query args are typed by `args` schema; current runtime `buildQuery` does not parse args itself. Parse external input at adapter/slice boundary.
+- Query args are typed by `args` schema; current runtime `buildQuery` does not parse args itself. Parse external input at adapter/operation boundary.
 - `projection({ model: queryHandle, args })` uses `projectionStore.query` for first row.
 - `projection({ model: queryHandle, args, many: true })` uses `projectionStore.queryMany` and returns every matching row.
 
@@ -672,7 +728,7 @@ const projection = createInMemoryProjectionAdapter(readModel);
 const inputAdapter = createInMemoryAdapter();
 
 const app = createApp({ eventStore, readModels: [projection], inputAdapter, operations });
-await inputAdapter.adapter.dispatch("slice-name", input); // after app binding
+await inputAdapter.adapter.dispatch("place-order", input); // after app binding
 ```
 
 In-memory event store supports append preconditions, tag queries, `onAfterInsert`, and `onAfterCommit`. In-memory projection adapter supports `insert`, `update`, `upsert`, `delete`, `get`, and query filtering/order/limit in memory.
@@ -713,6 +769,8 @@ Postgres projection adapter:
 
 `generateCreateTableDDL(handle)` emits `-- migrate:up` / `-- migrate:down` SQL with primary key and unique constraints.
 
+`PostgresEventStoreConfig`, `isConstraintViolation`, and `mapConstraintError` are public low-level adapter helpers for host/adapter interop. Do not treat constraint helpers as canonical app DSL.
+
 ## Filesystem adapter
 
 ```typescript
@@ -738,7 +796,7 @@ Filesystem event store:
 - validates tags: non-empty, no NUL
 - shards event files by tag priority: `issue:*`, then `parent:*`, then `kind:*`, then first tag, else `unassigned/root`
 
-Checkpoint store persists JSON files under `root/checkpoints`. Checkpoint names cannot be empty, `.`, `..`, or contain path separators.
+Checkpoint store persists JSON files under `root/checkpoints`. `FilesystemEventStoreConfig`, `Checkpoint`, and `CheckpointStore` are public config/checkpoint types. Checkpoint names cannot be empty, `.`, `..`, or contain path separators.
 
 ## CLI input adapter
 
@@ -753,7 +811,7 @@ const result = await inputAdapter.adapter.dispatch({
 });
 ```
 
-CLI adapter has no transport server. It binds app dispatch and exposes one-shot `adapter.dispatch({ sliceName, input })`. Dispatch before binding throws `"CLI adapter not bound to app"`.
+CLI adapter has no transport server. It binds app dispatch and exposes one-shot `adapter.dispatch({ sliceName, input })`. Subpath `esther/cli` exports `CliDispatchRequest`, `CliInputAdapter`, and dynamic `DispatchFn`. Dispatch before binding throws `"CLI adapter not bound to app"`.
 
 ## Fastify input adapter
 
@@ -801,7 +859,7 @@ Fastify route helper behavior:
 
 If no explicit route matches, adapter wildcard dispatches:
 
-- path parts joined by `/` become slice name
+- path parts joined by `/` become dispatch `sliceName`
 - GET uses `request.query` as input
 - other methods use `request.body` as input
 
