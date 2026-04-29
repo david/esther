@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: plan checked — approved
+Status: breakdown ready — 1 pending implementation task
 
 ## Active artifacts
 Description:
@@ -17,5 +17,9 @@ Plan:
 Plan checks:
 - plan/checks/01-plan-sanity.md — approved
 
+Implementation tasks:
+- impl/01.md — pending
+
 ## Next suggested step
-- {{/skill:breakdown iclpa-update-llms --from plan/01-implementation-plan.md}}
+- {{/skill:impl iclpa-update-llms}}
+- Skill loop alternative: {{/skill-loop 1 /skill:impl iclpa-update-llms}}
