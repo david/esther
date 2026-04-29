@@ -991,20 +991,21 @@ const _directDispatchConfig: AppConfig = {
   operations: [],
 };
 
-const _deprecatedSlicesAliasConfig: AppConfig = {
-  eventStore: createInMemoryEventStore(),
-  slices: [],
-};
-
-// @ts-expect-error AppConfig requires either operations or deprecated slices
+// @ts-expect-error AppConfig requires operations
 const _missingOperationsConfig: AppConfig = {
   eventStore: createInMemoryEventStore(),
 };
 
-// @ts-expect-error AppConfig rejects mixed operations and slices
+const _removedSlicesConfig: AppConfig = {
+  eventStore: createInMemoryEventStore(),
+  // @ts-expect-error AppConfig rejects removed slices key
+  slices: [],
+};
+
 const _mixedOperationsConfig: AppConfig = {
   eventStore: createInMemoryEventStore(),
   operations: [],
+  // @ts-expect-error AppConfig rejects removed slices key even when operations exists
   slices: [],
 };
 
