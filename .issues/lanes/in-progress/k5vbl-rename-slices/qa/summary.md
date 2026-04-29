@@ -1,33 +1,39 @@
 # QA Summary — k5vbl-rename-slices
 
-status: planned
+status: partial-passed
 last_updated: 2026-04-29
 
 ## Source of truth
 - Corrected issue request: `AppConfig.operations` only; no deprecated `slices` alias.
 - Dynamic dispatch/adapters remain unchanged: `dispatch(sliceName, input)`, CLI `sliceName`, Fastify `route.slice`, and `Unknown slice: ...` are compatibility surfaces outside this issue.
 
-## Planned tasks
-| QA key | Mode | Role | Status | Purpose |
-| --- | --- | --- | --- | --- |
-| `qa-public-api-contract` | auto-cli | agent | pending | Re-run documented gates proving public API/type/runtime contract. |
-| `qa-guidance-vocabulary` | manual | agent | pending | Inspect public docs and LLM guidance for operations-only vocabulary and no fake `defineSlice(...)`. |
+## Counts
+- passed: 1
+- failed: 0
+- blocked: 0
+- skipped/manual remaining: 1
 
-## Mode counts
-- auto-cli: 1
-- auto-browser: 0
-- manual: 1
-- needs-workflow: 0
-- needs-cli-domain: 0
+## Tasks run
+| QA key | Mode | Status | Evidence |
+| --- | --- | --- | --- |
+| `qa-public-api-contract` | auto-cli | passed | `qa/results/qa-public-api-contract.md` |
 
-## Workflow-learning needs
+## Tasks not run
+| QA key | Mode | Status | Reason |
+| --- | --- | --- | --- |
+| `qa-guidance-vocabulary` | manual | pending | Manual document inspection remains; auto-qa did not execute manual task. |
+
+## Failures and debug handoffs
+- None.
+
+## Workflow-learning backlog
 - None. Repo has no browser QA workflow docs, and this issue has no UI/browser surface.
 
-## Missing CLI domains/actions
-- None for planned tasks. `qa-public-api-contract` uses documented commands in `doc/commands.md`; `qa-guidance-vocabulary` is human document inspection with no CLI setup or assertion need.
+## Missing CLI domains/actions and requested additions
+- None for planned tasks. `qa-public-api-contract` uses documented commands in `doc/commands.md`; `qa-guidance-vocabulary` is manual document inspection with no CLI setup or assertion need.
 
-## HTML discoverability improvements
+## HTML discoverability proposals
 - None. No HTML/browser UI involved.
 
-## Project QA docs note
-- `doc/qa.md`, `doc/qa-users.md`, and `doc/qa/workflows/README.md` are not present in this repo. Planned tasks rely on `doc/commands.md`, `doc/testing.md`, issue artifacts, and no-browser/manual document inspection.
+## Next command
+- Manual tasks remain: `{{/skill:manual-qa k5vbl-rename-slices}}`
