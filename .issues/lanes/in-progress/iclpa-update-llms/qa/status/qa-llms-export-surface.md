@@ -1,6 +1,6 @@
 # QA Status — qa-llms-export-surface
 
-status: pending
+status: passed
 mode: manual
 role: maintainer
 browser_session: none
@@ -9,11 +9,12 @@ depends_on:
   - none
 
 ## Current state
-- Planned, not executed.
-- Ready for manual QA.
+- Manual docs/source inspection complete.
+- Passed all verification details.
 
 ## Blockers
 - none
 
 ## Last update
-- QA plan created from `plan/01-implementation-plan.md`, `impl/01.md`, `impl/checkpoints/01.md`, and `review/diff/01-review-diff.md`.
+- QA executed 2026-04-29.
+- Evidence recorded in `qa/results/qa-llms-export-surface.md`.

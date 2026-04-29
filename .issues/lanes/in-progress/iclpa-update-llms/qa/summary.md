@@ -3,7 +3,7 @@
 ## Planned tasks
 | QA key | Title | Mode | Status | Notes |
 | --- | --- | --- | --- | --- |
-| qa-llms-export-surface | Verify llms public export surface | manual | pending | Manual docs/source inspection; no browser or runtime fixture needed |
+| qa-llms-export-surface | Verify llms public export surface | manual | passed | Manual docs/source inspection passed; no browser or runtime fixture needed |
 
 ## Mode counts
 | Mode | Count |
@@ -30,5 +30,13 @@
 - `doc/qa.md`, `doc/qa-users.md`, `doc/qa/workflows/README.md`, and `doc/workflows/README.md` are absent.
 - No browser workflow is needed for this docs-only QA task.
 
+## Results
+- Passed: 1
+- Failed: 0
+- Skipped: 0
+- Auto tasks remaining: 0
+- CLI gaps: none
+- QA-task-quality gaps: none
+
 ## Next command
-- {{/skill:manual-qa iclpa-update-llms}}
+- {{/skill:deploy iclpa-update-llms}}
