@@ -9,7 +9,7 @@ Esther is a library repo, not an application. Most work falls into one of three 
 
 ## Read this doc when
 
-- you are changing `createApp`, slice execution, read-model behavior, or event-store semantics
+- you are changing `createApp`, operation execution, read-model behavior, or event-store semantics
 - you need to add a new adapter or move code across module boundaries
 - you are unsure whether logic belongs in core, an adapter, or user-defined app modules
 
@@ -48,12 +48,12 @@ A query resolves read-only state through `state().pipe(...)` and returns validat
 - optional projection query adapter
 - optional effect adapters
 - optional input adapter binding for transport/runtime invocation
-- registered slices and processors
+- registered operations and processors
 
 Keep framework-wide orchestration in core. Keep runtime-specific behavior in adapters.
 
 ### Invocation model
-Application modules declare behavior through slices, read models, processors, and adapter configuration. They should not directly orchestrate command/query invocation by calling a typed in-process app client.
+Application modules declare behavior through commands, queries, read models, processors, and adapter configuration. They should not directly orchestrate command/query invocation by calling a typed in-process app client.
 
 Input adapters are the runtime invocation boundary when transport is configured. They receive external input as `unknown`, choose or receive a slice name at runtime, and call the dynamic app dispatch function:
 
@@ -61,7 +61,7 @@ Input adapters are the runtime invocation boundary when transport is configured.
 dispatch(sliceName: string, input: unknown)
 ```
 
-Apps without transport can call the same dynamic `app.dispatch(sliceName, input)` boundary directly. Core then validates input with the slice schema and executes the existing command/query pipeline. Type safety for user-facing entry points should be expressed in adapter configuration or typed route/binding helpers, while the runtime adapter-to-core boundary remains dynamic.
+Apps without transport can call the same dynamic `app.dispatch(sliceName, input)` boundary directly. Core then validates input with the selected operation schema and executes the existing command/query pipeline. Type safety for user-facing entry points should be expressed in adapter configuration or typed route/binding helpers, while the runtime adapter-to-core boundary remains dynamic.
 
 ## Architectural boundaries
 
@@ -77,17 +77,17 @@ If a change wants to cross one of these lines, redesign first.
 
 ## App-module rules
 
-User-defined slices, read models, read-model event bindings, and processors are declarative application logic. They must stay pure with respect to I/O.
+User-defined commands, queries, read models, read-model event bindings, and processors are declarative application logic. They must stay pure with respect to I/O.
 
 Do:
-- declare reads through slice/read-model DSLs
+- declare reads through operation/read-model DSLs
 - return effects from processors
 - keep query logic inside `defineReadModelQuery`
 - let adapters execute I/O
 
 Do not:
-- call databases, HTTP clients, filesystem APIs, or queues directly from slices/read models/processors/projectors
-- write inline SQL or ad hoc filtering/sorting logic in slices when it should live in a named read-model query
+- call databases, HTTP clients, filesystem APIs, or queues directly from commands/queries/read models/processors/projectors
+- write inline SQL or ad hoc filtering/sorting logic in commands/queries when it should live in a named read-model query
 - introduce `async` app-module callbacks just to reach external systems
 
 ## Major subsystems

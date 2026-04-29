@@ -599,9 +599,9 @@ Return `undefined` from processor handler to skip effects. `createEffectAdapterR
 
 ## App wiring
 
-`createApp(...)` wires one event store, read-model registrations, slices, processors, effect adapters, and optional input adapter.
+`createApp(...)` wires one event store, read-model registrations, operations, processors, effect adapters, and optional input adapter.
 
-In `AppConfig`, `slices` means dispatchable operations (`defineCommand(...)` or `defineQuery(...)`). It does not mean an event-modeling slice, aggregate, module, or feature boundary. There is currently no `defineSlice(...)` DSL.
+In `AppConfig`, `operations` is the canonical key for dispatchable commands and queries (`defineCommand(...)` or `defineQuery(...)`). `slices` is only a deprecated compatibility alias for this AppConfig key. It does not mean an event-modeling slice, aggregate, module, or feature boundary. There is currently no `defineSlice(...)` DSL.
 
 For feature-level organization, use plain exported bundles and wire their parts explicitly:
 
@@ -620,7 +620,7 @@ const app = createApp({
   readModels: orderingFeature.readModels,
   processors: orderingFeature.processors,
   effectAdapters: [emailAdapter],
-  slices: orderingFeature.operations,
+  operations: orderingFeature.operations,
 });
 
 await app.start();
@@ -645,7 +645,7 @@ const usersView: ReadOnlyReadModelRegistration<UserRow> = {
     usersProjection.query(entries, orderBy, limit, orderDirection),
 };
 
-createApp({ eventStore, readModels: [usersProjection, usersView], slices });
+createApp({ eventStore, readModels: [usersProjection, usersView], operations });
 ```
 
 `createInMemoryProjectionAdapter(handle)` and `createPostgresProjectionAdapter(sql, handle)` return writable registrations:
@@ -671,7 +671,7 @@ const eventStore = createInMemoryEventStore();
 const projection = createInMemoryProjectionAdapter(readModel);
 const inputAdapter = createInMemoryAdapter();
 
-const app = createApp({ eventStore, readModels: [projection], inputAdapter, slices });
+const app = createApp({ eventStore, readModels: [projection], inputAdapter, operations });
 await inputAdapter.adapter.dispatch("slice-name", input); // after app binding
 ```
 
@@ -744,7 +744,7 @@ Checkpoint store persists JSON files under `root/checkpoints`. Checkpoint names 
 
 ```typescript
 const inputAdapter = createCliInputAdapter();
-const app = createApp({ eventStore, inputAdapter, slices });
+const app = createApp({ eventStore, inputAdapter, operations });
 
 await app.start(); // no-op
 const result = await inputAdapter.adapter.dispatch({
@@ -787,7 +787,7 @@ const inputAdapter = createFastifyInputAdapter({
   routes,
 });
 
-createApp({ eventStore, readModels: [orderSummaryProjection], inputAdapter, slices: operations });
+createApp({ eventStore, readModels: [orderSummaryProjection], inputAdapter, operations });
 ```
 
 Fastify route helper behavior:
@@ -988,7 +988,7 @@ If operations widen to `ReadonlyArray<RegisterableOperation>`, helper types wide
 19. Effect adapters execute side effects from processor effect descriptors.
 20. App modules must not call DB/HTTP/filesystem/queues directly.
 21. `app.dispatch(sliceName, input)` is dynamic; typed calls belong in adapter route/binding config.
-22. `AppConfig.slices` means dispatchable operations, not event-modeling slices; no `defineSlice(...)` DSL currently.
+22. `AppConfig.operations` is canonical for dispatchable commands/queries. `AppConfig.slices` is deprecated alias only; no `defineSlice(...)` DSL currently.
 23. Keep core free of adapter imports; adapters must not import sibling adapters.
 24. No `Record<string, unknown>` as value type in new code; use explicit shapes or `Record<never, never>` for intentionally empty object.
 25. Keep `llms.txt` updated when public API, DSL behavior, adapter usage, errors, or canonical examples change.
