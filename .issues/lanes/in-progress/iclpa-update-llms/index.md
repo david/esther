@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete — ready for review
+Status: review complete — no actionable findings; ready for QA planning
 
 ## Active artifacts
 Description:
@@ -20,5 +20,8 @@ Plan checks:
 Implementation tasks:
 - impl/01.md — complete; checkpoint impl/checkpoints/01.md — aligned
 
+Review:
+- review/diff/01-review-diff.md — no actionable findings
+
 ## Next suggested step
-- {{/skill:review-diff iclpa-update-llms}}
+- {{/skill:plan-qa iclpa-update-llms}}
