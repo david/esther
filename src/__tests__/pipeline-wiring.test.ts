@@ -187,6 +187,389 @@ describe("command pipeline v2 — wiring", () => {
     }
   });
 
+  test("event-definition-backed command validates event before append and downstream work", async () => {
+    const StrictEventDefinition = defineEvent({
+      type: "StrictEventValidated",
+      payload: z.object({ required: z.string() }),
+    });
+    type StrictEvent = EventOf<typeof StrictEventDefinition>;
+    const strictReducer = defineReducer({
+      name: "strict-event-validation-events",
+      schemas: [StrictEventDefinition.schema] as const,
+      initial: [] as StrictEvent[],
+      reduce: (events, event): StrictEvent[] => [...events, event],
+    });
+
+    let appendCalls = 0;
+    let projectorCalled = 0;
+    let processorCalled = 0;
+    let effectCalled = 0;
+    let outputCalled = false;
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    const projectionModel = defineReadModel({
+      name: "strict_event_validation_projection",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+      events: [
+        readModelEvent<{ readonly id: string }, typeof StrictEventDefinition.schema, unknown>({
+          schema: StrictEventDefinition.schema,
+          handler: (event, ctx) => {
+            projectorCalled += 1;
+            return ctx.project({ id: event.payload.required });
+          },
+        }),
+      ],
+    });
+    const { adapter: projectionAdapter, get } = createInMemoryProjectionAdapter(projectionModel);
+
+    const processor = defineProcessor({
+      name: "strict_event_validation_processor",
+      events: [
+        processorEvent({
+          schema: StrictEventDefinition.schema,
+          handler: () => {
+            processorCalled += 1;
+            return { type: "effect", kind: "strict-event-validation" };
+          },
+        }),
+      ],
+    });
+    const effectAdapter: EffectAdapter = {
+      name: "strict_event_validation_effect",
+      match: (effect) => effect["kind"] === "strict-event-validation",
+      execute: async (effect) => {
+        effectCalled += 1;
+        return effect;
+      },
+    };
+
+    const slice = defineCommand({
+      name: "strict-event-validation-command",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ readonly ok: boolean }>(),
+      input: compose<ProbeInput>(),
+      validate: [],
+      event: StrictEventDefinition,
+      tags: () => ["strict:bad"],
+      payload: () => ({ required: 42 }) as unknown as StrictEvent["payload"],
+      output: () => {
+        outputCalled = true;
+        return ok({ ok: true });
+      },
+    });
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projectionAdapter,
+          get,
+          constraints: {},
+          tableName: "strict_event_validation_projection",
+          handle: projectionModel,
+        },
+      ],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+
+    const result = await app.dispatch("strict-event-validation-command", { a: 1 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toMatchObject({
+        _tag: "SchemaError",
+        message: "Event validation failed",
+      });
+    }
+    expect(appendCalls).toBe(0);
+    expect(outputCalled).toBe(false);
+    expect(projectorCalled).toBe(0);
+    expect(processorCalled).toBe(0);
+    expect(effectCalled).toBe(0);
+    const queried = await eventStore.queryByTags(["strict:bad"], strictReducer);
+    expect(queried.state).toEqual([]);
+  });
+
+  test("event-definition-backed command appends parsed event and output receives typed event", async () => {
+    const StrictEventDefinition = defineEvent({
+      type: "StrictEventValid",
+      payload: z.object({ required: z.string() }),
+    });
+    type StrictEvent = EventOf<typeof StrictEventDefinition>;
+    const strictReducer = defineReducer({
+      name: "strict-valid-events",
+      schemas: [StrictEventDefinition.schema] as const,
+      initial: [] as StrictEvent[],
+      reduce: (events, event): StrictEvent[] => [...events, event],
+    });
+    const slice = defineCommand({
+      name: "strict-event-valid-command",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ required: z.string() }),
+      input: compose<ProbeInput>(),
+      validate: [],
+      event: StrictEventDefinition,
+      tags: (ctx: ProbeInput) => ["strict:valid", `probe:${ctx.a}`],
+      payload: (ctx: ProbeInput) => ({ required: String(ctx.a) }),
+      output: (event) => {
+        const _eventCheck: StrictEvent = event;
+        return ok({ required: event.payload.required });
+      },
+    });
+
+    const { app, eventStore } = buildAppWith(slice);
+    const result = await app.dispatch("strict-event-valid-command", { a: 7 });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ required: "7" });
+    }
+    const queried = await eventStore.queryByTags(["strict:valid"], strictReducer);
+    expect(queried.state).toEqual([
+      { type: "StrictEventValid", tags: ["strict:valid", "probe:7"], payload: { required: "7" } },
+    ]);
+  });
+
+  test("event-definition-backed transform command appends parsed payload and outputs parsed event", async () => {
+    const TransformedEventDefinition = defineEvent({
+      type: "TransformedPayloadStored",
+      payload: z.string().transform((value) => value.length),
+    });
+    type TransformedEvent = EventOf<typeof TransformedEventDefinition>;
+    const transformedStoredSchema = z.object({
+      type: z.literal("TransformedPayloadStored"),
+      tags: z.array(z.string()),
+      payload: z.number(),
+    });
+    const transformedReducer = defineReducer({
+      name: "transformed-payload-stored-events",
+      schemas: [transformedStoredSchema] as const,
+      initial: [] as TransformedEvent[],
+      reduce: (events, event): TransformedEvent[] => [...events, event],
+    });
+
+    const appendOptions: Array<AppendOptions | undefined> = [];
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore = wrapWithAppendOptionCapture(baseEventStore, (options) => {
+      appendOptions.push(options);
+    });
+    const { adapter, bind } = createInMemoryAdapter();
+    const slice = defineCommand({
+      name: "transformed-payload-command",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ length: z.number(), payloadType: z.literal("number") }),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history",
+          tags: (ctx: ProbeInput) => ["transform:boundary", `probe:${ctx.a}`],
+          reducer: emptyCountReducer,
+        }),
+      ),
+      validate: [],
+      event: TransformedEventDefinition,
+      tags: (ctx) => ["transform:stored", `probe:${ctx.a}`],
+      payload: () => "abcd",
+      output: (event) => {
+        const _eventCheck: TransformedEvent = event;
+        return ok({ length: event.payload, payloadType: typeof event.payload });
+      },
+    });
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+    });
+
+    const result = await app.dispatch("transformed-payload-command", { a: 3 });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ length: 4, payloadType: "number" });
+    }
+    expect(appendOptions).toEqual([
+      { boundaryTags: ["transform:boundary", "probe:3"], expectedPosition: undefined },
+    ]);
+    const queried = await eventStore.queryByTags(["transform:stored"], transformedReducer);
+    expect(queried.state).toEqual([
+      { type: "TransformedPayloadStored", tags: ["transform:stored", "probe:3"], payload: 4 },
+    ]);
+  });
+
+  test("event-definition-backed transform command rejects malformed candidate before downstream work", async () => {
+    const TransformedEventDefinition = defineEvent({
+      type: "TransformedPayloadRejected",
+      payload: z.string().transform((value) => value.length),
+    });
+    type TransformedEvent = EventOf<typeof TransformedEventDefinition>;
+    const transformedStoredSchema = z.object({
+      type: z.literal("TransformedPayloadRejected"),
+      tags: z.array(z.string()),
+      payload: z.number(),
+    });
+    const transformedReducer = defineReducer({
+      name: "transformed-payload-rejected-events",
+      schemas: [transformedStoredSchema] as const,
+      initial: [] as TransformedEvent[],
+      reduce: (events, event): TransformedEvent[] => [...events, event],
+    });
+
+    let appendCalls = 0;
+    let projectorCalled = 0;
+    let processorCalled = 0;
+    let effectCalled = 0;
+    let outputCalled = false;
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    const projectionModel = defineReadModel({
+      name: "transformed_event_validation_projection",
+      schema: z.object({ id: z.string(), length: z.number() }),
+      key: "id",
+      events: [
+        readModelEvent<
+          { readonly id: string; readonly length: number },
+          typeof transformedStoredSchema,
+          unknown
+        >({
+          schema: transformedStoredSchema,
+          handler: (event, ctx) => {
+            projectorCalled += 1;
+            return ctx.project({ id: "transformed", length: event.payload });
+          },
+        }),
+      ],
+    });
+    const { adapter: projectionAdapter, get } = createInMemoryProjectionAdapter(projectionModel);
+
+    const processor = defineProcessor({
+      name: "transformed_event_validation_processor",
+      events: [
+        processorEvent({
+          schema: transformedStoredSchema,
+          handler: () => {
+            processorCalled += 1;
+            return { type: "effect", kind: "transformed-event-validation" };
+          },
+        }),
+      ],
+    });
+    const effectAdapter: EffectAdapter = {
+      name: "transformed_event_validation_effect",
+      match: (effect) => effect["kind"] === "transformed-event-validation",
+      execute: async (effect) => {
+        effectCalled += 1;
+        return effect;
+      },
+    };
+
+    const slice = defineCommand({
+      name: "transformed-payload-rejected-command",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ readonly ok: boolean }>(),
+      input: compose<ProbeInput>(),
+      validate: [],
+      event: TransformedEventDefinition,
+      tags: () => ["transform:rejected"],
+      payload: () => 42 as unknown as string,
+      output: () => {
+        outputCalled = true;
+        return ok({ ok: true });
+      },
+    });
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      slices: [slice],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projectionAdapter,
+          get,
+          constraints: {},
+          tableName: "transformed_event_validation_projection",
+          handle: projectionModel,
+        },
+      ],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+
+    const result = await app.dispatch("transformed-payload-rejected-command", { a: 1 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toMatchObject({
+        _tag: "SchemaError",
+        message: "Event validation failed",
+      });
+    }
+    expect(appendCalls).toBe(0);
+    expect(outputCalled).toBe(false);
+    expect(projectorCalled).toBe(0);
+    expect(processorCalled).toBe(0);
+    expect(effectCalled).toBe(0);
+    const queried = await eventStore.queryByTags(["transform:rejected"], transformedReducer);
+    expect(queried.state).toEqual([]);
+  });
+
+  test("raw command event path remains unvalidated by event definitions", async () => {
+    const RawSchema = z.object({
+      type: z.literal("RawStrictEvent"),
+      tags: z.array(z.string()),
+      payload: z.object({ required: z.number() }),
+    });
+    type RawEvent = z.output<typeof RawSchema>;
+    const rawReducer = defineReducer({
+      name: "raw-strict-events",
+      schemas: [RawSchema] as const,
+      initial: [] as RawEvent[],
+      reduce: (events, event): RawEvent[] => [...events, event],
+    });
+    const slice = defineCommand({
+      name: "raw-strict-event-command",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>(),
+      validate: [],
+      event: () => ({
+        type: "RawStrictEvent" as const,
+        tags: ["raw:strict"],
+        payload: { required: 42 },
+      }),
+      output: () => ok({ ok: true }),
+    });
+
+    const { app, eventStore } = buildAppWith(slice);
+    const result = await app.dispatch("raw-strict-event-command", { a: 1 });
+
+    expect(result.isOk()).toBe(true);
+    const queried = await eventStore.queryByTags(["raw:strict"], rawReducer);
+    expect(queried.state).toEqual([
+      { type: "RawStrictEvent", tags: ["raw:strict"], payload: { required: 42 } },
+    ]);
+  });
+
   test("event not constructed on validate failure", async () => {
     let eventCalled = false;
     const slice = defineCommand<

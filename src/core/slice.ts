@@ -1,6 +1,7 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type { InputPipeline, Step } from "./compose";
+import type { EventDefinition, EventOf } from "./event";
 import type { EventStore } from "./event-store";
 import type { ReducerDefinition } from "./reducer";
 import { validateReadModelRow, validateReadModelRows } from "./read-model-validation";
@@ -843,6 +844,7 @@ export type Command<
   TEvent extends EventRecordInput,
   TError extends { readonly type: string },
   TName extends string = string,
+  TEventCandidate extends EventRecordInput = TEvent,
 > = RegisterableOperation<TName> & {
   readonly _tag: "command";
   readonly inputSchema: z.ZodType<TInput>;
@@ -852,7 +854,8 @@ export type Command<
     deps: SliceDeps,
   ) => Promise<Result<TCtx, TError | ReadModelSchemaError>>;
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
-  readonly event: (ctx: TCtx) => TEvent;
+  readonly event: (ctx: TCtx) => TEventCandidate;
+  readonly eventSchema?: z.ZodType<TEvent> | undefined;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
   readonly outputErr: (
     errors: readonly [TError, ...TError[]],
@@ -893,7 +896,8 @@ export type OperationInput<TOperation> =
     infer _TOutput,
     infer _TEvent,
     infer _TError,
-    infer _TName
+    infer _TName,
+    infer _TEventCandidate
   >
     ? TInput
     : TOperation extends Query<
@@ -915,7 +919,8 @@ export type OperationOutput<TOperation> =
     infer TOutput,
     infer _TEvent,
     infer _TError,
-    infer _TName
+    infer _TName,
+    infer _TEventCandidate
   >
     ? TOutput
     : TOperation extends Query<
@@ -937,7 +942,8 @@ export type OperationError<TOperation> =
     infer _TOutput,
     infer _TEvent,
     infer TError,
-    infer _TName
+    infer _TName,
+    infer _TEventCandidate
   >
     ? SliceError | TError
     : TOperation extends Query<
@@ -959,6 +965,12 @@ export type OperationResult<TOperation> = Result<
 
 // ── defineCommand ─────────────────────────────────────────────────
 
+type CommandOutputErrDefinition<TInput, TCtx, TOutput, TError extends { readonly type: string }> = [
+  TError,
+] extends [never]
+  ? { readonly outputErr?: undefined }
+  : { readonly outputErr: OutputErrHandlers<TError, TOutput, TCtx, TInput> };
+
 export type CommandDefinition<
   TInput,
   TCtx,
@@ -976,9 +988,163 @@ export type CommandDefinition<
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: (ctx: TCtx) => TEvent;
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
-} & ([TError] extends [never]
-  ? { readonly outputErr?: undefined }
-  : { readonly outputErr: OutputErrHandlers<TError, TOutput, TCtx, TInput> });
+} & CommandOutputErrDefinition<TInput, TCtx, TOutput, TError>;
+
+type CommandEventCandidate<TDefinition extends EventDefinition<string, z.ZodType>> =
+  TDefinition extends EventDefinition<infer TType, infer TPayloadSchema>
+    ? EventRecordInput<TType, z.input<TPayloadSchema>>
+    : never;
+
+type DefinitionBackedCommandPayloadInput<TDefinition extends EventDefinition<string, z.ZodType>> =
+  TDefinition extends EventDefinition<string, infer TPayloadSchema>
+    ? z.input<TPayloadSchema>
+    : never;
+
+type EventDefinitionCommandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string },
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+> = {
+  readonly name?: string | undefined;
+  readonly inputSchema: TInputSchema;
+  readonly outputSchema: TOutputSchema;
+  readonly input: InputPipeline<TInput, TCtx, TInputError>;
+  readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
+  readonly event: TEventDefinition;
+  readonly tags: (ctx: TCtx) => ReadonlyArray<string>;
+  readonly payload: (ctx: TCtx) => DefinitionBackedCommandPayloadInput<NoInfer<TEventDefinition>>;
+  readonly output: (
+    event: EventOf<NoInfer<TEventDefinition>>,
+    ctx: TCtx,
+  ) => Result<TOutput, TError>;
+} & CommandOutputErrDefinition<TInput, TCtx, TOutput, TError>;
+
+type RuntimeCommandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TError extends { readonly type: string },
+  TInputError extends TError,
+  TInputSchema extends z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput>,
+> =
+  | CommandDefinition<
+      TInput,
+      TCtx,
+      TOutput,
+      EventRecordInput,
+      TError,
+      TInputError,
+      TInputSchema,
+      TOutputSchema
+    >
+  | EventDefinitionCommandDefinition<
+      TInput,
+      TCtx,
+      TOutput,
+      EventDefinition<string, z.ZodType>,
+      TError,
+      TInputError,
+      TInputSchema,
+      TOutputSchema
+    >;
+
+function isRawCommandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TError extends { readonly type: string },
+  TInputError extends TError,
+  TInputSchema extends z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput>,
+>(
+  definition: RuntimeCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+): definition is CommandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  EventRecordInput,
+  TError,
+  TInputError,
+  TInputSchema,
+  TOutputSchema
+> {
+  return typeof definition.event === "function";
+}
+
+export function defineCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string } = never,
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+  const TName extends string = string,
+>(
+  definition: EventDefinitionCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  > & { readonly name: TName },
+): Command<
+  TInput,
+  TCtx,
+  TOutput,
+  EventOf<TEventDefinition>,
+  TError,
+  TName,
+  CommandEventCandidate<TEventDefinition>
+>;
+
+export function defineCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string } = never,
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+>(
+  definition: EventDefinitionCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+): Command<
+  TInput,
+  TCtx,
+  TOutput,
+  EventOf<TEventDefinition>,
+  TError,
+  string,
+  CommandEventCandidate<TEventDefinition>
+>;
 
 export function defineCommand<
   TInput,
@@ -1029,23 +1195,21 @@ export function defineCommand<
   TInput,
   TCtx,
   TOutput,
-  TEvent extends EventRecordInput,
   TError extends { readonly type: string } = never,
   TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(
-  definition: CommandDefinition<
+  definition: RuntimeCommandDefinition<
     TInput,
     TCtx,
     TOutput,
-    TEvent,
     TError,
     TInputError,
     TInputSchema,
     TOutputSchema
   >,
-): Command<TInput, TCtx, TOutput, TEvent, TError> {
+): Command<TInput, TCtx, TOutput, EventRecordInput, TError> {
   const inputFn = (ctx: TInput, deps: SliceDeps) => definition.input.execute(ctx, deps);
 
   const outputErrFn = definition.outputErr
@@ -1054,15 +1218,50 @@ export function defineCommand<
       )
     : ([first]: readonly [TError, ...TError[]]) => err(first);
 
-  const slice: Command<TInput, TCtx, TOutput, TEvent, TError> = {
+  let eventFn: (ctx: TCtx) => EventRecordInput;
+  let eventSchema: z.ZodType<EventRecordInput> | undefined;
+  if (isRawCommandDefinition(definition)) {
+    eventFn = definition.event;
+    eventSchema = undefined;
+  } else {
+    // Cast stays local to overload normalization: the runtime guard above proves
+    // `event` is not a raw event factory, but TS cannot narrow this generic union.
+    const definitionBacked = definition as EventDefinitionCommandDefinition<
+      TInput,
+      TCtx,
+      TOutput,
+      EventDefinition<string, z.ZodType>,
+      TError,
+      TInputError,
+      TInputSchema,
+      TOutputSchema
+    >;
+    const eventDefinition = definitionBacked.event;
+    eventFn = (ctx: TCtx): EventRecordInput => ({
+      type: eventDefinition.type,
+      tags: [...definitionBacked.tags(ctx)],
+      payload: definitionBacked.payload(ctx),
+    });
+    eventSchema = eventDefinition.schema;
+  }
+
+  // Cast stays local to overload normalization: runtime stores one command shape,
+  // while public overloads keep raw/event-definition output event types precise.
+  const outputFn = definition.output as (
+    event: EventRecordInput,
+    ctx: TCtx,
+  ) => Result<TOutput, TError>;
+
+  const slice: Command<TInput, TCtx, TOutput, EventRecordInput, TError> = {
     _tag: "command",
     name: definition.name ?? "anonymous-command",
     inputSchema: definition.inputSchema,
     outputSchema: definition.outputSchema,
     input: inputFn,
     validate: definition.validate,
-    event: definition.event,
-    output: definition.output,
+    event: eventFn,
+    eventSchema,
+    output: outputFn,
     outputErr: outputErrFn,
     compile: (deps) => {
       return {

@@ -178,7 +178,9 @@ OrderPlaced.schema; // z.object({ type: z.literal(...), tags: z.array(z.string()
 OrderPlaced.create({ tags, payload }); // EventOf<typeof OrderPlaced>
 ```
 
-Use `defineEvent(...)` and `EventOf<typeof Definition>` for app-authored events.
+`EventDefinition.create(...)` copies tags and constructs the wire event; it does not parse/validate payloads by itself.
+
+Use `defineEvent(...)` and `EventOf<typeof Definition>` for app-authored events. Prefer pairing command emission with an event definition so the command pipeline validates the event before append.
 
 ## Tags and DCB
 
@@ -369,6 +371,11 @@ Rows from `get` and `query` are schema-validated before user handler runs. Malfo
 
 Commands use `compose().add(...)` for input pipeline. Queries use `state().pipe(...)`. Split is intentional: command event-history reads can derive DCB append preconditions; query reads are read-only.
 
+Command event emission has two forms:
+
+- Preferred: `event: EventDefinition`, plus `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns `z.input<typeof Event.payloadSchema>`; direct `command.event(ctx)` returns that pre-parse candidate. Pipeline validates the full event with `Event.schema`, appends parsed `z.output` payload, and returns `SchemaError("Event validation failed", issues)` on malformed data.
+- Low-level interop: raw `event(ctx) => EventRecordInput`. This path is intentionally not event-definition-validated.
+
 Command shape:
 
 ```typescript
@@ -376,13 +383,7 @@ type PlaceOrderInput = z.output<typeof placeOrderInputSchema>;
 type PlaceOrderOutput = z.output<typeof placeOrderOutputSchema>;
 type OutOfStock = { readonly type: "OutOfStock"; readonly message: string };
 
-const placeOrder = defineCommand<
-  PlaceOrderInput,
-  PlaceOrderInput & { readonly inventory: InventoryState; readonly orderId: string },
-  PlaceOrderOutput,
-  OrderPlacedEvent,
-  OutOfStock
->({
+const placeOrder = defineCommand({
   name: "place-order",
   inputSchema: placeOrderInputSchema,
   outputSchema: placeOrderOutputSchema,
@@ -406,11 +407,9 @@ const placeOrder = defineCommand<
     },
   ],
 
-  event: (ctx) =>
-    OrderPlaced.create({
-      tags: ["order", `order:${ctx.orderId}`, `customer:${ctx.customerId}`],
-      payload: { orderId: ctx.orderId, customerId: ctx.customerId, total: ctx.total },
-    }),
+  event: OrderPlaced,
+  tags: (ctx) => ["order", `order:${ctx.orderId}`, `customer:${ctx.customerId}`],
+  payload: (ctx) => ({ orderId: ctx.orderId, customerId: ctx.customerId, total: ctx.total }),
 
   output: (event, _ctx) => ok({ orderId: event.payload.orderId }),
 
@@ -427,12 +426,13 @@ Command execution order:
 3. fail on multiple event-history boundary observations
 4. run every `validate` predicate and collect returned errors
 5. if validation errors exist, call `outputErr` by error type
-6. construct exactly one event via `event(ctx)`
-7. append event with DCB precondition if one boundary was observed
-8. run read-model event bindings via `onAfterInsert`
-9. run processors via `onAfterCommit`
-10. call `output(event, ctx)`
-11. parse `outputSchema`
+6. construct exactly one event from `event`/`tags`/`payload` or raw `event(ctx)`
+7. validate definition-backed event with `Event.schema`; malformed event returns `SchemaError` before append
+8. append event with DCB precondition if one boundary was observed
+9. run read-model event bindings via `onAfterInsert`
+10. run processors via `onAfterCommit`
+11. call `output(event, ctx)` with parsed/appended event
+12. parse `outputSchema`
 
 Command input descriptors:
 
@@ -958,27 +958,29 @@ If operations widen to `ReadonlyArray<RegisterableOperation>`, helper types wide
 ## Rules and gotchas
 
 1. Prefer `defineEvent(...)` and `EventOf<typeof Definition>` for app-authored events; `EventRecordInput` is low-level store/adapter interop only.
-2. Reducers use schemas: `schemas: [Event.schema] as const`, not event definitions.
-3. Commands use `compose().add(...)`; queries use `state().pipe(...)`.
-4. Command `input` must be descriptor pipeline, not raw async function.
-5. Command `.add(...)` accepts descriptor helpers only, not raw step functions.
-6. Command `validate` predicates return arrays of domain errors; framework collects all validation errors.
-7. Command `event(ctx)` returns one domain event directly — no `ok()`, no array.
-8. Command `output(event, ctx)` returns `Result<TOutput, TError>`.
-9. `outputErr` maps domain errors by `type`; framework errors bypass it.
-10. Query `handle(ctx)` returns `Result<TOutput, TError>`.
-11. `generate` should be sync in typed DSL.
-12. Use `key: "foo" as const` on `tagQuery`, `projection`, `lookup`, `generate` for literal context fields.
-13. Query state starts with `state<z.output<typeof inputSchema>>()` or equivalent named input type.
-14. Define input/output schemas externally for reuse by clients/adapters.
-15. Read-model query logic belongs in `defineReadModelQuery`; never inline filtering/sorting in slices.
-16. Projectors/processors are pure; direct I/O belongs in adapters.
-17. Effect adapters execute side effects from processor effect descriptors.
-18. App modules must not call DB/HTTP/filesystem/queues directly.
-19. `app.dispatch(sliceName, input)` is dynamic; typed calls belong in adapter route/binding config.
-20. Keep core free of adapter imports; adapters must not import sibling adapters.
-21. No `Record<string, unknown>` as value type in new code; use explicit shapes or `Record<never, never>` for intentionally empty object.
-22. Keep `llms.txt` updated when public API, DSL behavior, adapter usage, errors, or canonical examples change.
+2. Prefer command emission with `event: EventDefinition`, `tags(ctx)`, and `payload(ctx)`; malformed definition-backed events return `SchemaError` before append.
+3. Raw command `event(ctx) => EventRecordInput` remains available for low-level interop and is not event-definition-validated.
+4. Reducers use schemas: `schemas: [Event.schema] as const`, not event definitions.
+5. Commands use `compose().add(...)`; queries use `state().pipe(...)`.
+6. Command `input` must be descriptor pipeline, not raw async function.
+7. Command `.add(...)` accepts descriptor helpers only, not raw step functions.
+8. Command `validate` predicates return arrays of domain errors; framework collects all validation errors.
+9. Command emits one domain event directly — no `ok()`, no array.
+10. Command `output(event, ctx)` returns `Result<TOutput, TError>`.
+11. `outputErr` maps domain errors by `type`; framework errors bypass it.
+12. Query `handle(ctx)` returns `Result<TOutput, TError>`.
+13. `generate` should be sync in typed DSL.
+14. Use `key: "foo" as const` on `tagQuery`, `projection`, `lookup`, `generate` for literal context fields.
+15. Query state starts with `state<z.output<typeof inputSchema>>()` or equivalent named input type.
+16. Define input/output schemas externally for reuse by clients/adapters.
+17. Read-model query logic belongs in `defineReadModelQuery`; never inline filtering/sorting in slices.
+18. Projectors/processors are pure; direct I/O belongs in adapters.
+19. Effect adapters execute side effects from processor effect descriptors.
+20. App modules must not call DB/HTTP/filesystem/queues directly.
+21. `app.dispatch(sliceName, input)` is dynamic; typed calls belong in adapter route/binding config.
+22. Keep core free of adapter imports; adapters must not import sibling adapters.
+23. No `Record<string, unknown>` as value type in new code; use explicit shapes or `Record<never, never>` for intentionally empty object.
+24. Keep `llms.txt` updated when public API, DSL behavior, adapter usage, errors, or canonical examples change.
 
 ## Full example
 
@@ -1036,13 +1038,7 @@ type TransferError = {
   readonly message: string;
 };
 
-const transferMoney = defineCommand<
-  TransferInput,
-  TransferCtx,
-  TransferOutput,
-  MoneyDebitedEvent,
-  TransferError
->({
+const transferMoney = defineCommand({
   name: "transfer-money",
   inputSchema: transferInputSchema,
   outputSchema: transferOutputSchema,
@@ -1072,16 +1068,14 @@ const transferMoney = defineCommand<
     },
   ],
 
-  event: (ctx) =>
-    MoneyDebited.create({
-      tags: ["transfer", `transfer:${ctx.transferId}`, `account:${ctx.fromAccountId}`],
-      payload: {
-        transferId: ctx.transferId,
-        accountId: ctx.fromAccountId,
-        counterpartyAccountId: ctx.toAccountId,
-        amount: ctx.amount,
-      },
-    }),
+  event: MoneyDebited,
+  tags: (ctx) => ["transfer", `transfer:${ctx.transferId}`, `account:${ctx.fromAccountId}`],
+  payload: (ctx) => ({
+    transferId: ctx.transferId,
+    accountId: ctx.fromAccountId,
+    counterpartyAccountId: ctx.toAccountId,
+    amount: ctx.amount,
+  }),
 
   output: (event, _ctx) => ok({ transferId: event.payload.transferId }),
 
