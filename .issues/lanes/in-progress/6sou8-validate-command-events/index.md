@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: raw command discriminator follow-up implemented and re-reviewed; gates passed
+Status: PR opened; CI passed; awaiting review/merge
 
 ## Active artifacts
 Description:
@@ -30,8 +30,14 @@ Review:
 - review/diff/03-review-diff.md — semantic re-review after raw command discriminator fix; no actionable findings
 - review/findings/03-gate-results.md — full automated gates passed
 
+QA:
+- qa/summary.md — automated QA complete; full gates passed; no manual QA needed
+
+Deploy:
+- deploy/01-pr.md — PR #11 opened; CI passed; lane not moved because PR is not merged
+
 ## Pending implementation tasks
 - none
 
 ## Next suggested step
-- {{/skill:plan-qa 6sou8-validate-command-events}}
+- Review and merge PR #11: https://github.com/david/esther/pull/11
