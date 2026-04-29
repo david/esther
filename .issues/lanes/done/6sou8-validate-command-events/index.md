@@ -1,8 +1,8 @@
 # 6sou8-validate-command-events Index
 
 ## Current state
-Lane: in-progress
-Status: PR opened; CI passed; awaiting review/merge
+Lane: done
+Status: PR merged; issue done
 
 ## Active artifacts
 Description:
@@ -34,10 +34,11 @@ QA:
 - qa/summary.md — automated QA complete; full gates passed; no manual QA needed
 
 Deploy:
-- deploy/01-pr.md — PR #11 opened; CI passed; lane not moved because PR is not merged
+- deploy/01-pr.md — PR #11 opened; CI passed
+- deploy/02-release.md — PR #11 merged; lane moved to done
 
 ## Pending implementation tasks
 - none
 
 ## Next suggested step
-- Review and merge PR #11: https://github.com/david/esther/pull/11
+- none
