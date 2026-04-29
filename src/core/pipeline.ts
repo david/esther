@@ -29,11 +29,12 @@ function isFrameworkInputError(error: unknown): error is SliceError {
 //   1. parse input via inputSchema
 //   2. run `input` step (composed Step chain). On err → outputErr branch.
 //   3. run `validate` predicates in order. First err → outputErr branch.
-//   4. call event(ctx) constructor.
-//   5. eventStore.append([event]) — projectors via onAfterInsert,
+//   4. build CommandEventCandidate via event(ctx).
+//   5. validate definition-backed candidate and keep ParsedCommandEvent.
+//   6. eventStore.append([parsedEvent]) — projectors via onAfterInsert,
 //      processors via onAfterCommit (registered at compile time).
-//   6. success → output(event, ctx). error → outputErr(error, ctx).
-//   7. parse final result via outputSchema.
+//   7. success → output(parsedEvent, ctx). error → outputErr(error, ctx).
+//   8. parse final result via outputSchema.
 
 export async function executeCommand<
   TInput,
@@ -88,22 +89,36 @@ export async function executeCommand<
     return finishCommand(slice, slice.outputErr(validationErrors as [TError, ...TError[]], ctx));
   }
 
-  // 4. Construct event
-  const event = slice.event(ctx);
+  // 4. Construct pre-parse command event candidate
+  const eventCandidate = slice.event(ctx);
 
-  // 5. Append event — projectors fire via onAfterInsert, processors via onAfterCommit
+  // 5. Validate definition-backed candidate before append and keep parsed event
+  const parsedEventResult = (() => {
+    if (slice.eventSchema === undefined) return ok(eventCandidate);
+    const eventParse = slice.eventSchema.safeParse(eventCandidate);
+    if (!eventParse.success) {
+      return err(SchemaError("Event validation failed", [eventParse.error.message]));
+    }
+    return ok(eventParse.data);
+  })();
+  if (parsedEventResult.isErr()) {
+    return err(parsedEventResult.error);
+  }
+  const parsedEvent = parsedEventResult.value;
+
+  // 6. Append parsed event — projectors fire via onAfterInsert, processors via onAfterCommit
   const observation = boundaryObservations[0];
   const appendOptions =
     observation === undefined
       ? undefined
       : { boundaryTags: [...observation.tags], expectedPosition: observation.maxPosition };
-  const appendResult = await eventStore.append([event], appendOptions);
+  const appendResult = await eventStore.append([parsedEvent], appendOptions);
   if (appendResult.isErr()) {
     return err(appendResult.error);
   }
 
-  // 6. Success branch — call output(event, ctx)
-  return finishCommand(slice, slice.output(event, ctx));
+  // 7. Success branch — call output(parsedEvent, ctx)
+  return finishCommand(slice, slice.output(parsedEvent, ctx));
 }
 
 function finishCommand<
@@ -119,7 +134,7 @@ function finishCommand<
   if (outputResult.isErr()) {
     return err(outputResult.error);
   }
-  // 7. Validate ok value against outputSchema
+  // 8. Validate ok value against outputSchema
   const outputParse = slice.outputSchema.safeParse(outputResult.value);
   if (!outputParse.success) {
     return err(SchemaError("Output schema validation failed", [outputParse.error.message]));

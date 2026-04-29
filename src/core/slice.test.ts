@@ -3,6 +3,7 @@ import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import { createInMemoryEventStore } from "../adapters/in-memory/event-store";
 import { compose } from "./compose";
+import { defineEvent } from "./event";
 import { defineReadModel, defineReadModelQuery } from "./read-model";
 import { defineReducer } from "./reducer";
 import { castTagQuery, defineCommand, derive, lookup, type ValidatePredicate } from "./slice";
@@ -426,6 +427,98 @@ describe("defineCommand outputErr", () => {
         ok({ message: "success" }),
     });
     expect(slice._tag).toBe("command");
+  });
+});
+
+// ── command event discrimination ─────────────────────────────────────
+
+describe("defineCommand event discrimination", () => {
+  const projectionStore = {
+    get: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    query: async () => err({ _tag: "ReadModelNotFound" as const, name: "", id: "" }),
+    queryMany: async () => ok({ value: [] }),
+  };
+
+  type CollisionInput = { readonly value: string };
+  type CollisionOutput = { readonly eventType: string };
+  type RawCollisionEvent = EventRecordInput<
+    "RawCollisionEvent",
+    { readonly source: "raw"; readonly value: string }
+  >;
+
+  test("raw command definition variable keeps raw event path when helper fields collide", async () => {
+    const rawDefinition = {
+      name: "raw-helper-collision",
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ eventType: z.string() }),
+      input: compose<CollisionInput>(),
+      validate: [] as ReadonlyArray<ValidatePredicate<CollisionInput, never>>,
+      event: (ctx: CollisionInput): RawCollisionEvent => ({
+        type: "RawCollisionEvent",
+        tags: [`raw:${ctx.value}`],
+        payload: { source: "raw", value: ctx.value },
+      }),
+      output: (event: RawCollisionEvent, _ctx: CollisionInput): Result<CollisionOutput, never> =>
+        ok({ eventType: event.type }),
+      tags: (_ctx: CollisionInput) => ["helper-tag"],
+      payload: (_ctx: CollisionInput) => ({ source: "helper" as const, value: "helper" }),
+    };
+
+    const command = defineCommand(rawDefinition);
+
+    expect(command.event({ value: "abc" })).toEqual({
+      type: "RawCollisionEvent",
+      tags: ["raw:abc"],
+      payload: { source: "raw", value: "abc" },
+    });
+    expect(command.eventSchema).toBeUndefined();
+
+    const baseEventStore = createInMemoryEventStore();
+    const appended: Array<EventRecordInput> = [];
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appended.push(...events);
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    const result = await command.compile({ eventStore, projectionStore }).execute({ value: "abc" });
+
+    expect(result.isOk()).toBe(true);
+    expect(appended).toEqual([
+      {
+        type: "RawCollisionEvent",
+        tags: ["raw:abc"],
+        payload: { source: "raw", value: "abc" },
+      },
+    ]);
+  });
+
+  test("definition-backed commands build candidates from event definition metadata", () => {
+    const definitionBackedEvent = defineEvent({
+      type: "DefinitionBackedCollisionEvent",
+      payload: z.object({ value: z.string() }),
+    });
+
+    const command = defineCommand({
+      name: "definition-backed-collision",
+      inputSchema: z.object({ value: z.string() }),
+      outputSchema: z.object({ eventType: z.string() }),
+      input: compose<CollisionInput>(),
+      validate: [] as ReadonlyArray<ValidatePredicate<CollisionInput, never>>,
+      event: definitionBackedEvent,
+      tags: (ctx) => [`definition:${ctx.value}`],
+      payload: (ctx) => ({ value: ctx.value }),
+      output: (event, _ctx): Result<CollisionOutput, never> => ok({ eventType: event.type }),
+    });
+
+    expect(command.event({ value: "abc" })).toEqual({
+      type: "DefinitionBackedCollisionEvent",
+      tags: ["definition:abc"],
+      payload: { value: "abc" },
+    });
+    expect(command.eventSchema).toBe(definitionBackedEvent.schema);
   });
 });
 

@@ -16,13 +16,14 @@ A plain string attached to an event. Tags are Esther's event-query key, so use s
 
 ## Command
 
-A command resolves typed context from raw input, validates it against event-derived state, and appends a single event. Defined with `defineCommand`. A command has the fields `input`, `validate`, `event`, `output`, and (optionally) `outputErr`.
+A command resolves typed context from raw input, validates it against event-derived state, and appends a single event. Defined with `defineCommand`. A command has `input`, `validate`, event emission fields, `output`, and (optionally) `outputErr`.
 
 - `input`: a descriptor pipeline built with `compose().add(...)`. It resolves typed context declaratively through framework-owned helpers such as `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
 - `validate`: an array of pure predicates `(ctx) => Result<void, TError>`; they run in order and short-circuit on first error.
-- `event(ctx)`: constructs the single domain event (no `Result` wrapper).
-- `output(event, ctx)`: maps the appended event plus final context into the slice's output shape.
-- `outputErr(error, ctx)`: maps an `input`/`validate` error into the output shape. Defaults to `err(error)`.
+- Event emission: prefer `event: EventDefinition` with `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns event schema input; direct `Command.event(ctx)` returns that pre-parse candidate. The command pipeline validates the candidate with the event schema before append, appends the parsed event, and returns `SchemaError` on malformed data.
+- Raw event emission: `event(ctx)` can still construct one low-level event directly for interop. This path is intentionally not event-definition-validated.
+- `output(event, ctx)`: maps the parsed appended event plus final context into the slice's output shape.
+- `outputErr(error, ctx)`: maps an `input`/`validate` error into the output shape. Defaults to `err(error)`. Framework errors such as `SchemaError` bypass it.
 
 ## Query
 

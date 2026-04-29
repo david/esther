@@ -763,6 +763,202 @@ const _createBookingConfirmedSlice = defineCommand<
     }),
 });
 
+const _eventDefinitionBackedCommand = defineCommand({
+  name: "event-definition-backed-command",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: BookingConfirmedEvent,
+  tags: (ctx: CreateBookingInput) => ["booking", `property:${ctx.propertyId}`],
+  payload: (ctx: CreateBookingInput) => ({
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: ctx.propertyId,
+    tenantId: ctx.tenantId,
+    checkIn: ctx.checkIn,
+    checkOut: ctx.checkOut,
+  }),
+  output: (event, _ctx) => {
+    const _eventCheck: BookingConfirmed = event;
+    const _bookingIdCheck: string = event.payload.bookingId;
+    return ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    });
+  },
+});
+
+const _eventDefinitionBackedCommandEventCheck: EventOf<typeof BookingConfirmedEvent> =
+  _eventDefinitionBackedCommand.event({
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    propertyId: "00000000-0000-4000-8000-000000000002",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+  });
+
+const TransformPayloadEvent = defineEvent({
+  type: "TransformPayload",
+  payload: z.string().transform((value) => value.length),
+});
+
+type TransformCommandInput = {
+  readonly rawValue: string;
+};
+
+const transformCommandInputSchema = z.object({ rawValue: z.string() });
+const transformCommandOutputSchema = z.object({ length: z.number() });
+
+const _transformEventDefinitionBackedCommand = defineCommand({
+  name: "transform-event-definition-backed-command",
+  inputSchema: transformCommandInputSchema,
+  outputSchema: transformCommandOutputSchema,
+  input: compose<TransformCommandInput>(),
+  validate: [],
+  event: TransformPayloadEvent,
+  tags: (_ctx: TransformCommandInput) => ["transform"],
+  payload: (ctx: TransformCommandInput) => ctx.rawValue,
+  output: (event, _ctx) => {
+    const _parsedPayloadCheck: number = event.payload;
+    // @ts-expect-error output receives parsed event payload, not candidate payload
+    const _candidatePayloadCheck: string = event.payload;
+    return ok({ length: event.payload });
+  },
+});
+
+const _transformEventCandidate = _transformEventDefinitionBackedCommand.event({ rawValue: "abc" });
+const _transformEventCandidatePayloadCheck: string = _transformEventCandidate.payload;
+// @ts-expect-error direct definition-backed event() returns schema-input candidate payload
+const _transformEventCandidateStoredPayloadCheck: number = _transformEventCandidate.payload;
+
+const _transformEventDefinitionBackedWrongPayloadCommand = defineCommand<
+  TransformCommandInput,
+  TransformCommandInput,
+  z.output<typeof transformCommandOutputSchema>,
+  typeof TransformPayloadEvent
+>({
+  name: "transform-event-definition-backed-wrong-payload-command",
+  inputSchema: transformCommandInputSchema,
+  outputSchema: transformCommandOutputSchema,
+  input: compose<TransformCommandInput>(),
+  validate: [],
+  event: TransformPayloadEvent,
+  tags: (_ctx: TransformCommandInput) => ["transform"],
+  // @ts-expect-error definition-backed command payload returns schema input, not parsed output
+  payload: (_ctx: TransformCommandInput) => 3,
+  output: (event) => ok({ length: event.payload }),
+});
+
+type RawTransformInteropEvent = EventRecordInput<"RawTransformInterop", string>;
+
+const _rawTransformInteropCommand = defineCommand<
+  TransformCommandInput,
+  TransformCommandInput,
+  z.output<typeof transformCommandOutputSchema>,
+  RawTransformInteropEvent,
+  never
+>({
+  name: "raw-transform-interop-command",
+  inputSchema: transformCommandInputSchema,
+  outputSchema: transformCommandOutputSchema,
+  input: compose<TransformCommandInput>(),
+  validate: [],
+  event: (ctx): RawTransformInteropEvent => ({
+    type: "RawTransformInterop",
+    tags: ["transform"],
+    payload: ctx.rawValue,
+  }),
+  output: (event) => {
+    const _rawPayloadCheck: string = event.payload;
+    return ok({ length: event.payload.length });
+  },
+});
+
+const _rawTransformInteropCandidateCheck: RawTransformInteropEvent =
+  _rawTransformInteropCommand.event({ rawValue: "abc" });
+
+const _eventDefinitionBackedMissingPayloadCommand = defineCommand<
+  CreateBookingInput,
+  CreateBookingInput,
+  z.output<typeof createBookingOutputSchema>,
+  typeof BookingConfirmedEvent
+>({
+  name: "event-definition-backed-missing-payload-command",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: BookingConfirmedEvent,
+  tags: (ctx: CreateBookingInput) => ["booking", `property:${ctx.propertyId}`],
+  // @ts-expect-error event-definition-backed command payload requires schema-derived fields
+  payload: (_ctx: CreateBookingInput) => ({
+    bookingId: "booking-1",
+  }),
+  output: (event) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+});
+
+const _eventDefinitionBackedWrongPayloadCommand = defineCommand<
+  CreateBookingInput,
+  CreateBookingInput,
+  z.output<typeof createBookingOutputSchema>,
+  typeof BookingConfirmedEvent
+>({
+  name: "event-definition-backed-wrong-payload-command",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: BookingConfirmedEvent,
+  tags: (ctx: CreateBookingInput) => ["booking", `property:${ctx.propertyId}`],
+  // @ts-expect-error event-definition-backed command payload rejects mismatched field types
+  payload: (ctx: CreateBookingInput) => ({
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: ctx.propertyId,
+    tenantId: ctx.tenantId,
+    checkIn: ctx.checkIn,
+    checkOut: 42,
+  }),
+  output: (event) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+});
+
+const _eventDefinitionBackedWrongTagsCommand = defineCommand<
+  CreateBookingInput,
+  CreateBookingInput,
+  z.output<typeof createBookingOutputSchema>,
+  typeof BookingConfirmedEvent
+>({
+  name: "event-definition-backed-wrong-tags-command",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: BookingConfirmedEvent,
+  // @ts-expect-error event-definition-backed command tags must be strings
+  tags: (_ctx: CreateBookingInput) => [42],
+  payload: (ctx: CreateBookingInput) => ({
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: ctx.propertyId,
+    tenantId: ctx.tenantId,
+    checkIn: ctx.checkIn,
+    checkOut: ctx.checkOut,
+  }),
+  output: (event) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+});
+
 const _eventDefinitionReducer = defineReducer({
   name: "event-definition-reducer",
   // @ts-expect-error reducer APIs still take schemas, not whole event definitions
