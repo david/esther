@@ -601,16 +601,26 @@ Return `undefined` from processor handler to skip effects. `createEffectAdapterR
 
 `createApp(...)` wires one event store, read-model registrations, slices, processors, effect adapters, and optional input adapter.
 
+In `AppConfig`, `slices` means dispatchable operations (`defineCommand(...)` or `defineQuery(...)`). It does not mean an event-modeling slice, aggregate, module, or feature boundary. There is currently no `defineSlice(...)` DSL.
+
+For feature-level organization, use plain exported bundles and wire their parts explicitly:
+
 ```typescript
 const eventStore = createInMemoryEventStore();
 const orderSummaryProjection = createInMemoryProjectionAdapter(orderSummaryModel);
 
-const app = createApp({
-  eventStore,
+const orderingFeature = {
+  operations: [placeOrder, getOrder],
   readModels: [orderSummaryProjection],
   processors: [sendOrderEmail],
+} as const;
+
+const app = createApp({
+  eventStore,
+  readModels: orderingFeature.readModels,
+  processors: orderingFeature.processors,
   effectAdapters: [emailAdapter],
-  slices: [placeOrder, getOrder],
+  slices: orderingFeature.operations,
 });
 
 await app.start();
@@ -618,7 +628,7 @@ const result = await app.dispatch("place-order", { productId, amount: 1 });
 await app.stop();
 ```
 
-`app.dispatch(sliceName: string, input: unknown)` is intentionally dynamic. Unknown input is parsed by slice schema. Typed invocation belongs in adapter route/binding config, not public in-process app clients.
+`app.dispatch(sliceName: string, input: unknown)` is intentionally dynamic. Unknown input is parsed by selected operation schema. Typed invocation belongs in adapter route/binding config, not public in-process app clients.
 
 `readModels` canonical registrations:
 
@@ -973,14 +983,15 @@ If operations widen to `ReadonlyArray<RegisterableOperation>`, helper types wide
 14. Use `key: "foo" as const` on `tagQuery`, `projection`, `lookup`, `generate` for literal context fields.
 15. Query state starts with `state<z.output<typeof inputSchema>>()` or equivalent named input type.
 16. Define input/output schemas externally for reuse by clients/adapters.
-17. Read-model query logic belongs in `defineReadModelQuery`; never inline filtering/sorting in slices.
+17. Read-model query logic belongs in `defineReadModelQuery`; never inline filtering/sorting in operations.
 18. Projectors/processors are pure; direct I/O belongs in adapters.
 19. Effect adapters execute side effects from processor effect descriptors.
 20. App modules must not call DB/HTTP/filesystem/queues directly.
 21. `app.dispatch(sliceName, input)` is dynamic; typed calls belong in adapter route/binding config.
-22. Keep core free of adapter imports; adapters must not import sibling adapters.
-23. No `Record<string, unknown>` as value type in new code; use explicit shapes or `Record<never, never>` for intentionally empty object.
-24. Keep `llms.txt` updated when public API, DSL behavior, adapter usage, errors, or canonical examples change.
+22. `AppConfig.slices` means dispatchable operations, not event-modeling slices; no `defineSlice(...)` DSL currently.
+23. Keep core free of adapter imports; adapters must not import sibling adapters.
+24. No `Record<string, unknown>` as value type in new code; use explicit shapes or `Record<never, never>` for intentionally empty object.
+25. Keep `llms.txt` updated when public API, DSL behavior, adapter usage, errors, or canonical examples change.
 
 ## Full example
 
