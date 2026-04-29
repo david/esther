@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: planned
+Status: plan checked, approved
 
 ## Active artifacts
 Description:
@@ -11,5 +11,8 @@ Description:
 Plan:
 - plan/01-implementation-plan.md
 
+Plan checks:
+- plan/checks/01-plan-sanity.md — approved
+
 ## Next suggested step
-- {{/skill:plan-check k5vbl-rename-slices}}
+- {{/skill:breakdown k5vbl-rename-slices --from plan/01-implementation-plan.md}}
