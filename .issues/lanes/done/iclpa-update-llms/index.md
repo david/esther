@@ -1,8 +1,8 @@
 # iclpa-update-llms Index
 
 ## Current state
-Lane: in-progress
-Status: QA passed — ready for deploy
+Lane: done
+Status: shipped — direct push to origin/main recorded
 
 ## Active artifacts
 Description:
@@ -28,4 +28,4 @@ QA:
 - qa/tasks/qa-llms-export-surface.md — passed
 
 ## Next suggested step
-- {{/skill:deploy iclpa-update-llms}}
+- None; repo-local workflow complete.
