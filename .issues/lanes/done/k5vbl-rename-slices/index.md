@@ -1,8 +1,8 @@
 # k5vbl-rename-slices Index
 
 ## Current state
-Lane: in-progress
-Status: review-diff complete; pending gates
+Lane: done
+Status: shipped to origin/main by direct push; repo-local deploy complete
 
 ## Active artifacts
 Description:
@@ -27,5 +27,8 @@ Pending implementation tasks: 0
 ## User correction
 - No deprecated `slices` alias. `AppConfig.operations` only.
 
+Deploy:
+- deploy/01-release.md — direct push to origin/main at 4c021de122e905abc7dd9711463331d4c0446274; no external issue closure inferred
+
 ## Next suggested step
-- {{/skill:gates k5vbl-rename-slices}}
+- None.
