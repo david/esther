@@ -1012,7 +1012,7 @@ const _inMemoryReadModelsConfig: AppConfig = {
   eventStore: createInMemoryEventStore(),
   readModels: [inMemoryPricingRegistration],
   inputAdapter: createInMemoryAdapter(),
-  slices: [],
+  operations: [],
 };
 const _inMemoryReadModelsApp = createApp(_inMemoryReadModelsConfig);
 
@@ -1035,7 +1035,7 @@ const _postgresReadModelsConfig: AppConfig = {
   eventStore: createInMemoryEventStore(),
   readModels: [postgresPricingRegistration],
   inputAdapter: createInMemoryAdapter(),
-  slices: [],
+  operations: [],
 };
 
 const readOnlyPricingRegistration: ReadOnlyReadModelRegistration<PricingRow> = {
@@ -1052,7 +1052,7 @@ const _readOnlyReadModelsConfig: AppConfig = {
   eventStore: createInMemoryEventStore(),
   readModels: [readOnlyPricingRegistration],
   inputAdapter: createInMemoryAdapter(),
-  slices: [],
+  operations: [],
 };
 
 // @ts-expect-error read-only registrations do not provide write adapters
@@ -1637,13 +1637,13 @@ const _dynamicOperationInput: OperationInput<OperationByName<typeof _widenedOper
 };
 const _directDynamicDispatchApp = createApp({
   eventStore: createInMemoryEventStore(),
-  slices: _typedOperations,
+  operations: _typedOperations,
 });
 
 const _dynamicDispatchApp = createApp({
   eventStore: createInMemoryEventStore(),
   inputAdapter: createInMemoryAdapter(),
-  slices: _typedOperations,
+  operations: _typedOperations,
 });
 const _dynamicDispatchResult: Promise<Result<unknown, unknown>> = _dynamicDispatchApp.dispatch(
   "anything",

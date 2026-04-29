@@ -72,7 +72,7 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
     });
@@ -123,7 +123,7 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
     });
@@ -182,7 +182,7 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
       projectionAdapters: [
@@ -236,7 +236,7 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
       projectionAdapters: [
@@ -286,7 +286,7 @@ describe("defineProcessor", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       effectAdapters: [effectAdapter],
       processors: [processor],
     });

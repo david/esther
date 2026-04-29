@@ -271,7 +271,7 @@ function buildApp() {
   const app = createApp({
     eventStore,
     inputAdapter: { adapter, bind },
-    slices: [depositSlice, withdrawSlice, creditSlice, rejectSlice],
+    operations: [depositSlice, withdrawSlice, creditSlice, rejectSlice],
   });
 
   return { app, eventStore };
@@ -409,7 +409,7 @@ describe("event store hooks", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [depositSlice],
+      operations: [depositSlice],
     });
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
@@ -429,7 +429,7 @@ describe("event store hooks", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [depositSlice],
+      operations: [depositSlice],
     });
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 50 });
@@ -479,7 +479,7 @@ describe("constraint metadata registration", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [],
+      operations: [],
     });
 
     expect(registered).toEqual([
@@ -518,7 +518,7 @@ describe("constraint metadata registration", () => {
       eventStore: testStore,
       readModels: [projectionAdapter],
       inputAdapter: { adapter, bind },
-      slices: [],
+      operations: [],
     });
 
     expect(registered).toEqual([
@@ -540,7 +540,7 @@ describe("constraint metadata registration", () => {
         eventStore,
         projectionAdapters: [],
         inputAdapter: { adapter, bind },
-        slices: [],
+        operations: [],
       }),
     ).not.toThrow();
   });
@@ -585,7 +585,7 @@ describe("read model event bindings via createApp", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [depositSlice],
+      operations: [depositSlice],
     });
 
     // First deposit — event position 0
@@ -651,7 +651,7 @@ describe("read model event bindings via createApp", () => {
       eventStore,
       readModels: [projectionAdapter],
       inputAdapter: { adapter, bind },
-      slices: [depositSlice, getCanonicalAccount],
+      operations: [depositSlice, getCanonicalAccount],
     });
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
@@ -738,7 +738,7 @@ describe("read model event bindings via createApp", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [depositSlice],
+      operations: [depositSlice],
     });
 
     await app.dispatch("deposit", { accountId: "acc-1", amount: 100 });
@@ -798,7 +798,7 @@ describe("duplicate model names at createApp", () => {
           },
         ],
         inputAdapter: { adapter, bind },
-        slices: [],
+        operations: [],
       }),
     ).toThrow('Duplicate read model registration name: "accounts"');
   });
@@ -831,7 +831,7 @@ describe("duplicate model names at createApp", () => {
           },
         ],
         inputAdapter: { adapter, bind },
-        slices: [],
+        operations: [],
       }),
     ).not.toThrow();
   });
@@ -864,7 +864,7 @@ describe("duplicate model names at createApp", () => {
           },
         ],
         inputAdapter: { adapter, bind },
-        slices: [],
+        operations: [],
       }),
     ).toThrow('Duplicate read model registration name: "canonicalDuplicateAccounts"');
   });
@@ -899,7 +899,7 @@ describe("duplicate model names at createApp", () => {
           },
         ],
         inputAdapter: { adapter, bind },
-        slices: [],
+        operations: [],
       }),
     ).toThrow('Duplicate read model registration name: "canonicalLegacyDuplicateAccounts"');
   });
@@ -928,7 +928,7 @@ describe("duplicate model names at createApp", () => {
           },
         ],
         inputAdapter: { adapter, bind },
-        slices: [],
+        operations: [],
       }),
     ).toThrow(
       'Read model registration adapter/handle name mismatch: adapter "otherAccounts" does not match handle "canonicalMismatchAccounts"',
@@ -1013,7 +1013,7 @@ describe("projection step in query slices", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [depositSlice, queryOptional, queryRequired],
+      operations: [depositSlice, queryOptional, queryRequired],
     });
 
     return { app, eventStore, get };
@@ -1131,7 +1131,7 @@ describe("replay", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [replayDepositSlice],
+      operations: [replayDepositSlice],
     });
 
     return { app, eventStore, get, projAdapter };
@@ -1297,7 +1297,7 @@ describe("end-to-end integration", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [depositSliceE2E, getBalanceE2E],
+      operations: [depositSliceE2E, getBalanceE2E],
     });
 
     const depositResult = await app.dispatch("deposit-e2e", {
@@ -1419,7 +1419,7 @@ describe("projection step with ReadModelQueryHandle", () => {
         query: async (_name, entries, orderBy, limit) => query(entries, orderBy, limit),
       },
       inputAdapter: { adapter, bind },
-      slices: [depositSlice, queryRequired, queryOptional],
+      operations: [depositSlice, queryRequired, queryOptional],
     });
 
     return { app, eventStore };

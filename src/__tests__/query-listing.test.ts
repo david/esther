@@ -70,7 +70,7 @@ describe("query slice list projections", () => {
         },
       },
       inputAdapter: input,
-      slices: [listSongs],
+      operations: [listSongs],
     });
 
     await songsProjection.adapter.execute(
@@ -119,7 +119,7 @@ describe("query slice list projections", () => {
         },
       ],
       inputAdapter: input,
-      slices: [listSongs],
+      operations: [listSongs],
     });
 
     const result = await app.dispatch("songs/list-many-readonly", {});
@@ -156,7 +156,7 @@ describe("query slice list projections", () => {
         },
       ],
       inputAdapter: input,
-      slices: [listSongs],
+      operations: [listSongs],
     });
 
     const result = await app.dispatch("songs/list-missing-query", {});
@@ -214,7 +214,7 @@ describe("query slice list projections", () => {
       eventStore,
       readModels: [songsProjection],
       inputAdapter: input,
-      slices: [],
+      operations: [],
       processors: [processor],
       effectAdapters: [effectAdapter],
     });
@@ -228,7 +228,7 @@ describe("query slice list projections", () => {
     createApp({
       eventStore: eventStoreWithoutQuery,
       inputAdapter: createInMemoryAdapter(),
-      slices: [],
+      operations: [],
       processors: [processor],
       effectAdapters: [effectAdapter],
     });
@@ -278,7 +278,7 @@ describe("query slice list projections", () => {
         },
       },
       inputAdapter: input,
-      slices: [listSongs],
+      operations: [listSongs],
     });
 
     await songsProjection.adapter.execute(
@@ -325,7 +325,7 @@ describe("query slice list projections", () => {
         },
       ],
       inputAdapter: input,
-      slices: [getSong],
+      operations: [getSong],
     });
 
     const result = await app.dispatch("songs/get-one", { songId: "song-1" });
@@ -371,7 +371,7 @@ describe("query slice list projections", () => {
         query: async () => [{ songId: "song-1", title: 42 }],
       },
       inputAdapter: input,
-      slices: [getSong],
+      operations: [getSong],
     });
 
     const result = await app.dispatch("songs/get-one-by-query", {});
@@ -417,7 +417,7 @@ describe("query slice list projections", () => {
         ],
       },
       inputAdapter: input,
-      slices: [listSongs],
+      operations: [listSongs],
     });
 
     const result = await app.dispatch("songs/list-many-malformed", {});
@@ -473,7 +473,7 @@ describe("query slice list projections", () => {
         },
       ],
       inputAdapter: input,
-      slices: [authenticatedList],
+      operations: [authenticatedList],
     });
 
     const result = await app.dispatch("songs/auth-list", {});

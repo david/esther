@@ -68,7 +68,7 @@ describe("createApp", () => {
   test("start and stop resolve without an input adapter", async () => {
     const app = createApp({
       eventStore: createInMemoryEventStore(),
-      slices: [pingQuery],
+      operations: [pingQuery],
     });
 
     await expect(app.start()).resolves.toBeUndefined();
@@ -99,7 +99,7 @@ describe("createApp", () => {
     const app = createApp({
       eventStore: createInMemoryEventStore(),
       inputAdapter,
-      slices: [pingQuery],
+      operations: [pingQuery],
     });
 
     expect(bindCalls).toBe(1);

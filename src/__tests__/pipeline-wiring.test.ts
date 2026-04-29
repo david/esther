@@ -104,7 +104,7 @@ function buildAppWith(slice: RegisterableOperation) {
   const app = createApp({
     eventStore,
     inputAdapter: { adapter, bind },
-    slices: [slice],
+    operations: [slice],
   });
   return { app, eventStore };
 }
@@ -171,7 +171,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
     });
 
     const result = await app.dispatch("probe-happy", { a: 1 });
@@ -270,7 +270,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
       projectionAdapters: [
         {
           kind: "table",
@@ -390,7 +390,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
     });
 
     const result = await app.dispatch("transformed-payload-command", { a: 3 });
@@ -500,7 +500,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
       projectionAdapters: [
         {
           kind: "table",
@@ -671,7 +671,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
     });
 
     const result = await app.dispatch("probe-cast-absent", { a: 1 });
@@ -998,7 +998,7 @@ describe("command pipeline v2 — wiring", () => {
         query: async () => rows,
       },
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
     });
 
     const missing = await app.dispatch("probe-lookup-validated", { email: "nobody@test" });
@@ -1105,7 +1105,7 @@ describe("command pipeline v2 — wiring", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
     });
 
     const result = await app.dispatch("probe-cast-malformed", { userId: "u-1" });
@@ -1187,7 +1187,7 @@ describe("command pipeline v2 — wiring", () => {
         },
       ],
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
     });
 
     // hit — user found
@@ -1238,7 +1238,7 @@ describe("command pipeline v2 — wiring", () => {
       output: () => ok({ ok: true }),
     });
 
-    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, slices: [slice] });
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [slice] });
     const result = await app.dispatch("probe-stale-tag-query", { a: 1 });
 
     expect(result.isErr()).toBe(true);
@@ -1292,7 +1292,7 @@ describe("command pipeline v2 — wiring", () => {
       output: () => ok({ ok: true }),
     });
 
-    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, slices: [slice] });
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [slice] });
     const result = await app.dispatch("probe-empty-stale-tag-query", { a: 1 });
 
     expect(result.isErr()).toBe(true);
@@ -1437,7 +1437,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
       projectionAdapters: [
         {
           kind: "table",
@@ -1574,7 +1574,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [lookupSlice, deriveSlice, generateSlice],
+      operations: [lookupSlice, deriveSlice, generateSlice],
       projectionAdapters: [
         {
           kind: "view",
@@ -1690,7 +1690,7 @@ describe("command pipeline v2 — wiring", () => {
     const app = createApp({
       eventStore,
       inputAdapter: { adapter, bind },
-      slices: [slice],
+      operations: [slice],
       projectionAdapters: [
         {
           kind: "table",
@@ -1765,7 +1765,7 @@ describe("command pipeline v2 — wiring", () => {
     });
 
     const { adapter, bind } = createInMemoryAdapter();
-    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, slices: [query] });
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [query] });
     const result = await app.dispatch("probe-query-tag-query-read-only", { a: 1 });
 
     expect(result.isOk()).toBe(true);

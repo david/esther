@@ -296,7 +296,7 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       projectionAdapters: [
         {
           kind: "table",
@@ -375,7 +375,7 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       projectionAdapters: [
         {
           kind: "table",
@@ -490,7 +490,7 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       projectionAdapters: [
         {
           kind: "table",
@@ -574,7 +574,7 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       projectionAdapters: [
         {
           kind: "table",
@@ -646,7 +646,7 @@ describe("read model events", () => {
 
     createApp({
       eventStore,
-      slices: [],
+      operations: [],
       projectionAdapters: [
         {
           kind: "table",
