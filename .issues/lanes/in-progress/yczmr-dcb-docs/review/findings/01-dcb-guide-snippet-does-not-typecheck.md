@@ -1,7 +1,7 @@
 # Finding 01 — DCB guide command snippet does not typecheck
 
 ## Status
-open
+addressed in impl/05
 
 ## Severity
 medium

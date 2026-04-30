@@ -73,9 +73,17 @@ const balanceReducer = defineReducer({
 const withdrawInput = z.object({ accountId: z.string(), amount: z.number().positive() });
 const withdrawOutput = z.object({ accountId: z.string(), debited: z.number() });
 type WithdrawInput = z.output<typeof withdrawInput>;
+type WithdrawOutput = z.output<typeof withdrawOutput>;
+type WithdrawCtx = WithdrawInput & { readonly balance: number };
 type InsufficientFunds = { readonly type: "InsufficientFunds"; readonly message: string };
 
-const withdraw = defineCommand({
+const withdraw = defineCommand<
+  WithdrawInput,
+  WithdrawCtx,
+  WithdrawOutput,
+  typeof AccountDebited,
+  InsufficientFunds
+>({
   name: "withdraw",
   inputSchema: withdrawInput,
   outputSchema: withdrawOutput,

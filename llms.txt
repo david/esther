@@ -477,9 +477,19 @@ Command shape:
 ```typescript
 type PlaceOrderInput = z.output<typeof placeOrderInputSchema>;
 type PlaceOrderOutput = z.output<typeof placeOrderOutputSchema>;
+type PlaceOrderCtx = PlaceOrderInput & {
+  readonly inventory: { readonly quantity: number };
+  readonly orderId: string;
+};
 type OutOfStock = { readonly type: "OutOfStock"; readonly message: string };
 
-const placeOrder = defineCommand({
+const placeOrder = defineCommand<
+  PlaceOrderInput,
+  PlaceOrderCtx,
+  PlaceOrderOutput,
+  typeof OrderPlaced,
+  OutOfStock
+>({
   name: "place-order",
   inputSchema: placeOrderInputSchema,
   outputSchema: placeOrderOutputSchema,
@@ -1147,7 +1157,13 @@ type TransferError = {
   readonly message: string;
 };
 
-const transferMoney = defineCommand({
+const transferMoney = defineCommand<
+  TransferInput,
+  TransferCtx,
+  TransferOutput,
+  typeof MoneyDebited,
+  TransferError
+>({
   name: "transfer-money",
   inputSchema: transferInputSchema,
   outputSchema: transferOutputSchema,
