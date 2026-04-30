@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: implementation plan approved
+Status: implementation tasks ready
 
 ## Active artifacts
 Description:
@@ -17,5 +17,9 @@ Implementation plan:
 Plan checks:
 - plan/checks/01-plan-sanity.md — approved
 
+Implementation tasks:
+- impl/01.md through impl/04.md — pending (4)
+
 ## Next suggested step
-- {{/skill:breakdown 11w2y-public-command-descriptors --from plan/01-implementation-plan.md}}
+- {{/skill:impl 11w2y-public-command-descriptors}}
+- Skill-loop alternative: {{/skill-loop 4 /skill:impl 11w2y-public-command-descriptors}}
