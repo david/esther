@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; review follow-up ready for semantic review
+Status: semantic diff review complete; gates needed for final tree
 
 ## Active artifacts
 Description:
@@ -21,9 +21,10 @@ Implementation tasks:
 
 Review:
 - review/diff/01-review-diff.md
+- review/diff/02-review-diff.md — follow-up review; no code findings, gates needed
 
 Findings:
 - review/findings/01-dcb-guide-snippet-does-not-typecheck.md — medium, addressed in impl/05
 
 ## Next suggested step
-- {{/skill:review-diff yczmr-dcb-docs}}
+- {{/skill:gates yczmr-dcb-docs}}
