@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: semantic diff review completed; actionable review finding found
+Status: review finding broken down; implementation follow-up pending
 
 ## Active artifacts
 Description:
@@ -19,10 +19,14 @@ Plan checks:
 
 Implementation tasks:
 - impl/01.md through impl/04.md — completed; checkpoints recorded in impl/checkpoints/01.md through impl/checkpoints/04.md
+- impl/05.md — pending follow-up for review finding; 1 pending implementation task
 
 Review:
 - review/diff/01-review-diff.md — public descriptor semantic review
 - review/findings/01-command-definition-erases-inline-inference.md — actionable high-risk type inference finding
 
 ## Next suggested step
-- {{/skill:breakdown 11w2y-public-command-descriptors --from review/findings/01-command-definition-erases-inline-inference.md}}
+- {{/skill:impl 11w2y-public-command-descriptors}}
+
+## Skill-loop alternative
+- {{/skill-loop 1 /skill:impl 11w2y-public-command-descriptors}}
