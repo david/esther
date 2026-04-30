@@ -93,4 +93,10 @@ A named adapter that matches and executes effect descriptors emitted by processo
 
 ## Dynamic Consistency Boundary (DCB)
 
-Esther's concurrency model. Consistency is defined by the set of tags read during state resolution rather than by a single aggregate root. The framework tracks the observed position and uses optimistic concurrency at append time.
+Esther's tag-based optimistic concurrency model for command-side event-history reads. Command `tagQuery(...)` and `castTagQuery(...)` descriptors observe one tag boundary and its max event position; append then uses that observed boundary as an optimistic guard.
+
+Choose decision tags that include every prior event that could invalidate the command decision. Projection/read-model context such as `lookup(...)`, query `projection(...)`, projector reads, and processor reads do not create command append guards.
+
+Current command execution supports one observed event-history boundary. Multiple command-side boundary observations fail with `BoundaryObservationError`. DCB prevents stale decisions; it is not authorization and not a pessimistic lock.
+
+See [Dynamic Consistency Boundaries](./dcb.md) for the short guide, examples, misuses, and current limits.
