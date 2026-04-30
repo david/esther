@@ -15,6 +15,7 @@ import {
   compose,
   state,
   defineCommand,
+  commandDefinition,
   defineQuery,
 
   // event + reducer DSL
@@ -70,6 +71,8 @@ import type {
   StoredEvent,
   EventOf,
   EventPayloadOf,
+  EventPayloadInputOf,
+  EventCandidateOf,
   EventDefinition,
   ReducerDefinition,
   ReducerEvent,
@@ -127,7 +130,9 @@ import type {
   OrderDirection,
   Command,
   Query,
-  CommandDefinition,
+  RawCommandDefinition,
+  DefinitionBackedCommandDefinition,
+  AnyCommandDefinition,
   CastTagQueryDescriptor,
   CommandLookupDescriptor,
   CommandLookupByArgsDescriptor,
@@ -460,8 +465,10 @@ Commands use `compose().add(...)` for input pipeline. Queries use `state().pipe(
 
 Command event emission has two forms:
 
-- Preferred: `event: EventDefinition`, plus `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns `z.input<typeof Event.payloadSchema>`; direct `command.event(ctx)` returns that pre-parse candidate. Pipeline validates the full event with `Event.schema`, appends parsed `z.output` payload, and returns `SchemaError("Event validation failed", issues)` on malformed data.
-- Low-level interop: raw `event(ctx) => EventRecordInput`. This path is intentionally not event-definition-validated.
+- Preferred: `DefinitionBackedCommandDefinition` uses `event: EventDefinition`, plus `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns `EventPayloadInputOf<typeof Event>` / `z.input<typeof Event.payloadSchema>`; direct `command.event(ctx)` returns `EventCandidateOf<typeof Event>` with schema-input payload. Pipeline validates full candidate with `Event.schema`, appends parsed `EventOf<typeof Event>` / `z.output` payload, passes parsed event to `output(event, ctx)`, and returns `SchemaError("Event validation failed", issues)` on malformed data.
+- Low-level interop: `RawCommandDefinition` uses raw `event(ctx) => EventRecordInput`. This path is intentionally not event-definition-validated.
+
+Reusable wrappers should accept `T extends AnyCommandDefinition` and return `commandDefinition(definition)` to preserve descriptor inference. Migration: replace old ambiguous public `CommandDefinition` usage with `RawCommandDefinition` for raw event factories or `DefinitionBackedCommandDefinition` for `event: EventDefinition` descriptors. Do not keep a `CommandDefinition` alias.
 
 Command shape:
 
