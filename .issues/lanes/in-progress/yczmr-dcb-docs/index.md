@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: gates passed; QA planning needed
+Status: QA planned; manual QA pending
 
 ## Active artifacts
 Description:
@@ -27,5 +27,10 @@ Findings:
 - review/findings/01-dcb-guide-snippet-does-not-typecheck.md — medium, addressed in impl/05
 - review/findings/02-gate-results.md — gates passed
 
+QA:
+- qa/summary.md
+- qa/tasks/qa-dcb-human-docs-comprehension.md
+- qa/tasks/qa-dcb-llm-guidance-parity.md
+
 ## Next suggested step
-- {{/skill:plan-qa yczmr-dcb-docs}}
+- {{/skill:manual-qa yczmr-dcb-docs}}
