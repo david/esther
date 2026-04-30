@@ -1,16 +1,21 @@
 # qa-public-command-typecheck Context
 
 ## Fixture
-- Repository checkout: `.issues/lanes/in-progress/11w2y-public-command-descriptors` implementation branch.
-- Dependencies: use `bun install --frozen-lockfile` if `node_modules` missing or stale.
+- Repository checkout: `/home/david/esther-w0`
+- Issue: `.issues/lanes/in-progress/11w2y-public-command-descriptors`
+- Dependencies: `node_modules` present; no install needed.
+- Git commit: `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49`
+
+## Preflight
+- `git status --porcelain`: clean before QA artifact writes.
+- `cd be && bun run migrate:data:check`: not applicable; repo has no `be/` directory and project docs define no data migration check.
 
 ## Commands
 - `bun run typecheck`
 
-## Evidence to collect
-- exit code
-- TypeScript output
-- current git commit hash
+## Evidence collected
+- exit code: 0
+- output: `tsgo --noEmit -p tsconfig.json`
 
 ## Notes
 - No browser workflow needed.

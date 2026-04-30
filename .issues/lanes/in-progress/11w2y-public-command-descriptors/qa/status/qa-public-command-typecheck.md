@@ -1,7 +1,7 @@
 # qa-public-command-typecheck Status
 
-status: pending
+status: passed
 mode: auto-cli
 blocked: false
-last_result: none
-next_action: run `bun run typecheck` during auto QA
+last_result: passed on 2026-04-30
+next_action: none — QA passed

@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: third semantic diff review passed; automated gates pass; QA planning pending
+Status: auto QA passed; ready for deploy
 
 ## Active artifacts
 Description:
@@ -27,8 +27,11 @@ Review:
 - review/findings/01-command-definition-erases-inline-inference.md — actionable high-risk type inference finding; follow-up implemented in impl/05.md
 - review/findings/02-direct-wrapper-inline-inference.md — actionable high-risk direct wrapper inference finding; follow-up implemented in impl/06.md
 
+## QA
+- qa/summary.md — auto CLI QA passed (`bun run typecheck`, `bun run test`, `bun run lint`)
+
 ## Next suggested step
-- {{/skill:plan-qa 11w2y-public-command-descriptors}}
+- {{/skill:deploy 11w2y-public-command-descriptors}}
 
 ## Skill-loop alternative
-- {{/skill-loop 1 /skill:plan-qa 11w2y-public-command-descriptors}}
+- {{/skill-loop 1 /skill:deploy 11w2y-public-command-descriptors}}
