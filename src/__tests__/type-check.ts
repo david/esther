@@ -14,6 +14,7 @@ import {
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
   commandDefinition,
+  commandDefinitionWrapper,
   defineCommand,
   defineEvent,
   defineQuery,
@@ -33,6 +34,7 @@ import {
   type BoundaryObservation,
   type BoundaryObservationError as BoundaryObservationErrorType,
   type AnyCommandDefinition,
+  type CommandDefinitionWrapper,
   type DefinitionBackedCommandDefinition,
   type DispatchFn,
   type EventCandidateOf,
@@ -924,6 +926,91 @@ type _InlineCommandDefinitionInputContextIncludesEnrichment = Expect<
     : false
 >;
 
+const _authenticatedCommandDefinition: CommandDefinitionWrapper = commandDefinitionWrapper(
+  (definition) =>
+    commandDefinition({
+      ...definition,
+      authenticated: true as const,
+    }),
+);
+
+const _directAuthenticatedCommandDefinition = _authenticatedCommandDefinition({
+  name: "direct-authenticated-command-definition",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: _inlineCommandDefinitionInput,
+  validate: [
+    (ctx) => {
+      const _pricingCheck: PricingRow = ctx.pricing;
+      const _confirmedAtCheck: string = ctx.confirmedAt;
+      return [];
+    },
+  ],
+  event: BookingConfirmedEvent,
+  tags: (ctx) => {
+    const _pricingCheck: PricingRow = ctx.pricing;
+    return ["booking", `property:${ctx.propertyId}`, `price:${ctx.pricing.pricePerNight}`];
+  },
+  payload: (ctx) => {
+    const _candidatePayload: EventPayloadInputOf<typeof BookingConfirmedEvent> = {
+      bookingId: "booking-1",
+      confirmedAt: ctx.confirmedAt,
+      propertyId: ctx.propertyId,
+      tenantId: ctx.tenantId,
+      checkIn: ctx.checkIn,
+      checkOut: ctx.checkOut,
+    };
+    return _candidatePayload;
+  },
+  output: (event, ctx) => {
+    const _eventCheck: EventOf<typeof BookingConfirmedEvent> = event;
+    const _pricingCheck: PricingRow = ctx.pricing;
+    return ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    });
+  },
+});
+
+const _directAuthenticatedCommand = defineCommand(_directAuthenticatedCommandDefinition);
+const _directAuthenticatedCandidate: EventCandidateOf<typeof BookingConfirmedEvent> =
+  _directAuthenticatedCommand.event({
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    propertyId: "00000000-0000-4000-8000-000000000002",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+    pricing: {
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      pricePerNight: 100,
+    },
+    confirmedAt: "2026-05-01T00:00:00.000Z",
+  });
+
+const _badDirectAuthenticatedPayload = _authenticatedCommandDefinition({
+  name: "bad-direct-authenticated-payload",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: BookingConfirmedEvent,
+  tags: (ctx) => ["booking", `property:${ctx.propertyId}`],
+  payload: (ctx) => ({
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: ctx.propertyId,
+    tenantId: ctx.tenantId,
+    checkIn: ctx.checkIn,
+    checkout: ctx.checkOut,
+  }),
+  output: (event) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+});
+// @ts-expect-error defineCommand rejects wrapper-returned bad event schema-input payload
+defineCommand(_badDirectAuthenticatedPayload);
+
 const _inlineCommandDefinitionBackedDefinition = commandDefinition({
   name: "inline-command-definition-backed-definition",
   inputSchema: createBookingInputSchema,
@@ -1205,6 +1292,41 @@ type TransformCommandInput = {
 
 const transformCommandInputSchema = z.object({ rawValue: z.string() });
 const transformCommandOutputSchema = z.object({ length: z.number() });
+
+const _directAuthenticatedTransformDefinition = _authenticatedCommandDefinition({
+  name: "direct-authenticated-transform-definition",
+  inputSchema: transformCommandInputSchema,
+  outputSchema: transformCommandOutputSchema,
+  input: compose<TransformCommandInput>(),
+  validate: [
+    (ctx) => {
+      const _rawValueCheck: string = ctx.rawValue;
+      return [];
+    },
+  ],
+  event: TransformPayloadEvent,
+  tags: (ctx) => ["transform", `raw:${ctx.rawValue}`],
+  payload: (ctx) => {
+    const _candidatePayloadCheck: EventPayloadInputOf<typeof TransformPayloadEvent> = ctx.rawValue;
+    return ctx.rawValue;
+  },
+  output: (event, ctx) => {
+    const _parsedEventCheck: EventOf<typeof TransformPayloadEvent> = event;
+    const _parsedPayloadCheck: number = event.payload;
+    const _rawValueCheck: string = ctx.rawValue;
+    // @ts-expect-error wrapper output receives parsed payload, not schema input
+    const _candidatePayloadCheck: string = event.payload;
+    return ok({ length: event.payload });
+  },
+});
+const _directAuthenticatedTransformCommand = defineCommand(_directAuthenticatedTransformDefinition);
+const _directAuthenticatedTransformCandidate: EventCandidateOf<typeof TransformPayloadEvent> =
+  _directAuthenticatedTransformCommand.event({ rawValue: "abc" });
+const _directAuthenticatedTransformCandidatePayloadCheck: string =
+  _directAuthenticatedTransformCandidate.payload;
+// @ts-expect-error direct wrapped definition-backed event() returns schema-input candidate payload
+const _directAuthenticatedTransformCandidateStoredPayloadCheck: number =
+  _directAuthenticatedTransformCandidate.payload;
 
 const _transformEventDefinitionBackedCommand = defineCommand({
   name: "transform-event-definition-backed-command",

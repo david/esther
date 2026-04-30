@@ -117,6 +117,8 @@ export {
   type CommandLookupByIdDescriptor,
   type Command,
   commandDefinition,
+  type CommandDefinitionWrapper,
+  commandDefinitionWrapper,
   type DefinitionBackedCommandDefinition,
   type RawCommandDefinition,
   castTagQuery,

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   castTagQuery,
   commandDefinition,
+  commandDefinitionWrapper,
   compose,
   createApp,
   createInMemoryAdapter,
@@ -202,6 +203,39 @@ describe("command pipeline v2 — wiring", () => {
     };
 
     expect(commandDefinition(definition)).toBe(definition);
+  });
+
+  test("commandDefinitionWrapper can add metadata without changing command runtime", async () => {
+    const authenticated = commandDefinitionWrapper((definition) =>
+      commandDefinition({
+        ...definition,
+        extensionBehavior: "authenticated" as const,
+      }),
+    );
+
+    const wrappedDefinition = authenticated({
+      name: "wrapper-runtime-command",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean(), a: z.number() }),
+      input: compose<ProbeInput>(),
+      validate: [],
+      event: ProbeEventDefinition,
+      tags: (ctx: ProbeInput) => ["wrapper", `probe:${ctx.a}`],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: (event: ProbeEvent) => ok({ ok: true, a: event.payload.a ?? 0 }),
+    });
+    expect("extensionBehavior" in wrappedDefinition).toBe(true);
+
+    const { app, eventStore } = buildAppWith(defineCommand(wrappedDefinition));
+    const result = await app.dispatch("wrapper-runtime-command", { a: 7 });
+    const queried = await eventStore.queryByTags(["wrapper"], probeEventsReducer);
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ ok: true, a: 7 });
+    }
+    expect(queried.state).toHaveLength(1);
+    expect(queried.state[0]?.payload.a).toBe(7);
   });
 
   test("event-definition-backed command validates event before append and downstream work", async () => {

@@ -1119,6 +1119,81 @@ export function commandDefinition(definition: AnyCommandDefinition): AnyCommandD
   return definition;
 }
 
+export type CommandDefinitionWrapper = {
+  <
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition extends EventDefinition<string, z.ZodType>,
+    TError extends { readonly type: string } = never,
+    TInputError extends TError = TError,
+    TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+    TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+  >(
+    definition: DefinitionBackedCommandDefinition<
+      TInput,
+      TCtx,
+      TOutput,
+      TEventDefinition,
+      TError,
+      TInputError,
+      TInputSchema,
+      TOutputSchema
+    >,
+  ): DefinitionBackedCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >;
+
+  <
+    TInput,
+    TCtx,
+    TOutput,
+    TEvent extends EventRecordInput,
+    TError extends { readonly type: string } = never,
+    TInputError extends TError = TError,
+    TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+    TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+  >(
+    definition: RawCommandDefinition<
+      TInput,
+      TCtx,
+      TOutput,
+      TEvent,
+      TError,
+      TInputError,
+      TInputSchema,
+      TOutputSchema
+    >,
+  ): RawCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEvent,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >;
+
+  <T extends AnyCommandDefinition>(definition: T): T;
+};
+
+export function commandDefinitionWrapper(
+  transform: (definition: AnyCommandDefinition) => AnyCommandDefinition,
+): CommandDefinitionWrapper {
+  // Cast stays local to wrapper construction: public overloads provide the same
+  // contextual typing as commandDefinition(), while wrapper authors may only add
+  // behavior that preserves descriptor input/output/event contracts.
+  return ((definition: AnyCommandDefinition) => transform(definition)) as CommandDefinitionWrapper;
+}
+
 type RuntimeCommandDefinition<
   TInput,
   TCtx,
