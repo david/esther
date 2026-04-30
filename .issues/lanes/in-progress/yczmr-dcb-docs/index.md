@@ -16,11 +16,11 @@ Plan checks:
 
 Implementation tasks:
 - impl/01.md through impl/04.md
-- completed implementation tasks: 2
-- pending implementation tasks: 2 (03-04)
+- completed implementation tasks: 3
+- pending implementation tasks: 1 (04)
 
 ## Next suggested step
-- {{/skill:impl yczmr-dcb-docs --task 03}}
+- {{/skill:impl yczmr-dcb-docs --task 04}}
 
 Skill-loop alternative:
-- {{/skill-loop 2 /skill:impl yczmr-dcb-docs}}
+- {{/skill-loop 1 /skill:impl yczmr-dcb-docs}}

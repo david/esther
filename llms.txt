@@ -240,19 +240,50 @@ Use `defineEvent(...)` and `EventOf<typeof Definition>` for app-authored events.
 
 ## Tags and DCB
 
-Tags are plain strings queried by intersection. Design tags around consistency and query needs:
+Tags are plain strings queried by intersection: an event must contain every queried tag.
+Design tags around consistency and query needs:
 
 ```typescript
 ["order", `order:${orderId}`, `customer:${customerId}`]
 ```
 
-DCB consistency is tag-boundary based. Command-side event-history reads (`tagQuery`, `castTagQuery`) record observed tag boundaries. At append:
+DCB = tag-based optimistic concurrency for command-side event-history reads. Only command-side `tagQuery(...)` and `castTagQuery(...)` create append guards. Query-side reads, `lookup(...)`, projection/read-model reads, projectors, and processors do not guard command appends.
+
+Use this decision checklist before emitting an event:
+
+1. Which prior events could invalidate this command decision?
+2. Which `decisionTags` include all of those events?
+3. Did command input read those tags with `tagQuery(...)` or `castTagQuery(...)`?
+4. Will emitted event include `futureVisibilityTags` so future reads of that same boundary see it?
+
+At append, command `observedBoundary` becomes `appendGuard`:
 
 - zero observations → append without precondition
 - one observation → append with `{ boundaryTags, expectedPosition }`
-- more than one observation → fail with `BoundaryObservationError`
+- more than one observation (`singleBoundaryLimit`) → fail with `BoundaryObservationError`
 
-Direct `eventStore.append(events, options)` treats present options as active precondition. `expectedPosition: undefined` means selected boundary must be empty. `boundaryTags: undefined` or `[]` means global stream boundary. Conflict returns `ConcurrencyError`.
+Sharp edges:
+
+- `boundaryTags: undefined` or `[]` means global stream boundary. Use only when every event can invalidate the decision.
+- `expectedPosition: undefined` means selected boundary must be empty.
+- `ConcurrencyError` means the observed boundary changed before append.
+- Framework does not verify emitted event tags match observed boundary tags; app code owns future visibility.
+- DCB is not authorization and not a pessimistic lock.
+
+Common unsafe patterns:
+
+```typescript
+// Projection context only: no append guard.
+input: compose<Input>().add(lookup({ key: "balance" as const, model, id, absent }));
+
+// Too narrow: misses credits if credit events do not carry "debit".
+tags: (ctx) => ["account", `account:${ctx.accountId}`, "debit"];
+
+// Missing future visibility: future ["account", `account:${id}`] reads miss this event.
+tags: (_ctx) => ["account"];
+```
+
+Direct `eventStore.append(events, options)` treats present options as active precondition.
 
 For custom event stores or adapter-level append interop only, use `EventRecordInput<TType, TPayload>` as the low-level structural input shape. Do not use `EventRecordInput` as app event-authoring guidance; app code should use `defineEvent(...)` and `EventOf<typeof Definition>`.
 
@@ -1138,7 +1169,7 @@ const transferMoney = defineCommand({
   ],
 
   event: MoneyDebited,
-  tags: (ctx) => ["transfer", `transfer:${ctx.transferId}`, `account:${ctx.fromAccountId}`],
+  tags: (ctx) => ["transfer", `transfer:${ctx.transferId}`, "account", `account:${ctx.fromAccountId}`],
   payload: (ctx) => ({
     transferId: ctx.transferId,
     accountId: ctx.fromAccountId,
