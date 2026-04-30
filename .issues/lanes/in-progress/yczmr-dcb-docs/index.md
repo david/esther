@@ -1,8 +1,8 @@
 # yczmr-dcb-docs Index
 
 ## Current state
-Lane: backlog
-Status: implementation tasks ready
+Lane: in-progress
+Status: implementation in progress
 
 ## Active artifacts
 Description:
@@ -16,10 +16,11 @@ Plan checks:
 
 Implementation tasks:
 - impl/01.md through impl/04.md
-- pending implementation tasks: 4
+- completed implementation tasks: 1
+- pending implementation tasks: 3 (02-04)
 
 ## Next suggested step
-- {{/skill:impl yczmr-dcb-docs}}
+- {{/skill:impl yczmr-dcb-docs --task 02}}
 
 Skill-loop alternative:
-- {{/skill-loop 4 /skill:impl yczmr-dcb-docs}}
+- {{/skill-loop 3 /skill:impl yczmr-dcb-docs}}
