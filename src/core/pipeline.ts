@@ -29,8 +29,8 @@ function isFrameworkInputError(error: unknown): error is SliceError {
 //   1. parse input via inputSchema
 //   2. run `input` step (composed Step chain). On err → outputErr branch.
 //   3. run `validate` predicates in order. First err → outputErr branch.
-//   4. build CommandEventCandidate via event(ctx).
-//   5. validate definition-backed candidate and keep ParsedCommandEvent.
+//   4. build command event candidate via event(ctx).
+//   5. validate definition-backed candidate and keep parsed command event.
 //   6. eventStore.append([parsedEvent]) — projectors via onAfterInsert,
 //      processors via onAfterCommit (registered at compile time).
 //   7. success → output(parsedEvent, ctx). error → outputErr(error, ctx).

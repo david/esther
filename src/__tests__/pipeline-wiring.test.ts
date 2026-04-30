@@ -3,6 +3,7 @@ import { err, ok } from "neverthrow";
 import { z } from "zod";
 import {
   castTagQuery,
+  commandDefinition,
   compose,
   createApp,
   createInMemoryAdapter,
@@ -187,6 +188,22 @@ describe("command pipeline v2 — wiring", () => {
     }
   });
 
+  test("commandDefinition returns the same descriptor identity", () => {
+    const definition = {
+      name: "identity-definition-command",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>(),
+      validate: [],
+      event: ProbeEventDefinition,
+      tags: (ctx: ProbeInput) => ["identity", `probe:${ctx.a}`],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: (event: ProbeEvent) => ok({ ok: event.type === "Probe" }),
+    };
+
+    expect(commandDefinition(definition)).toBe(definition);
+  });
+
   test("event-definition-backed command validates event before append and downstream work", async () => {
     const StrictEventDefinition = defineEvent({
       type: "StrictEventValidated",
@@ -265,6 +282,7 @@ describe("command pipeline v2 — wiring", () => {
         return ok({ ok: true });
       },
     });
+    expect(slice.eventSchema).toBe(StrictEventDefinition.schema);
 
     const { adapter, bind } = createInMemoryAdapter();
     const app = createApp({
@@ -559,6 +577,7 @@ describe("command pipeline v2 — wiring", () => {
       }),
       output: () => ok({ ok: true }),
     });
+    expect(slice.eventSchema).toBeUndefined();
 
     const { app, eventStore } = buildAppWith(slice);
     const result = await app.dispatch("raw-strict-event-command", { a: 1 });
