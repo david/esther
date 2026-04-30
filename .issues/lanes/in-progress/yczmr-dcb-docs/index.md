@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; ready for review
+Status: review found one medium docs-example follow-up
 
 ## Active artifacts
 Description:
@@ -19,5 +19,11 @@ Implementation tasks:
 - completed implementation tasks: 4
 - pending implementation tasks: 0
 
+Review:
+- review/diff/01-review-diff.md
+
+Findings:
+- review/findings/01-dcb-guide-snippet-does-not-typecheck.md — medium, open
+
 ## Next suggested step
-- {{/skill:review-diff yczmr-dcb-docs}}
+- {{/skill:breakdown yczmr-dcb-docs --from review/findings/01-dcb-guide-snippet-does-not-typecheck.md}}
