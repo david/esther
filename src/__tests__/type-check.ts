@@ -908,6 +908,107 @@ type _WrappedBookingInputContextIncludesEnrichment = Expect<
   PipelineContext<typeof _wrappedBookingInput> extends WrappedBookingCommandCtx ? true : false
 >;
 
+const _inlineCommandDefinitionInput = compose<CreateBookingInput>().add(
+  derive({
+    fn: (ctx: CreateBookingInput) =>
+      ok({
+        pricing: { propertyId: ctx.propertyId, pricePerNight: 100 },
+        confirmedAt: `${ctx.checkIn}T00:00:00.000Z`,
+      }),
+  }),
+);
+
+type _InlineCommandDefinitionInputContextIncludesEnrichment = Expect<
+  PipelineContext<typeof _inlineCommandDefinitionInput> extends WrappedBookingCommandCtx
+    ? true
+    : false
+>;
+
+const _inlineCommandDefinitionBackedDefinition = commandDefinition({
+  name: "inline-command-definition-backed-definition",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: _inlineCommandDefinitionInput,
+  validate: [
+    (ctx) => {
+      const _pricingCheck: PricingRow = ctx.pricing;
+      const _confirmedAtCheck: string = ctx.confirmedAt;
+      return [];
+    },
+  ],
+  event: BookingConfirmedEvent,
+  tags: (ctx) => {
+    const _pricingCheck: PricingRow = ctx.pricing;
+    return ["booking", `property:${ctx.propertyId}`, `price:${ctx.pricing.pricePerNight}`];
+  },
+  payload: (ctx) => {
+    const _candidatePayload: EventPayloadInputOf<typeof BookingConfirmedEvent> = {
+      bookingId: "booking-1",
+      confirmedAt: ctx.confirmedAt,
+      propertyId: ctx.propertyId,
+      tenantId: ctx.tenantId,
+      checkIn: ctx.checkIn,
+      checkOut: ctx.checkOut,
+    };
+    return _candidatePayload;
+  },
+  output: (event, ctx) => {
+    const _eventCheck: EventOf<typeof BookingConfirmedEvent> = event;
+    const _pricingCheck: PricingRow = ctx.pricing;
+    return ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    });
+  },
+});
+const _inlineCommandDefinitionBackedCommand = defineCommand(
+  _inlineCommandDefinitionBackedDefinition,
+);
+const _inlineCommandDefinitionBackedCandidate: EventCandidateOf<typeof BookingConfirmedEvent> =
+  _inlineCommandDefinitionBackedCommand.event({
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    propertyId: "00000000-0000-4000-8000-000000000002",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+    pricing: {
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      pricePerNight: 100,
+    },
+    confirmedAt: "2026-05-01T00:00:00.000Z",
+  });
+
+const _wrappedInlineCommandDefinition = _extensionCommandDefinition(
+  _inlineCommandDefinitionBackedDefinition,
+);
+const _wrappedInlineCommandDefinitionCheck: typeof _inlineCommandDefinitionBackedDefinition =
+  _wrappedInlineCommandDefinition;
+
+const _wrappedInlineFreshCommandDefinition = _extensionCommandDefinition(
+  commandDefinition({
+    name: "wrapped-inline-fresh-command-definition-backed-definition",
+    inputSchema: createBookingInputSchema,
+    outputSchema: createBookingOutputSchema,
+    input: compose<CreateBookingInput>(),
+    validate: [],
+    event: BookingConfirmedEvent,
+    tags: (ctx) => ["booking", `property:${ctx.propertyId}`],
+    payload: (ctx) => ({
+      bookingId: "booking-1",
+      confirmedAt: "2026-04-27T00:00:00.000Z",
+      propertyId: ctx.propertyId,
+      tenantId: ctx.tenantId,
+      checkIn: ctx.checkIn,
+      checkOut: ctx.checkOut,
+    }),
+    output: (event, _ctx) => ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+  }),
+);
+
+defineCommand(_wrappedInlineFreshCommandDefinition);
+
 const _wrappedBookingDefinitionBackedDefinition: DefinitionBackedCommandDefinition<
   CreateBookingInput,
   WrappedBookingCommandCtx,
@@ -1003,6 +1104,31 @@ const _outputErrForwardedWrappedBookingDefinition: typeof _wrappedBookingDefinit
       },
     },
   });
+
+const _badInlineCommandDefinitionBackedPayload = commandDefinition({
+  name: "bad-inline-command-definition-backed-payload",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: BookingConfirmedEvent,
+  tags: (ctx) => ["booking", `property:${ctx.propertyId}`],
+  payload: (ctx) => ({
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: ctx.propertyId,
+    tenantId: ctx.tenantId,
+    checkIn: ctx.checkIn,
+    checkout: ctx.checkOut,
+  }),
+  output: (event) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+});
+// @ts-expect-error defineCommand rejects commandDefinition-wrapped bad event schema-input payload
+defineCommand(_badInlineCommandDefinitionBackedPayload);
 
 const _badPayloadFieldDefinitionBackedDefinition: DefinitionBackedCommandDefinition<
   CreateBookingInput,
@@ -1101,6 +1227,36 @@ const _transformEventCandidate = _transformEventDefinitionBackedCommand.event({ 
 const _transformEventCandidatePayloadCheck: string = _transformEventCandidate.payload;
 // @ts-expect-error direct definition-backed event() returns schema-input candidate payload
 const _transformEventCandidateStoredPayloadCheck: number = _transformEventCandidate.payload;
+
+const _inlineTransformCommandDefinition = commandDefinition({
+  name: "inline-transform-command-definition",
+  inputSchema: transformCommandInputSchema,
+  outputSchema: transformCommandOutputSchema,
+  input: compose<TransformCommandInput>(),
+  validate: [],
+  event: TransformPayloadEvent,
+  tags: (_ctx) => ["transform"],
+  payload: (ctx) => {
+    const _candidatePayloadCheck: EventPayloadInputOf<typeof TransformPayloadEvent> = ctx.rawValue;
+    return ctx.rawValue;
+  },
+  output: (event, _ctx) => {
+    const _parsedEventCheck: EventOf<typeof TransformPayloadEvent> = event;
+    const _parsedPayloadCheck: number = event.payload;
+    // @ts-expect-error commandDefinition output receives parsed payload, not schema input
+    const _candidatePayloadCheck: string = event.payload;
+    return ok({ length: event.payload });
+  },
+});
+const _inlineWrappedTransformCommand = defineCommand(
+  _extensionCommandDefinition(_inlineTransformCommandDefinition),
+);
+const _inlineWrappedTransformCandidate: EventCandidateOf<typeof TransformPayloadEvent> =
+  _inlineWrappedTransformCommand.event({ rawValue: "abc" });
+const _inlineWrappedTransformCandidatePayloadCheck: string = _inlineWrappedTransformCandidate.payload;
+// @ts-expect-error inline wrapped definition-backed event() returns schema-input candidate payload
+const _inlineWrappedTransformCandidateStoredPayloadCheck: number =
+  _inlineWrappedTransformCandidate.payload;
 
 const _transformDefinitionBackedDescriptor: DefinitionBackedCommandDefinition<
   TransformCommandInput,

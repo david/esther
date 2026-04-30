@@ -1030,9 +1030,9 @@ type AnyRawCommandDefinition = {
   readonly inputSchema: z.ZodType;
   readonly outputSchema: z.ZodType;
   readonly input: { readonly _tag: "inputPipeline" };
-  readonly validate: ReadonlyArray<ValidatePredicate<never, { readonly type: string }>>;
-  readonly event: (ctx: never) => EventRecordInput;
-  readonly output: (event: never, ctx: never) => Result<unknown, { readonly type: string }>;
+  readonly validate: ReadonlyArray<unknown>;
+  readonly event: unknown;
+  readonly output: unknown;
   readonly outputErr?: unknown;
 };
 
@@ -1041,17 +1041,81 @@ type AnyDefinitionBackedCommandDefinition = {
   readonly inputSchema: z.ZodType;
   readonly outputSchema: z.ZodType;
   readonly input: { readonly _tag: "inputPipeline" };
-  readonly validate: ReadonlyArray<ValidatePredicate<never, { readonly type: string }>>;
+  readonly validate: ReadonlyArray<unknown>;
   readonly event: EventDefinition<string, z.ZodType>;
-  readonly tags: (ctx: never) => ReadonlyArray<string>;
-  readonly payload: (ctx: never) => unknown;
-  readonly output: (event: never, ctx: never) => Result<unknown, { readonly type: string }>;
+  readonly tags: unknown;
+  readonly payload: unknown;
+  readonly output: unknown;
   readonly outputErr?: unknown;
 };
 
 export type AnyCommandDefinition = AnyRawCommandDefinition | AnyDefinitionBackedCommandDefinition;
 
-export function commandDefinition<T extends AnyCommandDefinition>(definition: T): T {
+export function commandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string } = never,
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+>(
+  definition: DefinitionBackedCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+): DefinitionBackedCommandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition,
+  TError,
+  TInputError,
+  TInputSchema,
+  TOutputSchema
+>;
+
+export function commandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TEvent extends EventRecordInput,
+  TError extends { readonly type: string } = never,
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+>(
+  definition: RawCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEvent,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+): RawCommandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TEvent,
+  TError,
+  TInputError,
+  TInputSchema,
+  TOutputSchema
+>;
+
+export function commandDefinition<T extends AnyCommandDefinition>(definition: T): T;
+
+export function commandDefinition(definition: AnyCommandDefinition): AnyCommandDefinition {
   return definition;
 }
 
