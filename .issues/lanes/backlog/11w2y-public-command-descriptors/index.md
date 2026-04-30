@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: feature spec drafted
+Status: implementation plan drafted
 
 ## Active artifacts
 Description:
@@ -11,5 +11,8 @@ Description:
 Feature spec:
 - research/01-feature-spec.md
 
+Implementation plan:
+- plan/01-implementation-plan.md
+
 ## Next suggested step
-- {{/skill:plan 11w2y-public-command-descriptors}}
+- {{/skill:plan-check 11w2y-public-command-descriptors}}
