@@ -56,7 +56,13 @@ export type {
 } from "./core/event-store.js";
 // ── Event definitions ──────────────────────────────────────────────────
 export { defineEvent } from "./core/event.js";
-export type { EventDefinition, EventOf, EventPayloadOf } from "./core/event.js";
+export type {
+  EventCandidateOf,
+  EventDefinition,
+  EventOf,
+  EventPayloadInputOf,
+  EventPayloadOf,
+} from "./core/event.js";
 // ── Processor ──────────────────────────────────────────────────────────
 export {
   defineProcessor,
@@ -104,12 +110,15 @@ export {
 } from "./core/read-model.js";
 // ── Slice definitions ──────────────────────────────────────────────────
 export {
+  type AnyCommandDefinition,
   type CastTagQueryDescriptor,
   type CommandLookupDescriptor,
   type CommandLookupByArgsDescriptor,
   type CommandLookupByIdDescriptor,
   type Command,
-  type CommandDefinition,
+  commandDefinition,
+  type DefinitionBackedCommandDefinition,
+  type RawCommandDefinition,
   castTagQuery,
   defineCommand,
   defineQuery,

@@ -1,10 +1,7 @@
 import { z } from "zod";
 import type { EventRecordInput } from "./types";
 
-export type EventDefinition<
-  TType extends string,
-  TPayloadSchema extends z.ZodType,
-> = {
+export type EventDefinition<TType extends string, TPayloadSchema extends z.ZodType> = {
   readonly type: TType;
   readonly payloadSchema: TPayloadSchema;
   readonly schema: z.ZodObject<{
@@ -23,10 +20,25 @@ export type EventOf<TDefinition extends EventDefinition<string, z.ZodType>> =
     ? EventRecordInput<TType, z.output<TPayloadSchema>>
     : never;
 
-export type EventPayloadOf<TDefinition extends EventDefinition<string, z.ZodType>> =
-  TDefinition extends EventDefinition<string, infer TPayloadSchema> ? z.output<TPayloadSchema> : never;
+export type EventPayloadInputOf<TDefinition extends EventDefinition<string, z.ZodType>> =
+  TDefinition extends EventDefinition<string, infer TPayloadSchema>
+    ? z.input<TPayloadSchema>
+    : never;
 
-export function defineEvent<const TType extends string, TPayloadSchema extends z.ZodType>(definition: {
+export type EventCandidateOf<TDefinition extends EventDefinition<string, z.ZodType>> =
+  TDefinition extends EventDefinition<infer TType, infer TPayloadSchema>
+    ? EventRecordInput<TType, z.input<TPayloadSchema>>
+    : never;
+
+export type EventPayloadOf<TDefinition extends EventDefinition<string, z.ZodType>> =
+  TDefinition extends EventDefinition<string, infer TPayloadSchema>
+    ? z.output<TPayloadSchema>
+    : never;
+
+export function defineEvent<
+  const TType extends string,
+  TPayloadSchema extends z.ZodType,
+>(definition: {
   readonly type: TType;
   readonly payload: TPayloadSchema;
 }): EventDefinition<TType, TPayloadSchema> {

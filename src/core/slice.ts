@@ -1,7 +1,7 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
 import type { InputPipeline, Step } from "./compose";
-import type { EventDefinition, EventOf } from "./event";
+import type { EventCandidateOf, EventDefinition, EventOf, EventPayloadInputOf } from "./event";
 import type { EventStore } from "./event-store";
 import type { ReducerDefinition } from "./reducer";
 import { validateReadModelRow, validateReadModelRows } from "./read-model-validation";
@@ -481,29 +481,38 @@ export function castTagQuery<
   };
 }
 
-export type CommandLookupByIdDescriptor<TKey extends string, TInput, TValue, TCause> =
-  FrameworkStepBrand & {
-    readonly _tag: "commandLookup";
-    readonly key: TKey;
-    readonly model: ReadModelHandle<TValue>;
-    readonly id: (ctx: TInput) => string;
-    readonly absent: TCause;
-    readonly toStep: (
-      deps: SliceDeps,
-    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause | ReadModelSchemaError>;
-  };
+export type CommandLookupByIdDescriptor<
+  TKey extends string,
+  TInput,
+  TValue,
+  TCause,
+> = FrameworkStepBrand & {
+  readonly _tag: "commandLookup";
+  readonly key: TKey;
+  readonly model: ReadModelHandle<TValue>;
+  readonly id: (ctx: TInput) => string;
+  readonly absent: TCause;
+  readonly toStep: (
+    deps: SliceDeps,
+  ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause | ReadModelSchemaError>;
+};
 
-export type CommandLookupByArgsDescriptor<TKey extends string, TInput, TValue, TArgs, TCause> =
-  FrameworkStepBrand & {
-    readonly _tag: "commandLookup";
-    readonly key: TKey;
-    readonly model: ReadModelQueryHandle<TValue, TArgs>;
-    readonly args: (ctx: TInput) => TArgs;
-    readonly absent: TCause;
-    readonly toStep: (
-      deps: SliceDeps,
-    ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause | ReadModelSchemaError>;
-  };
+export type CommandLookupByArgsDescriptor<
+  TKey extends string,
+  TInput,
+  TValue,
+  TArgs,
+  TCause,
+> = FrameworkStepBrand & {
+  readonly _tag: "commandLookup";
+  readonly key: TKey;
+  readonly model: ReadModelQueryHandle<TValue, TArgs>;
+  readonly args: (ctx: TInput) => TArgs;
+  readonly absent: TCause;
+  readonly toStep: (
+    deps: SliceDeps,
+  ) => Step<TInput, { readonly [K in TKey]: TValue }, TCause | ReadModelSchemaError>;
+};
 
 export type CommandLookupDescriptor<TKey extends string, TInput, TValue, TArgs, TCause> =
   | CommandLookupByIdDescriptor<TKey, TInput, TValue, TCause>
@@ -543,8 +552,9 @@ export function lookup<TKey extends string, TInput, TValue, TArgs, TCause>(descr
         ? await (() => {
             const queryModel = descriptor.model as ReadModelQueryHandle<TValue, TArgs>;
             const args = descriptor.args?.(ctx);
-            const { sourceName, entries, orderBy, orderDirection, limit } =
-              queryModel.buildQuery(args as TArgs);
+            const { sourceName, entries, orderBy, orderDirection, limit } = queryModel.buildQuery(
+              args as TArgs,
+            );
             return deps.projectionStore.query(sourceName, entries, orderBy, limit, orderDirection);
           })()
         : await deps.projectionStore.get(
@@ -753,7 +763,8 @@ export function generate<TKey extends string, TContext, TValue>(descriptor: {
 }): GenerateStep<TKey, TContext, TValue> {
   const toStep =
     (_deps: SliceDeps): Step<TContext, { readonly [K in TKey]: TValue }, never> =>
-    async (ctx) => ok(addField({}, descriptor.key, descriptor.fn(ctx)));
+    async (ctx) =>
+      ok(addField({}, descriptor.key, descriptor.fn(ctx)));
 
   return {
     [frameworkStepBrand]: true,
@@ -971,7 +982,7 @@ type CommandOutputErrDefinition<TInput, TCtx, TOutput, TError extends { readonly
   ? { readonly outputErr?: undefined }
   : { readonly outputErr: OutputErrHandlers<TError, TOutput, TCtx, TInput> };
 
-export type CommandDefinition<
+export type RawCommandDefinition<
   TInput,
   TCtx,
   TOutput,
@@ -990,17 +1001,7 @@ export type CommandDefinition<
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
 } & CommandOutputErrDefinition<TInput, TCtx, TOutput, TError>;
 
-type CommandEventCandidate<TDefinition extends EventDefinition<string, z.ZodType>> =
-  TDefinition extends EventDefinition<infer TType, infer TPayloadSchema>
-    ? EventRecordInput<TType, z.input<TPayloadSchema>>
-    : never;
-
-type DefinitionBackedCommandPayloadInput<TDefinition extends EventDefinition<string, z.ZodType>> =
-  TDefinition extends EventDefinition<string, infer TPayloadSchema>
-    ? z.input<TPayloadSchema>
-    : never;
-
-type EventDefinitionCommandDefinition<
+export type DefinitionBackedCommandDefinition<
   TInput,
   TCtx,
   TOutput,
@@ -1017,12 +1018,42 @@ type EventDefinitionCommandDefinition<
   readonly validate: ReadonlyArray<ValidatePredicate<TCtx, TError>>;
   readonly event: TEventDefinition;
   readonly tags: (ctx: TCtx) => ReadonlyArray<string>;
-  readonly payload: (ctx: TCtx) => DefinitionBackedCommandPayloadInput<NoInfer<TEventDefinition>>;
+  readonly payload: (ctx: TCtx) => EventPayloadInputOf<NoInfer<TEventDefinition>>;
   readonly output: (
     event: EventOf<NoInfer<TEventDefinition>>,
     ctx: TCtx,
   ) => Result<TOutput, TError>;
 } & CommandOutputErrDefinition<TInput, TCtx, TOutput, TError>;
+
+type AnyRawCommandDefinition = {
+  readonly name?: string | undefined;
+  readonly inputSchema: z.ZodType;
+  readonly outputSchema: z.ZodType;
+  readonly input: { readonly _tag: "inputPipeline" };
+  readonly validate: ReadonlyArray<ValidatePredicate<never, { readonly type: string }>>;
+  readonly event: (ctx: never) => EventRecordInput;
+  readonly output: (event: never, ctx: never) => Result<unknown, { readonly type: string }>;
+  readonly outputErr?: unknown;
+};
+
+type AnyDefinitionBackedCommandDefinition = {
+  readonly name?: string | undefined;
+  readonly inputSchema: z.ZodType;
+  readonly outputSchema: z.ZodType;
+  readonly input: { readonly _tag: "inputPipeline" };
+  readonly validate: ReadonlyArray<ValidatePredicate<never, { readonly type: string }>>;
+  readonly event: EventDefinition<string, z.ZodType>;
+  readonly tags: (ctx: never) => ReadonlyArray<string>;
+  readonly payload: (ctx: never) => unknown;
+  readonly output: (event: never, ctx: never) => Result<unknown, { readonly type: string }>;
+  readonly outputErr?: unknown;
+};
+
+export type AnyCommandDefinition = AnyRawCommandDefinition | AnyDefinitionBackedCommandDefinition;
+
+export function commandDefinition<T extends AnyCommandDefinition>(definition: T): T {
+  return definition;
+}
 
 type RuntimeCommandDefinition<
   TInput,
@@ -1033,7 +1064,7 @@ type RuntimeCommandDefinition<
   TInputSchema extends z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput>,
 > =
-  | CommandDefinition<
+  | RawCommandDefinition<
       TInput,
       TCtx,
       TOutput,
@@ -1043,7 +1074,7 @@ type RuntimeCommandDefinition<
       TInputSchema,
       TOutputSchema
     >
-  | EventDefinitionCommandDefinition<
+  | DefinitionBackedCommandDefinition<
       TInput,
       TCtx,
       TOutput,
@@ -1072,7 +1103,7 @@ function isRawCommandDefinition<
     TInputSchema,
     TOutputSchema
   >,
-): definition is CommandDefinition<
+): definition is RawCommandDefinition<
   TInput,
   TCtx,
   TOutput,
@@ -1096,7 +1127,7 @@ export function defineCommand<
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
   const TName extends string = string,
 >(
-  definition: EventDefinitionCommandDefinition<
+  definition: DefinitionBackedCommandDefinition<
     TInput,
     TCtx,
     TOutput,
@@ -1113,7 +1144,7 @@ export function defineCommand<
   EventOf<TEventDefinition>,
   TError,
   TName,
-  CommandEventCandidate<TEventDefinition>
+  EventCandidateOf<TEventDefinition>
 >;
 
 export function defineCommand<
@@ -1126,7 +1157,7 @@ export function defineCommand<
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(
-  definition: EventDefinitionCommandDefinition<
+  definition: DefinitionBackedCommandDefinition<
     TInput,
     TCtx,
     TOutput,
@@ -1143,7 +1174,7 @@ export function defineCommand<
   EventOf<TEventDefinition>,
   TError,
   string,
-  CommandEventCandidate<TEventDefinition>
+  EventCandidateOf<TEventDefinition>
 >;
 
 export function defineCommand<
@@ -1157,7 +1188,7 @@ export function defineCommand<
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
   const TName extends string = string,
 >(
-  definition: CommandDefinition<
+  definition: RawCommandDefinition<
     TInput,
     TCtx,
     TOutput,
@@ -1179,7 +1210,7 @@ export function defineCommand<
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
   TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
 >(
-  definition: CommandDefinition<
+  definition: RawCommandDefinition<
     TInput,
     TCtx,
     TOutput,
@@ -1226,7 +1257,7 @@ export function defineCommand<
   } else {
     // Cast stays local to overload normalization: the runtime guard above proves
     // `event` is not a raw event factory, but TS cannot narrow this generic union.
-    const definitionBacked = definition as EventDefinitionCommandDefinition<
+    const definitionBacked = definition as DefinitionBackedCommandDefinition<
       TInput,
       TCtx,
       TOutput,

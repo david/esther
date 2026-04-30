@@ -13,6 +13,7 @@ import {
   createInMemoryAdapter,
   createInMemoryEventStore,
   createInMemoryProjectionAdapter,
+  commandDefinition,
   defineCommand,
   defineEvent,
   defineQuery,
@@ -31,9 +32,13 @@ import {
   type AppConfig,
   type BoundaryObservation,
   type BoundaryObservationError as BoundaryObservationErrorType,
+  type AnyCommandDefinition,
+  type DefinitionBackedCommandDefinition,
   type DispatchFn,
+  type EventCandidateOf,
   type EventDefinition,
   type EventOf,
+  type EventPayloadInputOf,
   type EventRecordInput,
   type EventPayloadOf,
   type EventStore,
@@ -51,6 +56,7 @@ import {
   type ReadModelEventBinding,
   type ReadModelNotFound,
   type ReadModelRegistration,
+  type RawCommandDefinition,
   type ReadOnlyReadModelRegistration,
   type ReducerDefinition,
   type ReducerEvent,
@@ -80,19 +86,12 @@ import { createPostgresProjectionAdapter } from "../adapters/postgres/index";
 type Equal<TActual, TExpected> =
   (<T>() => T extends TActual ? 1 : 2) extends <T>() => T extends TExpected ? 1 : 2 ? true : false;
 type Expect<T extends true> = T;
-type PipelineContext<TPipeline> = TPipeline extends InputPipeline<
-  infer _TInput,
-  infer TContext,
-  infer _TError
->
-  ? TContext
-  : never;
-type ResolverContext<TResolver> = TResolver extends StateResolver<infer _TInput, infer TContext>
-  ? TContext
-  : never;
-type EventsByTagsState<TDescriptor> = TDescriptor extends EventsByTagsDescriptor<infer TState>
-  ? TState
-  : never;
+type PipelineContext<TPipeline> =
+  TPipeline extends InputPipeline<infer _TInput, infer TContext, infer _TError> ? TContext : never;
+type ResolverContext<TResolver> =
+  TResolver extends StateResolver<infer _TInput, infer TContext> ? TContext : never;
+type EventsByTagsState<TDescriptor> =
+  TDescriptor extends EventsByTagsDescriptor<infer TState> ? TState : never;
 
 const createBookingInputSchema = z.object({
   tenantId: z.string().uuid(),
@@ -178,6 +177,18 @@ type _BookingConfirmedEventInference = Expect<
 type _BookingConfirmedPayloadInference = Expect<
   Equal<BookingConfirmedPayload, z.output<typeof BookingConfirmedPayloadSchema>>
 >;
+type _BookingConfirmedPayloadInputInference = Expect<
+  Equal<
+    EventPayloadInputOf<typeof BookingConfirmedEvent>,
+    z.input<typeof BookingConfirmedPayloadSchema>
+  >
+>;
+type _BookingConfirmedCandidateInference = Expect<
+  Equal<
+    EventCandidateOf<typeof BookingConfirmedEvent>,
+    EventRecordInput<"BookingConfirmed", z.input<typeof BookingConfirmedPayloadSchema>>
+  >
+>;
 
 const _bookingConfirmedCreatedEvent: BookingConfirmed = BookingConfirmedEvent.create({
   tags: ["booking", "property:property-1"],
@@ -224,6 +235,8 @@ const _boundaryObservationError: BoundaryObservationErrorType = BoundaryObservat
 const _boundaryObservationSliceError: SliceError = _boundaryObservationError;
 const _boundaryObservationErrorTag: "BoundaryObservationError" = _boundaryObservationError._tag;
 
+// @ts-expect-error ambiguous raw-only CommandDefinition is not root-public; use RawCommandDefinition or DefinitionBackedCommandDefinition
+type _RemovedCommandDefinition = import("../index").CommandDefinition;
 // @ts-expect-error raw DomainEvent is not root-public; use defineEvent/EventOf for app events
 type _RemovedDomainEvent = import("../index").DomainEvent;
 // @ts-expect-error runtime executors are internal and not root-public
@@ -552,9 +565,9 @@ const _castTagQueryCommandPipeline = compose<CreateBookingInput>().add(
 type _CastTagQueryCommandContext = Expect<
   Equal<
     PipelineContext<typeof _castTagQueryCommandPipeline>,
-    CreateBookingInput &
-      { readonly bookingHistory: BookingReducerState } &
-      { readonly bookingHistorySubject: PricingRow }
+    CreateBookingInput & { readonly bookingHistory: BookingReducerState } & {
+      readonly bookingHistorySubject: PricingRow;
+    }
   >
 >;
 
@@ -732,6 +745,44 @@ void _eventStoreForTypeCheck.queryByTags(["booking"], propertySchemas, () => ini
 
 type BookingCreated = EventOf<typeof BookingCreatedEvent>;
 
+const _rawCreateBookingConfirmedDefinition: RawCommandDefinition<
+  CreateBookingInput,
+  CreateBookingInput,
+  z.output<typeof createBookingOutputSchema>,
+  BookingConfirmed,
+  never
+> = {
+  name: "raw-create-booking-confirmed-definition",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: (ctx): BookingConfirmed =>
+    BookingConfirmedEvent.create({
+      tags: ["booking", `property:${ctx.propertyId}`, `tenant:${ctx.tenantId}`],
+      payload: {
+        bookingId: "booking-1",
+        confirmedAt: "2026-04-27T00:00:00.000Z",
+        propertyId: ctx.propertyId,
+        tenantId: ctx.tenantId,
+        checkIn: ctx.checkIn,
+        checkOut: ctx.checkOut,
+      },
+    }),
+  output: (event) =>
+    ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    }),
+};
+const _rawCreateBookingConfirmedDefinitionIdentity = commandDefinition(
+  _rawCreateBookingConfirmedDefinition,
+);
+const _rawCreateBookingConfirmedDefinitionCheck: typeof _rawCreateBookingConfirmedDefinition =
+  _rawCreateBookingConfirmedDefinitionIdentity;
+const _anyRawCreateBookingConfirmedDefinitionCheck: AnyCommandDefinition =
+  _rawCreateBookingConfirmedDefinition;
+
 const _createBookingConfirmedSlice = defineCommand<
   CreateBookingInput,
   CreateBookingInput,
@@ -762,6 +813,45 @@ const _createBookingConfirmedSlice = defineCommand<
       confirmedAt: event.payload.confirmedAt,
     }),
 });
+
+const _bookingConfirmedDefinitionBackedDefinition: DefinitionBackedCommandDefinition<
+  CreateBookingInput,
+  CreateBookingInput,
+  z.output<typeof createBookingOutputSchema>,
+  typeof BookingConfirmedEvent,
+  never
+> = {
+  name: "booking-confirmed-definition-backed-definition",
+  inputSchema: createBookingInputSchema,
+  outputSchema: createBookingOutputSchema,
+  input: compose<CreateBookingInput>(),
+  validate: [],
+  event: BookingConfirmedEvent,
+  tags: (ctx: CreateBookingInput) => ["booking", `property:${ctx.propertyId}`],
+  payload: (ctx: CreateBookingInput) => ({
+    bookingId: "booking-1",
+    confirmedAt: "2026-04-27T00:00:00.000Z",
+    propertyId: ctx.propertyId,
+    tenantId: ctx.tenantId,
+    checkIn: ctx.checkIn,
+    checkOut: ctx.checkOut,
+  }),
+  output: (event, _ctx) => {
+    const _eventCheck: BookingConfirmed = event;
+    const _bookingIdCheck: string = event.payload.bookingId;
+    return ok({
+      bookingId: event.payload.bookingId,
+      confirmedAt: event.payload.confirmedAt,
+    });
+  },
+};
+const _bookingConfirmedDefinitionBackedIdentity = commandDefinition(
+  _bookingConfirmedDefinitionBackedDefinition,
+);
+const _bookingConfirmedDefinitionBackedIdentityCheck: typeof _bookingConfirmedDefinitionBackedDefinition =
+  _bookingConfirmedDefinitionBackedIdentity;
+const _anyBookingConfirmedDefinitionBackedDefinitionCheck: AnyCommandDefinition =
+  _bookingConfirmedDefinitionBackedDefinition;
 
 const _eventDefinitionBackedCommand = defineCommand({
   name: "event-definition-backed-command",
@@ -1115,8 +1205,12 @@ const _createBookingSlice = defineCommand<
     )
     .add(
       derive({
-        fn: (_ctx: CreateBookingInput & { readonly property: PropertyState; readonly pricing: PricingRow }) =>
-          ok({ confirmedAt: new Date().toISOString() }),
+        fn: (
+          _ctx: CreateBookingInput & {
+            readonly property: PropertyState;
+            readonly pricing: PricingRow;
+          },
+        ) => ok({ confirmedAt: new Date().toISOString() }),
       }),
     )
     .add(
