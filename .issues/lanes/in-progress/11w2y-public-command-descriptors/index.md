@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: second review direct wrapper inline inference follow-up broken down; implementation pending
+Status: third semantic diff review passed; automated gates pass; QA planning pending
 
 ## Active artifacts
 Description:
@@ -18,17 +18,17 @@ Plan checks:
 - plan/checks/01-plan-sanity.md — approved
 
 Implementation tasks:
-- impl/01.md through impl/05.md — completed; checkpoints recorded in impl/checkpoints/01.md through impl/checkpoints/05.md
-- impl/06.md — pending direct inline extension wrapper inference fix
+- impl/01.md through impl/06.md — completed; checkpoints recorded in impl/checkpoints/01.md through impl/checkpoints/06.md
 
 Review:
 - review/diff/01-review-diff.md — public descriptor semantic review
 - review/diff/02-review-diff.md — post-follow-up semantic review
+- review/diff/03-review-diff.md — post-wrapper-helper semantic review; no actionable findings; gates pass
 - review/findings/01-command-definition-erases-inline-inference.md — actionable high-risk type inference finding; follow-up implemented in impl/05.md
-- review/findings/02-direct-wrapper-inline-inference.md — actionable high-risk direct wrapper inference finding
+- review/findings/02-direct-wrapper-inline-inference.md — actionable high-risk direct wrapper inference finding; follow-up implemented in impl/06.md
 
 ## Next suggested step
-- {{/skill:impl 11w2y-public-command-descriptors}}
+- {{/skill:plan-qa 11w2y-public-command-descriptors}}
 
 ## Skill-loop alternative
-- {{/skill-loop 1 /skill:impl 11w2y-public-command-descriptors}}
+- {{/skill-loop 1 /skill:plan-qa 11w2y-public-command-descriptors}}
