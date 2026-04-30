@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: semantic diff review complete; gates needed for final tree
+Status: gates passed; QA planning needed
 
 ## Active artifacts
 Description:
@@ -25,6 +25,7 @@ Review:
 
 Findings:
 - review/findings/01-dcb-guide-snippet-does-not-typecheck.md — medium, addressed in impl/05
+- review/findings/02-gate-results.md — gates passed
 
 ## Next suggested step
-- {{/skill:gates yczmr-dcb-docs}}
+- {{/skill:plan-qa yczmr-dcb-docs}}
