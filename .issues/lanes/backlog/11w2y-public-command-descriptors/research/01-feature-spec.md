@@ -5,7 +5,7 @@
 | Topic | Value |
 |---|---|
 | Recommendation | Promote command descriptor shapes to stable public API: `RawCommandDefinition`, `DefinitionBackedCommandDefinition`, optional `AnyCommandDefinition`, and identity `commandDefinition(...)`. |
-| Compatibility | Additive with careful aliasing. Keep existing raw factory behavior and avoid breaking current `CommandDefinition` consumers if feasible, but make new names canonical. |
+| Compatibility | Breaking public type cleanup. Remove ambiguous `CommandDefinition`; do not add compatibility alias. Runtime command behavior remains unchanged. |
 | Primary surfaces | `src/core/slice.ts`, `src/core/event.ts`, `src/index.ts`, `src/__tests__/type-check.ts`, `src/__tests__/pipeline-wiring.test.ts`, `llms.txt`. |
 | Core rule | Descriptor typing becomes public contract; runtime command execution stays unchanged. |
 | Main risk | Accidentally collapsing definition-backed commands into raw event factories, losing candidate validation and `z.input`/`z.output` distinction. |
@@ -19,14 +19,14 @@ Defaults chosen:
 
 | Area | Default |
 |---|---|
-| Existing `CommandDefinition` export | Keep as compatibility alias to `RawCommandDefinition` unless typecheck proves impossible; document new names as canonical. |
+| Existing `CommandDefinition` export | Remove from public API. Replace with explicit `RawCommandDefinition`; no alias. |
 | Definition-backed descriptor name | Public `DefinitionBackedCommandDefinition`; remove private `EventDefinitionCommandDefinition` shadow. |
 | Union helper | Add public `AnyCommandDefinition` for reusable wrappers. |
 | Identity builder | Add `commandDefinition<T extends AnyCommandDefinition>(definition: T): T` in `core/slice.ts`, export from root. |
 
 ## Changed Since Last Draft
 
-First draft.
+Revised after product decision: no compatibility alias, no deprecated `CommandDefinition`, intentional breaking public type cleanup.
 
 ## Problem
 
@@ -104,7 +104,7 @@ export type EventCandidateOf<TDefinition extends EventDefinition<string, z.ZodTy
     : never;
 ```
 
-Then update `defineCommand(...)` overloads to consume the public descriptor types directly. No separate private shape with same meaning.
+Then update `defineCommand(...)` overloads to consume the public descriptor types directly. No separate private shape with same meaning. Do not leave `CommandDefinition` as deprecated alias; raw factory descriptors are named `RawCommandDefinition` only.
 
 ## User-Observable Scenarios
 
@@ -193,7 +193,7 @@ Expected:
 | `src/core/slice.ts` | `DefinitionBackedCommandDefinition` | Canonical public descriptor for `EventDefinition`-backed commands. |
 | `src/core/slice.ts` | `AnyCommandDefinition` | Public union for wrappers/helpers. |
 | `src/core/slice.ts` | `commandDefinition(...)` | Identity builder for reusable wrappers and inference anchoring. |
-| `src/core/slice.ts` | `CommandDefinition` | Keep only as compatibility alias to raw descriptor, or deprecate in docs. Do not rely on it as full solution. |
+| `src/core/slice.ts` | `CommandDefinition` | Remove/rename. It must not remain as compatibility alias or deprecated public name. |
 | `src/index.ts` | root exports for all new public types/helpers | Required for extensions using package root import. |
 | `llms.txt` | update command DSL docs | Document public descriptor names and candidate/output distinction. |
 
@@ -201,7 +201,7 @@ Expected:
 
 | Behavior / Rule | Current locations | Likely canonical owner | Spread type | Risk | Recommended action |
 |---|---|---|---|---|---|
-| Raw command descriptor typing | `src/core/slice.ts` `CommandDefinition`; root export | `src/core/slice.ts` public descriptor types | same but ambiguous name | medium: wrappers assume it means all commands | rename/alias to `RawCommandDefinition`; document canonical name. |
+| Raw command descriptor typing | `src/core/slice.ts` `CommandDefinition`; root export | `RawCommandDefinition` | ambiguous public name | medium: wrappers assume it means all commands | remove `CommandDefinition`; use `RawCommandDefinition` only. |
 | Definition-backed descriptor typing | private `EventDefinitionCommandDefinition`; overloads | `DefinitionBackedCommandDefinition` public type | private/public split | high: extensions copy internals or cast | promote to public, make overloads consume it. |
 | Event candidate payload input vs output event payload | private `CommandEventCandidate`, `DefinitionBackedCommandPayloadInput`; `EventOf`, `EventPayloadOf` | `src/core/event.ts` helper types | scattered derived helpers | high: easy to erase transform schemas | move public candidate/input helpers to event module, use in slice. |
 | Runtime event candidate validation | `defineCommand(...)` event-backed branch; `pipeline.ts` event parse | existing command pipeline | intentional layered checks | high if wrappers force raw path | preserve definition-backed branch and `eventSchema = eventDefinition.schema`. |
@@ -255,14 +255,14 @@ bun run test
 
 - Update `llms.txt` because public DSL behavior and canonical examples change.
 - Mention no `llms.txt` change only if implementation proves public docs already cover all new names, unlikely here.
-- Keep release notes/additional docs minimal unless existing docs reference `CommandDefinition` by name.
+- Document intentional public type break: `CommandDefinition` removed; use `RawCommandDefinition` or `DefinitionBackedCommandDefinition`.
 
 ## Implementation Handoff Notes
 
 Planning should turn this into small slices:
 
 1. Add public event helper types and export them.
-2. Rename/alias raw descriptor type, add public definition-backed descriptor and union, update overloads to use them.
+2. Rename raw descriptor type to `RawCommandDefinition`, remove `CommandDefinition`, add public definition-backed descriptor and union, update overloads to use them.
 3. Add `commandDefinition(...)` identity helper and root exports.
 4. Add type/runtime regression coverage and `llms.txt` updates.
 
