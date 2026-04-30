@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation in progress
+Status: implementation complete; ready for review
 
 ## Active artifacts
 Description:
@@ -16,11 +16,8 @@ Plan checks:
 
 Implementation tasks:
 - impl/01.md through impl/04.md
-- completed implementation tasks: 3
-- pending implementation tasks: 1 (04)
+- completed implementation tasks: 4
+- pending implementation tasks: 0
 
 ## Next suggested step
-- {{/skill:impl yczmr-dcb-docs --task 04}}
-
-Skill-loop alternative:
-- {{/skill-loop 1 /skill:impl yczmr-dcb-docs}}
+- {{/skill:review-diff yczmr-dcb-docs}}
