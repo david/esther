@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: second review found direct wrapper inline inference gap; breakdown pending
+Status: second review direct wrapper inline inference follow-up broken down; implementation pending
 
 ## Active artifacts
 Description:
@@ -19,6 +19,7 @@ Plan checks:
 
 Implementation tasks:
 - impl/01.md through impl/05.md — completed; checkpoints recorded in impl/checkpoints/01.md through impl/checkpoints/05.md
+- impl/06.md — pending direct inline extension wrapper inference fix
 
 Review:
 - review/diff/01-review-diff.md — public descriptor semantic review
@@ -27,7 +28,7 @@ Review:
 - review/findings/02-direct-wrapper-inline-inference.md — actionable high-risk direct wrapper inference finding
 
 ## Next suggested step
-- {{/skill:breakdown 11w2y-public-command-descriptors --from review/findings/02-direct-wrapper-inline-inference.md}}
+- {{/skill:impl 11w2y-public-command-descriptors}}
 
 ## Skill-loop alternative
-- {{/skill-loop 1 /skill:breakdown 11w2y-public-command-descriptors --from review/findings/02-direct-wrapper-inline-inference.md}}
+- {{/skill-loop 1 /skill:impl 11w2y-public-command-descriptors}}
