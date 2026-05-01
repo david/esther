@@ -863,6 +863,137 @@ describe("command pipeline v2 — wiring", () => {
     ]);
   });
 
+  test("raw command event path rejects missing observed tag before append and fanout", async () => {
+    const RawGuardedSchema = z.object({
+      type: z.literal("RawGuardedEvent"),
+      tags: z.array(z.string()),
+      payload: z.object({ marker: z.string() }),
+    });
+    type RawGuardedEvent = z.output<typeof RawGuardedSchema>;
+    const rawReducer = defineReducer({
+      name: "raw-guarded-events",
+      schemas: [RawGuardedSchema] as const,
+      initial: [] as RawGuardedEvent[],
+      reduce: (events, event): RawGuardedEvent[] => [...events, event],
+    });
+
+    let appendCalls = 0;
+    let projectorCalled = 0;
+    let processorCalled = 0;
+    let effectCalled = 0;
+    let outputCalled = false;
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    const projectionModel = defineReadModel({
+      name: "raw_guarded_projection",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+      events: [
+        readModelEvent<{ readonly id: string }, typeof RawGuardedSchema, unknown>({
+          schema: RawGuardedSchema,
+          handler: (event, ctx) => {
+            projectorCalled += 1;
+            return ctx.project({ id: event.payload.marker });
+          },
+        }),
+      ],
+    });
+    const { adapter: projectionAdapter, get } = createInMemoryProjectionAdapter(projectionModel);
+
+    const processor = defineProcessor({
+      name: "raw_guarded_processor",
+      events: [
+        processorEvent({
+          schema: RawGuardedSchema,
+          handler: () => {
+            processorCalled += 1;
+            return { type: "effect", kind: "raw-guarded" };
+          },
+        }),
+      ],
+    });
+    const effectAdapter: EffectAdapter = {
+      name: "raw_guarded_effect",
+      match: (effect) => effect["kind"] === "raw-guarded",
+      execute: async (effect) => {
+        effectCalled += 1;
+        return effect;
+      },
+    };
+
+    const slice = defineCommand({
+      name: "raw-observed-tags-missing",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ readonly ok: boolean }>(),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: (ctx: ProbeInput) => ["raw:observed", `probe:${ctx.a}`],
+          reducer: emptyCountReducer,
+        }),
+      ),
+      validate: [],
+      event: (ctx) => ({
+        type: "RawGuardedEvent" as const,
+        tags: ["raw:event", `probe:${ctx.a}`],
+        payload: { marker: "command" },
+      }),
+      output: () => {
+        outputCalled = true;
+        return ok({ ok: true });
+      },
+    });
+    expect(slice.eventSchema).toBeUndefined();
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      operations: [slice],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projectionAdapter,
+          get,
+          constraints: {},
+          tableName: "raw_guarded_projection",
+          handle: projectionModel,
+        },
+      ],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+
+    const result = await app.dispatch("raw-observed-tags-missing", { a: 5 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual({
+        _tag: "EventTagMismatchError",
+        message: "Command emitted event missing observed DCB tags",
+        commandName: "raw-observed-tags-missing",
+        eventType: "RawGuardedEvent",
+        observedTags: ["raw:observed", "probe:5"],
+        eventTags: ["raw:event", "probe:5"],
+        missingTags: ["raw:observed"],
+      });
+    }
+    expect(appendCalls).toBe(0);
+    expect(outputCalled).toBe(false);
+    expect(projectorCalled).toBe(0);
+    expect(processorCalled).toBe(0);
+    expect(effectCalled).toBe(0);
+    const events = await baseEventStore.queryByTags(["raw:event"], rawReducer);
+    expect(events.state).toEqual([]);
+  });
+
   test("event not constructed on validate failure", async () => {
     let eventCalled = false;
     const slice = defineCommand<
@@ -2001,6 +2132,107 @@ describe("command pipeline v2 — wiring", () => {
     expect(projectorCalled).toBe(0);
     expect(processorCalled).toBe(0);
     expect(effectCalled).toBe(0);
+  });
+
+  test("castTagQuery observation rejects missing observed tag before append", async () => {
+    const userModel = defineReadModel({
+      name: "cast_guard_users",
+      schema: z.object({ userId: z.string(), name: z.string() }),
+      key: "userId",
+    });
+    const { adapter: userAdapter, get: getUser } = createInMemoryProjectionAdapter(userModel);
+    await userAdapter.execute(userModel.project({ userId: "u-1", name: "Ada" }));
+
+    let appendCalls = 0;
+    let outputCalled = false;
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    type CastInput = { readonly userId: string };
+    type UserSubject = { readonly userId: string; readonly name: string };
+    type CastContext = CastInput & {
+      readonly userHistory: { readonly count: number };
+      readonly userHistorySubject: UserSubject;
+    };
+
+    const cast = castTagQuery({
+      key: "userHistory" as const,
+      cast: {
+        model: userModel,
+        id: (ctx: CastInput) => ctx.userId,
+        absent: { type: "NoUser" as const },
+      },
+      tags: (subject) => ["cast:observed", `user:${subject.userId}`],
+      reducer: probeCountReducer,
+    });
+
+    const slice = defineCommand<
+      CastInput,
+      CastContext,
+      { readonly ok: boolean },
+      ProbeEvent,
+      { readonly type: "NoUser" }
+    >({
+      name: "probe-cast-observed-tags-missing",
+      inputSchema: z.object({ userId: z.string() }),
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<CastInput>().add(cast),
+      validate: [],
+      event: (ctx) => ({
+        type: "Probe" as const,
+        tags: ["cast:event", `user:${ctx.userHistorySubject.userId}`],
+        payload: { marker: "command" },
+      }),
+      output: () => {
+        outputCalled = true;
+        return ok({ ok: true });
+      },
+      outputErr: {
+        NoUser: () => ok({ ok: false }),
+      },
+    });
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      operations: [slice],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: userAdapter,
+          get: getUser,
+          constraints: {},
+          tableName: "cast_guard_users",
+          handle: userModel,
+        },
+      ],
+    });
+
+    const result = await app.dispatch("probe-cast-observed-tags-missing", { userId: "u-1" });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual({
+        _tag: "EventTagMismatchError",
+        message: "Command emitted event missing observed DCB tags",
+        commandName: "probe-cast-observed-tags-missing",
+        eventType: "Probe",
+        observedTags: ["cast:observed", "user:u-1"],
+        eventTags: ["cast:event", "user:u-1"],
+        missingTags: ["cast:observed"],
+      });
+    }
+    expect(appendCalls).toBe(0);
+    expect(outputCalled).toBe(false);
+    const events = await readProbeEvents(baseEventStore, ["cast:event"]);
+    expect(events).toEqual([]);
   });
 
   test("lookup derive and generate commands append without observation preconditions", async () => {
