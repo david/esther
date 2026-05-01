@@ -4,7 +4,7 @@
 
 - you are turning a request into a scoped change
 - you need to decide commit shape, readiness, or what to clarify before coding
-- you are preparing work to merge or push
+- you are preparing work to commit or push to `origin/main`
 
 ## Current workflow baseline
 
@@ -12,6 +12,9 @@ This repo does not currently define a heavy issue-tracker or release-process man
 - clarify scope before broad changes
 - keep changes focused and reviewable
 - preserve a green repo
+- work on `main` by default when practical
+- do not create a separate branch or PR unless explicitly requested
+- ship completed work by pushing directly to `origin/main`
 - write down durable new rules in `doc/`
 
 ## Before coding
@@ -39,7 +42,7 @@ Prefer focused commits with conventional-commit-style messages, matching the his
 - `fix(postgres): validate jsonb rows before use`
 - `docs: update architecture guidance`
 
-## Ready to merge or push means
+## Ready to push to `origin/main` means
 
 At minimum:
 - scope is still aligned with the request
@@ -48,9 +51,14 @@ At minimum:
 - `bun run test` passes
 - docs, `llms.txt`, and exported API surface are updated when needed
 
-## Direct pushes and risky operations
+## Direct-to-main push policy
 
-No special repo-local automation is documented for direct pushes. Treat them as high-risk:
-- sync with the target branch first
+Direct pushes to `origin/main` are normal for this repo. Do not create a separate branch or PR unless the user explicitly asks for one.
+
+Before pushing:
+- sync with `origin/main` when local history is stale
 - verify the full repo, not just touched files
-- confirm that direct push is actually intended when the request is unclear
+- inspect `git status --short --branch` and intended commits
+- push with `git push origin HEAD:main`, or `git push origin main` when local `main` is checked out
+
+No extra confirmation is needed solely because the push target is `origin/main`.

@@ -8,7 +8,7 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 - Where tests live and what to add for changes: [doc/testing.md](doc/testing.md)
 - Type rules, cast policy, and app-module constraints: [doc/code-style.md](doc/code-style.md)
 - Terms like slice, DCB, projector, and processor: [doc/domain-language.md](doc/domain-language.md)
-- Scope, commits, and “ready to merge” expectations: [doc/project-management.md](doc/project-management.md)
+- Scope, commits, and “ready to push” expectations: [doc/project-management.md](doc/project-management.md)
 - Issue lanes, references, and workflow artifacts: [doc/workflow.md](doc/workflow.md)
 
 ## Gotchas

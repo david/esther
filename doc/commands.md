@@ -3,7 +3,7 @@
 ## Read this doc when
 
 - you need the repo's standard local commands
-- you want CI-equivalent verification before committing, merging, or pushing
+- you want CI-equivalent verification before committing or pushing to `origin/main`
 - you are unsure which tool owns formatting vs linting vs typechecking
 
 ## Setup
@@ -79,7 +79,15 @@ CI runs:
 3. `bun run lint`
 4. `bun test`
 
-Before asking to merge or push, match CI locally unless the task explicitly says otherwise.
+Before pushing to `origin/main`, match CI locally unless the task explicitly says otherwise.
+
+## Push
+
+```bash
+git push origin HEAD:main
+```
+
+Push directly to `origin/main` when work is ready. Do not create separate branches or PRs unless explicitly requested.
 
 ## Useful focused commands while iterating
 

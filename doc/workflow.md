@@ -16,7 +16,7 @@ Use top-level `.issues/` directories for categories, not workflow lanes directly
 ```
 
 - `.issues/lanes/backlog/` is for intake, problem definition, research, planning, plan checks, and breakdown.
-- `.issues/lanes/in-progress/` is for implementation, review, QA, debug follow-ups, checks, and deploy prep.
+- `.issues/lanes/in-progress/` is for implementation, review, QA, debug follow-ups, checks, and ship prep.
 - `.issues/lanes/done/` is for completed work retained for history.
 - `.issues/references/` contains shared source material and context documents that may be referenced by multiple issues.
 - Do not create lane directories directly under `.issues/` such as `.issues/backlog/`; use `.issues/lanes/backlog/` instead.
@@ -70,3 +70,9 @@ Leave generated logs alone unless explicitly asked to clean or summarize them.
 ## Moving issues between lanes
 
 Move the whole issue directory between lane directories as its workflow state changes. Preserve internal paths and artifacts when moving an issue.
+
+## Shipping completed issues
+
+Default shipping path is direct push to `origin/main`. Do not create separate branches or PRs unless explicitly requested.
+
+Once implementation, review, QA, and checks are complete, move the issue to `.issues/lanes/done/` and record push evidence in issue artifacts when using deploy/shipping workflow.
