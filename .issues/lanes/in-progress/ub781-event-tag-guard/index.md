@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates pending
+Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates passed; QA planning pending
 
 ## Active artifacts
 Description:
@@ -25,6 +25,7 @@ Implementation checkpoints:
 
 Review:
 - review/diff/01-review-diff.md
+- review/findings/01-gate-results.md
 
 ## Review outcome
 - Source reviewed: current branch vs `origin/main` merge-base `04aac2d6ca5213f721f79aca74a0276657aed9d1`
@@ -33,7 +34,7 @@ Review:
 - Highest risk to keep visible: intentional stricter DCB behavior can break apps whose commands read one tag boundary and emit events missing those observed tags
 
 ## Next suggested step
-- {{/skill:gates ub781-event-tag-guard}}
+- {{/skill:plan-qa ub781-event-tag-guard}}
 
 ## Re-run from same source then continue through QA
 - {{/skill-chain breakdown-to-qa ub781-event-tag-guard --from plan/01-implementation-plan.md}}
