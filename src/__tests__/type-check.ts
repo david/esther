@@ -1251,6 +1251,7 @@ function wrapperAddsTypedErrorHandling<
   TWrappedInput extends TInput & { readonly sessionToken: string },
   TWrappedCtx extends TCtx & TWrappedInput & { readonly session: AuthenticatedSession },
   TWrappedInputSchema extends z.ZodType<TWrappedInput>,
+  TName extends string,
 >(
   definition: DefinitionBackedCommandDefinition<
     TInput,
@@ -1261,7 +1262,7 @@ function wrapperAddsTypedErrorHandling<
     TInputError,
     TInputSchema,
     TOutputSchema
-  >,
+  > & { readonly name: TName },
   wrapper: {
     readonly inputSchema: TWrappedInputSchema;
     readonly input: InputPipeline<
@@ -1279,7 +1280,7 @@ function wrapperAddsTypedErrorHandling<
   TInputError | AuthenticatedSessionError,
   TWrappedInputSchema,
   TOutputSchema
-> {
+> & { readonly name: TName } {
   const authenticatedOutputErr: OutputErrHandlers<
     AuthenticatedSessionError,
     TOutput,
@@ -1303,7 +1304,16 @@ function wrapperAddsTypedErrorHandling<
     TWrappedInput
   > = mergeOutputErrHandlers(definition.outputErr, authenticatedOutputErr);
 
-  return {
+  const descriptor: DefinitionBackedCommandDefinitionWithOutputErr<
+    TWrappedInput,
+    TWrappedCtx,
+    TOutput,
+    TEventDefinition,
+    TError | AuthenticatedSessionError,
+    TInputError | AuthenticatedSessionError,
+    TWrappedInputSchema,
+    TOutputSchema
+  > & { readonly name: TName } = {
     ...definition,
     inputSchema: wrapper.inputSchema,
     input: wrapper.input,
@@ -1334,10 +1344,42 @@ function wrapperAddsTypedErrorHandling<
     },
     outputErr: mergedOutputErrHandlers,
   };
+
+  const identityDescriptor = commandDefinition(descriptor);
+  const _identityDescriptorCheck: typeof descriptor = identityDescriptor;
+  const namedCommand = defineCommand(descriptor);
+  const _namedCommandNameCheck: TName = namedCommand.name;
+  const unnamedDescriptor: DefinitionBackedCommandDefinitionWithOutputErr<
+    TWrappedInput,
+    TWrappedCtx,
+    TOutput,
+    TEventDefinition,
+    TError | AuthenticatedSessionError,
+    TInputError | AuthenticatedSessionError,
+    TWrappedInputSchema,
+    TOutputSchema
+  > = descriptor;
+  const unnamedCommand = defineCommand(unnamedDescriptor);
+  const _unnamedCommandNameCheck: string = unnamedCommand.name;
+  type _NamedCandidateCheck = Expect<
+    Equal<ReturnType<typeof namedCommand.event>, EventCandidateOf<TEventDefinition>>
+  >;
+  type _UnnamedCandidateCheck = Expect<
+    Equal<ReturnType<typeof unnamedCommand.event>, EventCandidateOf<TEventDefinition>>
+  >;
+
+  return descriptor;
 }
 
+const _cmsNamedWrappedBookingDefinitionBackedDefinition: typeof _wrappedBookingDefinitionBackedDefinition & {
+  readonly name: "wrapped-booking-definition-backed-definition";
+} = {
+  ..._wrappedBookingDefinitionBackedDefinition,
+  name: "wrapped-booking-definition-backed-definition",
+};
+
 const _authenticatedWrappedBookingDefinition = wrapperAddsTypedErrorHandling(
-  _wrappedBookingDefinitionBackedDefinition,
+  _cmsNamedWrappedBookingDefinitionBackedDefinition,
   {
     inputSchema: authenticatedBookingInputSchema,
     input: _authenticatedBookingInput,
