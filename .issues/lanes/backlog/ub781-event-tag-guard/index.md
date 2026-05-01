@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: backlog
-Status: implementation plan drafted; ready for plan check
+Status: plan approved; ready for breakdown
 
 ## Active artifacts
 Description:
@@ -14,5 +14,8 @@ Feature spec:
 Implementation plan:
 - plan/01-implementation-plan.md
 
+Plan checks:
+- plan/checks/01-plan-sanity.md
+
 ## Next suggested step
-- {{/skill:plan-check ub781-event-tag-guard}}
+- {{/skill:breakdown ub781-event-tag-guard --from plan/01-implementation-plan.md}}
