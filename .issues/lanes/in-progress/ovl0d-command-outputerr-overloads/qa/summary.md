@@ -1,40 +1,50 @@
 # QA Summary — Command outputErr descriptor overloads
 
-## Plan status
-- QA planned: 2026-05-01
-- Executable tasks: 1
-- Blocked tasks: 0
+## Verdict
+- passed
 
-## Tasks
-| Key | Mode | Status | Purpose |
-| --- | --- | --- | --- |
-| qa-required-outputerr-overloads-cli | auto-cli | pending | Run documented repo commands to verify type-level public API acceptance, lint/dependency boundaries, and unchanged runtime test suite. |
-
-## Mode counts
-| Mode | Count |
+## Counts
+| Status | Count |
 | --- | ---: |
-| auto-cli | 1 |
-| auto-browser | 0 |
-| manual | 0 |
-| needs-workflow | 0 |
-| needs-cli-domain | 0 |
+| passed | 1 |
+| failed | 0 |
+| blocked | 0 |
+| skipped | 0 |
+| manual pending | 0 |
 
-## Workflow learning needs
-- none. Change is library TypeScript API/type-level only; no browser or manual workflow needed.
+## Tasks run
+| Key | Mode | Status | Evidence |
+| --- | --- | --- | --- |
+| qa-required-outputerr-overloads-cli | auto-cli | passed | qa/results/qa-required-outputerr-overloads-cli.md |
 
-## CLI coverage
-- Covered by `doc/commands.md`: `bun run typecheck`, `bun run lint`, `bun run test`.
-- Missing CLI domains/actions: none.
-- Product CLI live help was not needed because `doc/commands.md` covers all setup/assertion actions for this CLI-only QA plan.
+## Pass signals
+- `bun run typecheck`: passed; `tsgo --noEmit -p tsconfig.json` completed successfully.
+- `bun run lint`: passed; ESLint no warnings/errors; dependency-cruiser no dependency violations.
+- `bun run test`: passed; 284 tests, 0 failures, 716 expect calls across 21 files.
+
+## Failures and debug handoffs
+- none.
+
+## Blockers and repair handoffs
+- none.
+
+## Workflow-learning backlog
+- none.
+
+## Learned workflow docs created/updated
+- none.
+
+## Missing CLI domains/actions and requested CLI additions
+- none.
 
 ## HTML discoverability proposals
-- none. No UI/browser surface changed.
+- none.
 
 ## Missing repo QA docs noted
 - `doc/qa.md`: absent.
 - `doc/qa-users.md`: absent.
 - `doc/qa/workflows/README.md` and `doc/workflows/README.md`: absent.
-- Not blocking because issue artifacts explicitly classify manual/browser QA as not applicable and documented repo commands cover needed verification.
+- Not blocking because issue artifacts classify manual/browser QA as not applicable and `doc/commands.md` covers all needed CLI verification.
 
-## Next handoff
-{{/skill:qa ovl0d-command-outputerr-overloads}}
+## Next command
+{{/skill:deploy ovl0d-command-outputerr-overloads}}

@@ -1,17 +1,22 @@
 # QA Status — qa-required-outputerr-overloads-cli
 
-status: pending
+status: passed
 mode: auto-cli
 task: ../tasks/qa-required-outputerr-overloads-cli.md
 created: 2026-05-01
 updated: 2026-05-01
 
 ## Current state
-- Ready to run.
-- No browser workflow, account, fixture, or external service setup required.
+- Passed.
+- No browser workflow, account, fixture, database, or external service setup required.
+
+## Commands verified
+- `bun run typecheck`: passed
+- `bun run lint`: passed
+- `bun run test`: passed
 
 ## Blockers
 - none
 
 ## Next action
-{{/skill:qa ovl0d-command-outputerr-overloads}}
+{{/skill:deploy ovl0d-command-outputerr-overloads}}
