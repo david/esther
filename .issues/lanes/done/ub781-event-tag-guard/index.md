@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: done
-Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates passed; QA planning complete; no executable QA tasks needed; deploy preflight passed; ready for direct push to origin/main
+Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates passed; QA planning complete; no executable QA tasks needed; shipped by direct push to origin/main
 
 ## Active artifacts
 Description:
@@ -38,9 +38,10 @@ QA:
 
 Deploy:
 - deploy/01-preflight.md
+- deploy/02-release.md
 
 ## Next suggested step
-- `git push origin HEAD:main`
+- No external closure action; review `origin/main` if desired.
 
 ## Re-run from same source then continue through QA
 - {{/skill-chain breakdown-to-qa ub781-event-tag-guard --from plan/01-implementation-plan.md}}
