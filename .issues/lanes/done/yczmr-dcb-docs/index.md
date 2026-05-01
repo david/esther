@@ -1,8 +1,8 @@
 # yczmr-dcb-docs Index
 
 ## Current state
-Lane: in-progress
-Status: QA complete; all planned manual tasks passed
+Lane: done
+Status: shipped to `origin/main`; CI passed; local workflow artifacts complete
 
 ## Active artifacts
 Description:
@@ -36,5 +36,15 @@ QA:
 - qa/results/qa-dcb-human-docs-comprehension.md
 - qa/results/qa-dcb-llm-guidance-parity.md
 
+Deploy:
+- deploy/01-preflight.md — direct-push preflight blocker recorded before user approval
+- deploy/02-release.md — direct push to `origin/main`; CI passed
+
+## Closure evidence
+- shipped commit: `e19be7dccd6088f2e8f0b8f1a705261a8c34aab7`
+- CI run: `25207949972` — passed
+- local lane: moved to done
+- external issue closure: not performed; no explicit closure request
+
 ## Next suggested step
-- {{/skill:deploy yczmr-dcb-docs}}
+- none
