@@ -4,6 +4,7 @@ import type { Command, ProjectionStore, Query } from "./slice";
 import {
   BoundaryObservationError,
   type BoundaryObservation,
+  EventTagMismatchError,
   type EventRecordInput,
   SchemaError,
   type SliceError,
@@ -31,10 +32,11 @@ function isFrameworkInputError(error: unknown): error is SliceError {
 //   3. run `validate` predicates in order. First err → outputErr branch.
 //   4. build command event candidate via event(ctx).
 //   5. validate definition-backed candidate and keep parsed command event.
-//   6. eventStore.append([parsedEvent]) — projectors via onAfterInsert,
+//   6. ensure observed DCB tags are visible on parsed event tags.
+//   7. eventStore.append([parsedEvent]) — projectors via onAfterInsert,
 //      processors via onAfterCommit (registered at compile time).
-//   7. success → output(parsedEvent, ctx). error → outputErr(error, ctx).
-//   8. parse final result via outputSchema.
+//   8. success → output(parsedEvent, ctx). error → outputErr(error, ctx).
+//   9. parse final result via outputSchema.
 
 export async function executeCommand<
   TInput,
@@ -106,8 +108,15 @@ export async function executeCommand<
   }
   const parsedEvent = parsedEventResult.value;
 
-  // 6. Append parsed event — projectors fire via onAfterInsert, processors via onAfterCommit
   const observation = boundaryObservations[0];
+
+  // 6. Ensure observed DCB tags remain visible on parsed event tags before append
+  const visibilityResult = ensureObservedTagsVisibleOnEvent(slice.name, observation, parsedEvent);
+  if (visibilityResult.isErr()) {
+    return err(visibilityResult.error);
+  }
+
+  // 7. Append parsed event — projectors fire via onAfterInsert, processors via onAfterCommit
   const appendOptions =
     observation === undefined
       ? undefined
@@ -117,8 +126,29 @@ export async function executeCommand<
     return err(appendResult.error);
   }
 
-  // 7. Success branch — call output(parsedEvent, ctx)
+  // 8. Success branch — call output(parsedEvent, ctx)
   return finishCommand(slice, slice.output(parsedEvent, ctx));
+}
+
+function missingObservedTags(
+  observedTags: ReadonlyArray<string>,
+  eventTags: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const eventTagSet = new Set(eventTags);
+  return observedTags.filter((tag) => !eventTagSet.has(tag));
+}
+
+function ensureObservedTagsVisibleOnEvent(
+  commandName: string,
+  observation: BoundaryObservation | undefined,
+  event: EventRecordInput,
+): Result<void, SliceError> {
+  if (observation === undefined) return ok(undefined);
+  const missingTags = missingObservedTags(observation.tags, event.tags);
+  if (missingTags.length === 0) return ok(undefined);
+  return err(
+    EventTagMismatchError(commandName, event.type, observation.tags, event.tags, missingTags),
+  );
 }
 
 function finishCommand<
@@ -134,7 +164,7 @@ function finishCommand<
   if (outputResult.isErr()) {
     return err(outputResult.error);
   }
-  // 8. Validate ok value against outputSchema
+  // 9. Validate ok value against outputSchema
   const outputParse = slice.outputSchema.safeParse(outputResult.value);
   if (!outputParse.success) {
     return err(SchemaError("Output schema validation failed", [outputParse.error.message]));

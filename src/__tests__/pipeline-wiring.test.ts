@@ -668,7 +668,7 @@ describe("command pipeline v2 — wiring", () => {
       ),
       validate: [],
       event: TransformedEventDefinition,
-      tags: (ctx) => ["transform:stored", `probe:${ctx.a}`],
+      tags: (ctx) => ["transform:stored", "transform:boundary", `probe:${ctx.a}`],
       payload: () => "abcd",
       output: (event) => {
         const _eventCheck: TransformedEvent = event;
@@ -692,7 +692,11 @@ describe("command pipeline v2 — wiring", () => {
     ]);
     const queried = await eventStore.queryByTags(["transform:stored"], transformedReducer);
     expect(queried.state).toEqual([
-      { type: "TransformedPayloadStored", tags: ["transform:stored", "probe:3"], payload: 4 },
+      {
+        type: "TransformedPayloadStored",
+        tags: ["transform:stored", "transform:boundary", "probe:3"],
+        payload: 4,
+      },
     ]);
   });
 
@@ -1492,6 +1496,226 @@ describe("command pipeline v2 — wiring", () => {
     if (miss.isOk()) {
       expect(miss.value).toEqual({ userId: "none" });
     }
+  });
+
+  test("definition-backed command with observed tag and matching emitted tag appends", async () => {
+    const appendOptions: Array<AppendOptions | undefined> = [];
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore = wrapWithAppendOptionCapture(baseEventStore, (options) => {
+      appendOptions.push(options);
+    });
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const slice = defineCommand({
+      name: "probe-observed-tags-match",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: (ctx: ProbeInput) => ["decision", `probe:${ctx.a}`],
+          reducer: emptyCountReducer,
+        }),
+      ),
+      validate: [],
+      event: ProbeEventDefinition,
+      tags: (ctx: ProbeInput) => ["decision", `probe:${ctx.a}`],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [slice] });
+    const result = await app.dispatch("probe-observed-tags-match", { a: 1 });
+
+    expect(result.isOk()).toBe(true);
+    expect(appendOptions).toEqual([
+      { boundaryTags: ["decision", "probe:1"], expectedPosition: undefined },
+    ]);
+    const events = await readProbeEvents(baseEventStore, ["decision", "probe:1"]);
+    expect(events).toEqual([{ type: "Probe", tags: ["decision", "probe:1"], payload: { a: 1 } }]);
+  });
+
+  test("definition-backed command allows extra emitted tags beyond observed tags", async () => {
+    const appendOptions: Array<AppendOptions | undefined> = [];
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore = wrapWithAppendOptionCapture(baseEventStore, (options) => {
+      appendOptions.push(options);
+    });
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const slice = defineCommand({
+      name: "probe-observed-tags-extra",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: (ctx: ProbeInput) => ["decision", `probe:${ctx.a}`],
+          reducer: emptyCountReducer,
+        }),
+      ),
+      validate: [],
+      event: ProbeEventDefinition,
+      tags: (ctx: ProbeInput) => ["event:index", `probe:${ctx.a}`, "decision"],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [slice] });
+    const result = await app.dispatch("probe-observed-tags-extra", { a: 2 });
+
+    expect(result.isOk()).toBe(true);
+    expect(appendOptions).toEqual([
+      { boundaryTags: ["decision", "probe:2"], expectedPosition: undefined },
+    ]);
+    const events = await readProbeEvents(baseEventStore, ["decision", "probe:2"]);
+    expect(events).toEqual([
+      { type: "Probe", tags: ["event:index", "probe:2", "decision"], payload: { a: 2 } },
+    ]);
+  });
+
+  test("definition-backed command rejects missing observed tag before append", async () => {
+    let appendCalls = 0;
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const slice = defineCommand({
+      name: "probe-observed-tags-missing",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ readonly ok: boolean }>(),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: (ctx: ProbeInput) => ["decision", `probe:${ctx.a}`, "required-last"],
+          reducer: emptyCountReducer,
+        }),
+      ),
+      validate: [],
+      event: ProbeEventDefinition,
+      tags: (ctx: ProbeInput) => ["event:index", `probe:${ctx.a}`],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [slice] });
+    const result = await app.dispatch("probe-observed-tags-missing", { a: 3 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toEqual({
+        _tag: "EventTagMismatchError",
+        message: "Command emitted event missing observed DCB tags",
+        commandName: "probe-observed-tags-missing",
+        eventType: "Probe",
+        observedTags: ["decision", "probe:3", "required-last"],
+        eventTags: ["event:index", "probe:3"],
+        missingTags: ["decision", "required-last"],
+      });
+    }
+    expect(appendCalls).toBe(0);
+    const events = await readProbeEvents(baseEventStore, ["event:index"]);
+    expect(events).toEqual([]);
+  });
+
+  test("definition-backed malformed event returns SchemaError before observed tag guard", async () => {
+    let appendCalls = 0;
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const StrictEventDefinition = defineEvent({
+      type: "GuardOrderStrictEvent",
+      payload: z.object({ required: z.string() }),
+    });
+    type StrictEvent = EventOf<typeof StrictEventDefinition>;
+    const strictReducer = defineReducer({
+      name: "guard-order-strict-events",
+      schemas: [StrictEventDefinition.schema] as const,
+      initial: [] as StrictEvent[],
+      reduce: (events, event): StrictEvent[] => [...events, event],
+    });
+
+    const slice = defineCommand({
+      name: "probe-observed-tags-schema-before-guard",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ readonly ok: boolean }>(),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: () => ["decision:strict"],
+          reducer: emptyCountReducer,
+        }),
+      ),
+      validate: [],
+      event: StrictEventDefinition,
+      tags: () => ["event:strict"],
+      payload: () => ({ required: 42 }) as unknown as StrictEvent["payload"],
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [slice] });
+    const result = await app.dispatch("probe-observed-tags-schema-before-guard", { a: 1 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toMatchObject({
+        _tag: "SchemaError",
+        message: "Event validation failed",
+      });
+    }
+    expect(appendCalls).toBe(0);
+    const events = await baseEventStore.queryByTags(["event:strict"], strictReducer);
+    expect(events.state).toEqual([]);
+  });
+
+  test("definition-backed command with empty observed tags does not require emitted tag", async () => {
+    const appendOptions: Array<AppendOptions | undefined> = [];
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore = wrapWithAppendOptionCapture(baseEventStore, (options) => {
+      appendOptions.push(options);
+    });
+    const { adapter, bind } = createInMemoryAdapter();
+
+    const slice = defineCommand({
+      name: "probe-empty-observed-tags-no-event-tag-required",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({ ok: z.boolean() }),
+      input: compose<ProbeInput>().add(
+        tagQuery({
+          key: "history" as const,
+          tags: () => [],
+          reducer: emptyCountReducer,
+        }),
+      ),
+      validate: [],
+      event: ProbeEventDefinition,
+      tags: () => ["event:empty-boundary"],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: () => ok({ ok: true }),
+    });
+
+    const app = createApp({ eventStore, inputAdapter: { adapter, bind }, operations: [slice] });
+    const result = await app.dispatch("probe-empty-observed-tags-no-event-tag-required", { a: 4 });
+
+    expect(result.isOk()).toBe(true);
+    expect(appendOptions).toEqual([{ boundaryTags: [], expectedPosition: undefined }]);
+    const events = await readProbeEvents(baseEventStore, ["event:empty-boundary"]);
+    expect(events).toEqual([
+      { type: "Probe", tags: ["event:empty-boundary"], payload: { a: 4 } },
+    ]);
   });
 
   test("tagQuery-derived append precondition rejects stale non-empty boundaries", async () => {
