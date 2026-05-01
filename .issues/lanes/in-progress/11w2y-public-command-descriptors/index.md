@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: auto QA passed; ready for deploy
+Status: follow-up spec added; implementation plan needed for wrapper-safe outputErr composition
 
 ## Active artifacts
 Description:
@@ -10,6 +10,7 @@ Description:
 
 Feature spec:
 - research/01-feature-spec.md
+- research/02-wrapper-safe-outputerr-spec.md
 
 Implementation plan:
 - plan/01-implementation-plan.md
@@ -31,7 +32,4 @@ Review:
 - qa/summary.md — auto CLI QA passed (`bun run typecheck`, `bun run test`, `bun run lint`)
 
 ## Next suggested step
-- {{/skill:deploy 11w2y-public-command-descriptors}}
-
-## Skill-loop alternative
-- {{/skill-loop 1 /skill:deploy 11w2y-public-command-descriptors}}
+- Draft implementation plan for `research/02-wrapper-safe-outputerr-spec.md`.
