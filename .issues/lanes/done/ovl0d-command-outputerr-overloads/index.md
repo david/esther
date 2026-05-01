@@ -2,8 +2,8 @@
 
 ## Current state
 
-Lane: in-progress
-Status: QA planned; ready for QA execution.
+Lane: done
+Status: Deploy preflight passed; PR-ready lane move in progress.
 
 ## Active artifacts
 
@@ -30,8 +30,11 @@ Reviews:
 - review/findings/01-gate-results.md — passed
 
 QA:
-- qa/tasks/qa-required-outputerr-overloads-cli.md — pending auto-cli
-- qa/summary.md — planned
+- qa/tasks/qa-required-outputerr-overloads-cli.md — passed auto-cli
+- qa/summary.md — passed
+
+Deploy:
+- deploy/01-preflight.md — passed; ready to move to done before PR
 
 ## Source context
 
@@ -40,4 +43,4 @@ QA:
 
 ## Next suggested step
 
-Run QA for planned CLI task: {{/skill:qa ovl0d-command-outputerr-overloads}}
+Create PR after lane move commit: `git push --set-upstream origin ovl0d-command-outputerr-overloads && gh pr create --fill`
