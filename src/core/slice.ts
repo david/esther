@@ -811,6 +811,24 @@ export type OutputErrHandlers<TError extends { readonly type: string }, TOutput,
   ) => Result<TOutput, TError>;
 };
 
+export function mergeOutputErrHandlers<
+  TAddedError extends { readonly type: string },
+  TOutput,
+  TCtx,
+  TInput,
+  TBaseError extends { readonly type: string } = never,
+>(
+  baseHandlers: OutputErrHandlers<TBaseError, TOutput, TCtx, TInput> | undefined,
+  addedHandlers: OutputErrHandlers<TAddedError, TOutput, TCtx, TInput>,
+): OutputErrHandlers<TBaseError | TAddedError, TOutput, TCtx, TInput> {
+  const mergedHandlers =
+    baseHandlers === undefined ? addedHandlers : { ...baseHandlers, ...addedHandlers };
+  // Cast stays local to handler-map composition: object spread cannot prove that
+  // merged discriminant-key maps cover the union key-space. Runtime semantics are
+  // deterministic; addedHandlers wins on duplicate error type keys.
+  return mergedHandlers as OutputErrHandlers<TBaseError | TAddedError, TOutput, TCtx, TInput>;
+}
+
 function normalizeOutputErrHandlers<
   TError extends { readonly type: string },
   TOutput,
@@ -1001,7 +1019,7 @@ export type RawCommandDefinition<
   readonly output: (event: TEvent, ctx: TCtx) => Result<TOutput, TError>;
 } & CommandOutputErrDefinition<TInput, TCtx, TOutput, TError>;
 
-export type DefinitionBackedCommandDefinition<
+type DefinitionBackedCommandDefinitionBase<
   TInput,
   TCtx,
   TOutput,
@@ -1023,7 +1041,50 @@ export type DefinitionBackedCommandDefinition<
     event: EventOf<NoInfer<TEventDefinition>>,
     ctx: TCtx,
   ) => Result<TOutput, TError>;
-} & CommandOutputErrDefinition<TInput, TCtx, TOutput, TError>;
+};
+
+export type DefinitionBackedCommandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string },
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+> = DefinitionBackedCommandDefinitionBase<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition,
+  TError,
+  TInputError,
+  TInputSchema,
+  TOutputSchema
+> &
+  CommandOutputErrDefinition<TInput, TCtx, TOutput, TError>;
+
+export type DefinitionBackedCommandDefinitionWithOutputErr<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string },
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+> = DefinitionBackedCommandDefinitionBase<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition,
+  TError,
+  TInputError,
+  TInputSchema,
+  TOutputSchema
+> & {
+  readonly outputErr: OutputErrHandlers<TError, TOutput, TCtx, TInput>;
+};
 
 type AnyRawCommandDefinition = {
   readonly name?: string | undefined;

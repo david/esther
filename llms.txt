@@ -17,6 +17,7 @@ import {
   defineCommand,
   commandDefinition,
   commandDefinitionWrapper,
+  mergeOutputErrHandlers,
   defineQuery,
 
   // event + reducer DSL
@@ -133,6 +134,7 @@ import type {
   Query,
   RawCommandDefinition,
   DefinitionBackedCommandDefinition,
+  DefinitionBackedCommandDefinitionWithOutputErr,
   AnyCommandDefinition,
   CommandDefinitionWrapper,
   CastTagQueryDescriptor,
@@ -472,6 +474,8 @@ Command event emission has two forms:
 
 Use `commandDefinition({...})` as base inference anchor. For direct extension wrappers like `authenticated({...})`, build wrapper with `commandDefinitionWrapper((definition) => commandDefinition({ ...definition, /* behavior metadata */ }))`; wrapper must preserve command input/output/event contracts. Plain `function wrap<T extends AnyCommandDefinition>(definition: T): T` only forwards already-typed descriptors and does not contextually type direct inline callbacks. Migration: replace old ambiguous public `CommandDefinition` usage with `RawCommandDefinition` for raw event factories or `DefinitionBackedCommandDefinition` for `event: EventDefinition` descriptors. Do not keep a `CommandDefinition` alias.
 
+Wrappers that replace `input` and widen command error unions should return `DefinitionBackedCommandDefinitionWithOutputErr` and compose handlers with `mergeOutputErrHandlers(baseHandlers, addedHandlers)`. `baseHandlers` may be `undefined` for base commands with `TError = never`; `addedHandlers` is required when wrapper adds an error. Result type is `OutputErrHandlers<TBaseError | TAddedError, TOutput, TCtx, TInput>`. Duplicate error `type` keys use object-spread precedence: `addedHandlers` wins. This keeps wrapper-owned error handling typed without downstream `as unknown as ...` or private descriptor mirrors, while preserving definition-backed event validation.
+
 Command shape:
 
 ```typescript
@@ -562,7 +566,7 @@ Descriptor semantics:
 
 Raw async command `input` functions and raw `.add(async (ctx) => ...)` steps are not public DSL.
 
-`outputErr` is a handler map keyed by domain error `type`. If command has domain errors, provide all handlers. If error type has no handler at runtime, framework falls back to first error. Framework errors (`SchemaError`, `ReadModelSchemaError`, `ConcurrencyError`, etc.) bypass `outputErr` and return directly.
+`outputErr` is a handler map keyed by domain error `type`. If command has domain errors, provide all handlers. If error type has no handler at runtime, framework falls back to first error. Framework errors (`SchemaError`, `ReadModelSchemaError`, `ConcurrencyError`, etc.) bypass `outputErr` and return directly. Use `mergeOutputErrHandlers(...)` when wrapper code must preserve base command handlers and add wrapper-owned handlers.
 
 ## `castTagQuery`
 

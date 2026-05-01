@@ -26,6 +26,7 @@ import {
   generate,
   getDescriptor,
   lookup,
+  mergeOutputErrHandlers,
   processorEvent,
   projection,
   queryDescriptor,
@@ -36,6 +37,7 @@ import {
   type AnyCommandDefinition,
   type CommandDefinitionWrapper,
   type DefinitionBackedCommandDefinition,
+  type DefinitionBackedCommandDefinitionWithOutputErr,
   type DispatchFn,
   type EventCandidateOf,
   type EventDefinition,
@@ -52,6 +54,7 @@ import {
   type OperationName,
   type OperationOutput,
   type OperationResult,
+  type OutputErrHandlers,
   type ProjectionAdapter,
   type ProjectionGetter,
   type ProjectionQuery,
@@ -66,6 +69,7 @@ import {
   type SliceError,
   type StateResolver,
   type TagQueryResult,
+  type ValidatePredicate,
   type Where,
   type WhereClause,
   type WhereIn,
@@ -1192,6 +1196,226 @@ const _outputErrForwardedWrappedBookingDefinition: typeof _wrappedBookingDefinit
     },
   });
 
+const _requiredOutputErrDefinitionBackedDescriptor: DefinitionBackedCommandDefinitionWithOutputErr<
+  CreateBookingInput,
+  WrappedBookingCommandCtx,
+  z.output<typeof createBookingOutputSchema>,
+  typeof BookingConfirmedEvent,
+  WrappedBookingCommandError,
+  WrapperPricingMissing
+> = _wrappedBookingDefinitionBackedDefinition;
+
+type AuthenticatedSession = {
+  readonly userId: string;
+};
+
+type AuthenticatedSessionError = {
+  readonly type: "Unauthenticated";
+  readonly message: string;
+};
+
+type AuthenticatedBookingInput = CreateBookingInput & {
+  readonly sessionToken: string;
+};
+
+type AuthenticatedBookingCommandCtx = AuthenticatedBookingInput & {
+  readonly pricing: PricingRow;
+  readonly confirmedAt: string;
+  readonly session: AuthenticatedSession;
+};
+
+const authenticatedBookingInputSchema = createBookingInputSchema.extend({
+  sessionToken: z.string(),
+});
+
+const _authenticatedBookingInput = compose<AuthenticatedBookingInput>().add(
+  derive({
+    fn: (ctx: AuthenticatedBookingInput) =>
+      ok({
+        pricing: { propertyId: ctx.propertyId, pricePerNight: 100 },
+        confirmedAt: `${ctx.checkIn}T00:00:00.000Z`,
+        session: { userId: "user-1" },
+      }),
+  }),
+);
+
+function wrapperAddsTypedErrorHandling<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string },
+  TInputError extends TError,
+  TInputSchema extends z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput>,
+  TWrappedInput extends TInput & { readonly sessionToken: string },
+  TWrappedCtx extends TCtx & TWrappedInput & { readonly session: AuthenticatedSession },
+  TWrappedInputSchema extends z.ZodType<TWrappedInput>,
+>(
+  definition: DefinitionBackedCommandDefinition<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+  wrapper: {
+    readonly inputSchema: TWrappedInputSchema;
+    readonly input: InputPipeline<
+      TWrappedInput,
+      TWrappedCtx,
+      TInputError | AuthenticatedSessionError
+    >;
+  },
+): DefinitionBackedCommandDefinitionWithOutputErr<
+  TWrappedInput,
+  TWrappedCtx,
+  TOutput,
+  TEventDefinition,
+  TError | AuthenticatedSessionError,
+  TInputError | AuthenticatedSessionError,
+  TWrappedInputSchema,
+  TOutputSchema
+> {
+  const authenticatedOutputErr: OutputErrHandlers<
+    AuthenticatedSessionError,
+    TOutput,
+    TWrappedCtx,
+    TWrappedInput
+  > = {
+    Unauthenticated: (errors, ctx) => {
+      const _errorCheck: AuthenticatedSessionError = errors[0];
+      const _inputTokenCheck: string = ctx.sessionToken;
+      if ("session" in ctx) {
+        const _sessionCheck: AuthenticatedSession = ctx.session;
+      }
+      return err(errors[0]);
+    },
+  };
+
+  return {
+    ...definition,
+    inputSchema: wrapper.inputSchema,
+    input: wrapper.input,
+    validate: [
+      (ctx: TWrappedCtx) => {
+        const _sessionCheck: AuthenticatedSession = ctx.session;
+        return [];
+      },
+      ...definition.validate.map(
+        (predicate): ValidatePredicate<TWrappedCtx, TError> =>
+          (ctx) =>
+            predicate(ctx),
+      ),
+    ],
+    tags: (ctx) => {
+      const _sessionCheck: AuthenticatedSession = ctx.session;
+      return definition.tags(ctx);
+    },
+    payload: (ctx) => definition.payload(ctx),
+    output: (event, ctx) => {
+      const _eventCheck: EventOf<TEventDefinition> = event;
+      const _sessionCheck: AuthenticatedSession = ctx.session;
+      return definition.output(event, ctx);
+    },
+    outputErr: mergeOutputErrHandlers(definition.outputErr, authenticatedOutputErr),
+  };
+}
+
+const _authenticatedWrappedBookingDefinition = wrapperAddsTypedErrorHandling(
+  _wrappedBookingDefinitionBackedDefinition,
+  {
+    inputSchema: authenticatedBookingInputSchema,
+    input: _authenticatedBookingInput,
+  },
+);
+
+const _authenticatedWrappedBookingDefinitionCheck: DefinitionBackedCommandDefinitionWithOutputErr<
+  AuthenticatedBookingInput,
+  AuthenticatedBookingCommandCtx,
+  z.output<typeof createBookingOutputSchema>,
+  typeof BookingConfirmedEvent,
+  WrappedBookingCommandError | AuthenticatedSessionError,
+  WrapperPricingMissing | AuthenticatedSessionError,
+  typeof authenticatedBookingInputSchema,
+  z.ZodType<z.output<typeof createBookingOutputSchema>>
+> = _authenticatedWrappedBookingDefinition;
+
+const _authenticatedWrappedBookingCommand = defineCommand(_authenticatedWrappedBookingDefinition);
+const _authenticatedWrappedBookingCandidate: EventCandidateOf<typeof BookingConfirmedEvent> =
+  _authenticatedWrappedBookingCommand.event({
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    propertyId: "00000000-0000-4000-8000-000000000002",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+    sessionToken: "token-1",
+    pricing: {
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      pricePerNight: 100,
+    },
+    confirmedAt: "2026-05-01T00:00:00.000Z",
+    session: { userId: "user-1" },
+  });
+
+const _mergedAuthenticatedErrResult =
+  _authenticatedWrappedBookingDefinition.outputErr.Unauthenticated(
+    [{ type: "Unauthenticated", message: "Missing session" }],
+    {
+      tenantId: "00000000-0000-4000-8000-000000000001",
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      checkIn: "2026-05-01",
+      checkOut: "2026-05-05",
+      sessionToken: "token-1",
+    },
+  );
+const _mergedAuthenticatedErrTypeCheck: Result<
+  z.output<typeof createBookingOutputSchema>,
+  WrappedBookingCommandError | AuthenticatedSessionError
+> = _mergedAuthenticatedErrResult;
+
+const _mergedBaseErrResult = _authenticatedWrappedBookingDefinition.outputErr.WrapperRejected(
+  [
+    {
+      type: "WrapperRejected",
+      code: "WRAPPER_REJECTED",
+      message: "Price must be positive",
+    },
+  ],
+  {
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    propertyId: "00000000-0000-4000-8000-000000000002",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+    sessionToken: "token-1",
+    pricing: {
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      pricePerNight: 100,
+    },
+    confirmedAt: "2026-05-01T00:00:00.000Z",
+    session: { userId: "user-1" },
+  },
+);
+const _mergedBaseErrTypeCheck: Result<
+  z.output<typeof createBookingOutputSchema>,
+  WrappedBookingCommandError | AuthenticatedSessionError
+> = _mergedBaseErrResult;
+
+const _authOnlyOutputErrHandlers: OutputErrHandlers<
+  AuthenticatedSessionError,
+  z.output<typeof createBookingOutputSchema>,
+  AuthenticatedBookingCommandCtx,
+  AuthenticatedBookingInput
+> = mergeOutputErrHandlers(undefined, {
+  Unauthenticated: (errors, ctx) => {
+    const _errorCheck: AuthenticatedSessionError = errors[0];
+    const _sessionTokenCheck: string = ctx.sessionToken;
+    return err(errors[0]);
+  },
+});
+
 const _badInlineCommandDefinitionBackedPayload = commandDefinition({
   name: "bad-inline-command-definition-backed-payload",
   inputSchema: createBookingInputSchema,
@@ -1375,7 +1599,8 @@ const _inlineWrappedTransformCommand = defineCommand(
 );
 const _inlineWrappedTransformCandidate: EventCandidateOf<typeof TransformPayloadEvent> =
   _inlineWrappedTransformCommand.event({ rawValue: "abc" });
-const _inlineWrappedTransformCandidatePayloadCheck: string = _inlineWrappedTransformCandidate.payload;
+const _inlineWrappedTransformCandidatePayloadCheck: string =
+  _inlineWrappedTransformCandidate.payload;
 // @ts-expect-error inline wrapped definition-backed event() returns schema-input candidate payload
 const _inlineWrappedTransformCandidateStoredPayloadCheck: number =
   _inlineWrappedTransformCandidate.payload;

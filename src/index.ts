@@ -120,6 +120,8 @@ export {
   type CommandDefinitionWrapper,
   commandDefinitionWrapper,
   type DefinitionBackedCommandDefinition,
+  type DefinitionBackedCommandDefinitionWithOutputErr,
+  mergeOutputErrHandlers,
   type RawCommandDefinition,
   castTagQuery,
   defineCommand,
