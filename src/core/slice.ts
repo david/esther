@@ -1117,6 +1117,36 @@ export function commandDefinition<
   TCtx,
   TOutput,
   TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string },
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+  TDefinition extends DefinitionBackedCommandDefinitionWithOutputErr<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  > = DefinitionBackedCommandDefinitionWithOutputErr<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+>(definition: TDefinition): TDefinition;
+
+export function commandDefinition<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
   TError extends { readonly type: string } = never,
   TInputError extends TError = TError,
   TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
@@ -1274,6 +1304,16 @@ type RuntimeCommandDefinition<
       TInputSchema,
       TOutputSchema
     >
+  | DefinitionBackedCommandDefinitionWithOutputErr<
+      TInput,
+      TCtx,
+      TOutput,
+      EventDefinition<string, z.ZodType>,
+      TError,
+      TInputError,
+      TInputSchema,
+      TOutputSchema
+    >
   | DefinitionBackedCommandDefinition<
       TInput,
       TCtx,
@@ -1315,6 +1355,67 @@ function isRawCommandDefinition<
 > {
   return typeof definition.event === "function";
 }
+
+export function defineCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string },
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+  const TName extends string = string,
+>(
+  definition: DefinitionBackedCommandDefinitionWithOutputErr<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  > & { readonly name: TName },
+): Command<
+  TInput,
+  TCtx,
+  TOutput,
+  EventOf<TEventDefinition>,
+  TError,
+  TName,
+  EventCandidateOf<TEventDefinition>
+>;
+
+export function defineCommand<
+  TInput,
+  TCtx,
+  TOutput,
+  TEventDefinition extends EventDefinition<string, z.ZodType>,
+  TError extends { readonly type: string },
+  TInputError extends TError = TError,
+  TInputSchema extends z.ZodType<TInput> = z.ZodType<TInput>,
+  TOutputSchema extends z.ZodType<TOutput> = z.ZodType<TOutput>,
+>(
+  definition: DefinitionBackedCommandDefinitionWithOutputErr<
+    TInput,
+    TCtx,
+    TOutput,
+    TEventDefinition,
+    TError,
+    TInputError,
+    TInputSchema,
+    TOutputSchema
+  >,
+): Command<
+  TInput,
+  TCtx,
+  TOutput,
+  EventOf<TEventDefinition>,
+  TError,
+  string,
+  EventCandidateOf<TEventDefinition>
+>;
 
 export function defineCommand<
   TInput,
