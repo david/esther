@@ -3,7 +3,7 @@
 ## Current state
 
 Lane: backlog
-Status: plan check approved; ready for breakdown.
+Status: breakdown complete; 1 pending implementation task.
 
 ## Active artifacts
 
@@ -24,6 +24,11 @@ Plan checks:
 - CMS feedback after `290e142`
 - Related completed issue: `.issues/lanes/done/11w2y-public-command-descriptors/`
 
+Implementation tasks:
+- impl/01.md — Accept required-outputErr command descriptors
+
 ## Next suggested step
 
-Break down approved plan into focused type/API overload task: {{/skill:breakdown .issues/lanes/backlog/ovl0d-command-outputerr-overloads --from plan/01-implementation-plan.md}}
+Implement pending task: {{/skill:impl ovl0d-command-outputerr-overloads}}
+
+Skill-chain alternative: {{/skill-chain impl-to-qa ovl0d-command-outputerr-overloads}}
