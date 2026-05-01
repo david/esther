@@ -58,6 +58,7 @@ import {
   // framework error constructors
   EventId,
   ConstraintError,
+  EventTagMismatchError,
   BoundaryObservationError,
   ReadModelSchemaError,
   ReadModelNotFound,
@@ -87,6 +88,7 @@ import type {
   ValidationError,
   SchemaError,
   ConcurrencyError,
+  EventTagMismatchError as EventTagMismatchErrorType,
   BoundaryObservation,
   ConstraintMetadata,
   EventFilter,
@@ -265,6 +267,8 @@ Use this decision checklist before emitting an event:
 3. Did command input read those tags with `tagQuery(...)` or `castTagQuery(...)`?
 4. Will emitted event include `futureVisibilityTags` so future reads of that same boundary see it?
 
+After event schema validation and before append, core enforces `observedBoundary.tags ⊆ emittedEvent.tags` for command-side `tagQuery(...)` and `castTagQuery(...)` observations. Missing observed tags return `EventTagMismatchError`; extra emitted tags are allowed; empty/global boundaries impose no emitted-tag requirement. Guard is strict, has no opt-out, and stays in core rather than adapter policy.
+
 At append, command `observedBoundary` becomes `appendGuard`:
 
 - zero observations → append without precondition
@@ -276,7 +280,7 @@ Sharp edges:
 - `boundaryTags: undefined` or `[]` means global stream boundary. Use only when every event can invalidate the decision.
 - `expectedPosition: undefined` means selected boundary must be empty.
 - `ConcurrencyError` means the observed boundary changed before append.
-- Framework does not verify emitted event tags match observed boundary tags; app code owns future visibility.
+- `EventTagMismatchError` means emitted event tags missed at least one observed DCB tag; no append, projector, processor, or effect ran.
 - DCB is not authorization and not a pessimistic lock.
 
 Common unsafe patterns:
@@ -469,8 +473,8 @@ Commands use `compose().add(...)` for input pipeline. Queries use `state().pipe(
 
 Command event emission has two forms:
 
-- Preferred: `DefinitionBackedCommandDefinition` uses `event: EventDefinition`, plus `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns `EventPayloadInputOf<typeof Event>` / `z.input<typeof Event.payloadSchema>`; direct `command.event(ctx)` returns `EventCandidateOf<typeof Event>` with schema-input payload. Pipeline validates full candidate with `Event.schema`, appends parsed `EventOf<typeof Event>` / `z.output` payload, passes parsed event to `output(event, ctx)`, and returns `SchemaError("Event validation failed", issues)` on malformed data.
-- Low-level interop: `RawCommandDefinition` uses raw `event(ctx) => EventRecordInput`. This path is intentionally not event-definition-validated.
+- Preferred: `DefinitionBackedCommandDefinition` uses `event: EventDefinition`, plus `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns `EventPayloadInputOf<typeof Event>` / `z.input<typeof Event.payloadSchema>`; direct `command.event(ctx)` returns `EventCandidateOf<typeof Event>` with schema-input payload. Pipeline validates full candidate with `Event.schema`, enforces observed DCB tags on parsed event tags, appends parsed `EventOf<typeof Event>` / `z.output` payload, passes parsed event to `output(event, ctx)`, and returns `SchemaError("Event validation failed", issues)` on malformed data or `EventTagMismatchError` on missing observed tags before append.
+- Low-level interop: `RawCommandDefinition` uses raw `event(ctx) => EventRecordInput`. This path is intentionally not event-definition-validated, but it still uses the observed-tag visibility guard before append.
 
 Use `commandDefinition({...})` as base inference anchor. For direct extension wrappers like `authenticated({...})`, build wrapper with `commandDefinitionWrapper((definition) => commandDefinition({ ...definition, /* behavior metadata */ }))`; wrapper must preserve command input/output/event contracts. Plain `function wrap<T extends AnyCommandDefinition>(definition: T): T` only forwards already-typed descriptors and does not contextually type direct inline callbacks. Migration: replace old ambiguous public `CommandDefinition` usage with `RawCommandDefinition` for raw event factories or `DefinitionBackedCommandDefinition` for `event: EventDefinition` descriptors. Do not keep a `CommandDefinition` alias.
 
@@ -538,11 +542,12 @@ Command execution order:
 5. if validation errors exist, call `outputErr` by error type
 6. construct exactly one event from `event`/`tags`/`payload` or raw `event(ctx)`
 7. validate definition-backed event with `Event.schema`; malformed event returns `SchemaError` before append
-8. append event with DCB precondition if one boundary was observed
-9. run read-model event bindings via `onAfterInsert`
-10. run processors via `onAfterCommit`
-11. call `output(event, ctx)` with parsed/appended event
-12. parse `outputSchema`
+8. enforce `observedBoundary.tags ⊆ emittedEvent.tags`; missing observed tags return `EventTagMismatchError` before append
+9. append event with DCB precondition if one boundary was observed
+10. run read-model event bindings via `onAfterInsert`
+11. run processors via `onAfterCommit`
+12. call `output(event, ctx)` with parsed/appended event
+13. parse `outputSchema`
 
 Command input descriptors:
 
@@ -908,7 +913,7 @@ Fastify route helper behavior:
 - `route.input(request)` runs before app dispatch; thrown parse errors use host/Fastify error handling.
 - `route.respond({ result, request, reply })` gets operation-specific `Result` type.
 - If no `respond`, default response is `{ data }` on ok.
-- Default error mapping: `ConstraintError` + `ConcurrencyError` → 409, `SchemaError` → 400, `ReadModelNotFound` → 404, all other returned errors → 422.
+- Default error mapping: `ConstraintError` + `ConcurrencyError` → 409, `SchemaError` → 400, `ReadModelNotFound` → 404, all other returned errors → 422. `EventTagMismatchError` uses this default 422 unless route `respond` maps it differently.
 - Authorization/session/token checks remain host responsibility.
 
 If no explicit route matches, adapter wildcard dispatches:
@@ -989,6 +994,7 @@ Framework error union:
 type SliceError =
   | ValidationError
   | ConcurrencyError
+  | EventTagMismatchError
   | BoundaryObservationError
   | ConstraintError
   | SchemaError
@@ -1020,6 +1026,16 @@ type BoundaryObservationError = {
     readonly tags: ReadonlyArray<string>;
     readonly maxPosition: bigint | undefined;
   }>;
+};
+
+type EventTagMismatchError = {
+  readonly _tag: "EventTagMismatchError";
+  readonly message: "Command emitted event missing observed DCB tags";
+  readonly commandName: string;
+  readonly eventType: string;
+  readonly observedTags: ReadonlyArray<string>;
+  readonly eventTags: ReadonlyArray<string>;
+  readonly missingTags: ReadonlyArray<string>;
 };
 
 type ConstraintError = {
@@ -1055,6 +1071,7 @@ Notes:
 
 - Domain validation errors are user-defined `{ type: string, ... }` values returned from `validate` or descriptor input errors. They are not `ValidationError` unless user chooses that shape.
 - `SchemaError` comes from input parse failures and command output parse failures.
+- `EventTagMismatchError` comes from strict DCB visibility guard after event schema validation and before append. It is app modeling/configuration feedback, not authorization.
 - `ReadModelNotFound` comes from required projection reads or missing optional reads wrapped as `Result`.
 - `ReadModelSchemaError` means persisted row failed declared read-model schema.
 - `ConstraintError` usually comes from database unique/FK/check violations during projector writes; in Postgres this rolls back append transaction.

@@ -20,8 +20,8 @@ A command resolves typed context from raw input, validates it against event-deri
 
 - `input`: a descriptor pipeline built with `compose().add(...)`. It resolves typed context declaratively through framework-owned helpers such as `tagQuery`, `lookup`, `derive`, `generate`, and `castTagQuery`.
 - `validate`: an array of pure predicates `(ctx) => Result<void, TError>`; they run in order and short-circuit on first error.
-- Event emission: prefer `event: EventDefinition` with `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns event schema input; direct `Command.event(ctx)` returns that pre-parse candidate. The command pipeline validates the candidate with the event schema before append, appends the parsed event, and returns `SchemaError` on malformed data.
-- Raw event emission: `event(ctx)` can still construct one low-level event directly for interop. This path is intentionally not event-definition-validated.
+- Event emission: prefer `event: EventDefinition` with `tags(ctx)` and `payload(ctx)`. `payload(ctx)` returns event schema input; direct `Command.event(ctx)` returns that pre-parse candidate. The command pipeline validates the candidate with the event schema, verifies observed DCB tags are present on the parsed event tags, then appends the parsed event. Malformed data returns `SchemaError`; missing observed tags return `EventTagMismatchError` before append.
+- Raw event emission: `event(ctx)` can still construct one low-level event directly for interop. This path is intentionally not event-definition-validated, but it still uses the observed-tag visibility guard before append.
 - `output(event, ctx)`: maps the parsed appended event plus final context into the operation's output shape.
 - `outputErr(error, ctx)`: maps an `input`/`validate` error into the output shape. Defaults to `err(error)`. Framework errors such as `SchemaError` bypass it.
 
@@ -93,10 +93,10 @@ A named adapter that matches and executes effect descriptors emitted by processo
 
 ## Dynamic Consistency Boundary (DCB)
 
-Esther's tag-based optimistic concurrency model for command-side event-history reads. Command `tagQuery(...)` and `castTagQuery(...)` descriptors observe one tag boundary and its max event position; append then uses that observed boundary as an optimistic guard.
+Esther's tag-based optimistic concurrency model for command-side event-history reads. Command `tagQuery(...)` and `castTagQuery(...)` descriptors observe one tag boundary and its max event position. After command event schema validation and before append, Esther enforces `observedBoundary.tags ⊆ emittedEvent.tags`; missing observed tags return `EventTagMismatchError`. Append then uses that observed boundary as an optimistic guard.
 
 Choose decision tags that include every prior event that could invalidate the command decision. Projection/read-model context such as `lookup(...)`, query `projection(...)`, projector reads, and processor reads do not create command append guards.
 
-Current command execution supports one observed event-history boundary. Multiple command-side boundary observations fail with `BoundaryObservationError`. DCB prevents stale decisions; it is not authorization and not a pessimistic lock.
+Current command execution supports one observed event-history boundary. Multiple command-side boundary observations fail with `BoundaryObservationError`. Extra emitted event tags are allowed, and empty/global boundaries impose no emitted-tag requirement. DCB prevents stale decisions; it is not authorization and not a pessimistic lock.
 
 See [Dynamic Consistency Boundaries](./dcb.md) for the short guide, examples, misuses, and current limits.

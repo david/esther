@@ -9,6 +9,9 @@ tagQuery(...) / castTagQuery(...)
   -> eventStore.queryByTags(tags, reducer)
   -> state + maxPosition
   -> command validates
+  -> event schema validation
+  -> verify observedBoundary.tags ⊆ emittedEvent.tags
+  -> EventTagMismatchError if observed tags are missing
   -> append(event, { boundaryTags: tags, expectedPosition: maxPosition })
   -> ConcurrencyError if that tag boundary changed
 ```
@@ -39,7 +42,7 @@ For an account withdraw command, debit and credit events for the same account ca
 account:<accountId>
 ```
 
-If the command reads `account:<accountId>`, then the emitted debit event should also include `account:<accountId>`.
+If the command reads `account:<accountId>`, then the emitted debit event must also include `account:<accountId>`. Esther enforces this at runtime for command-side event-history reads.
 
 ## Correct small example
 
@@ -114,7 +117,7 @@ const withdraw = defineCommand<
 });
 ```
 
-This command observes the account event history before validating balance. Esther appends the debit only if no event was appended to the same `account` + `account:<id>` intersection after the read.
+This command observes the account event history before validating balance. Esther first validates the emitted event, then verifies every observed DCB tag is present on that event, then appends the debit only if no event was appended to the same `account` + `account:<id>` intersection after the read.
 
 ## Common misuses
 
@@ -142,7 +145,7 @@ This reads only events that contain all three tags. If credits affect balance bu
 tags: (_ctx) => ["account"],
 ```
 
-The framework does not verify that emitted event tags match the observed boundary. If a debit event omits `account:<id>`, future withdraw commands reading `account:<id>` will miss it.
+If the command observed `["account", "account:<id>"]`, this event misses `account:<id>`. Esther returns `EventTagMismatchError` after event schema validation and before append. No event is stored, and projectors/processors/effects do not run.
 
 ## Current limits and sharp edges
 
@@ -152,6 +155,7 @@ The framework does not verify that emitted event tags match the observed boundar
 - Tag queries use intersection semantics: an event must contain every queried tag.
 - `[]` or `undefined` boundary tags mean the global stream boundary; use that only when every event can invalidate the decision.
 - No event-history read means no DCB append guard.
-- Esther does not verify emitted event tags match observed boundary tags. App authors own `futureVisibilityTags`.
+- Esther enforces `observedBoundary.tags ⊆ emittedEvent.tags` for command-side `tagQuery(...)` and `castTagQuery(...)` observations before append. Missing observed tags return `EventTagMismatchError`; extra emitted tags are allowed.
+- `[]` observed tags impose no emitted-tag requirement.
 - DCB is not authorization. It prevents stale decisions; it does not decide who may act.
 - `ConcurrencyError` means the append guard found a newer event in the observed boundary.
