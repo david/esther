@@ -3,7 +3,7 @@
 ## Current state
 
 Lane: done
-Status: Deploy preflight passed; PR-ready lane move in progress.
+Status: PR open for review: https://github.com/david/esther/pull/12
 
 ## Active artifacts
 
@@ -34,7 +34,8 @@ QA:
 - qa/summary.md — passed
 
 Deploy:
-- deploy/01-preflight.md — passed; ready to move to done before PR
+- deploy/01-preflight.md — passed; moved to done before PR
+- deploy/02-pr.md — PR opened: https://github.com/david/esther/pull/12
 
 ## Source context
 
@@ -43,4 +44,4 @@ Deploy:
 
 ## Next suggested step
 
-Create PR after lane move commit: `git push --set-upstream origin ovl0d-command-outputerr-overloads && gh pr create --fill`
+Review PR: https://github.com/david/esther/pull/12
