@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: follow-up spec added; implementation plan needed for wrapper-safe outputErr composition
+Status: wrapper-safe outputErr implementation plan drafted; needs plan check
 
 ## Active artifacts
 Description:
@@ -14,6 +14,7 @@ Feature spec:
 
 Implementation plan:
 - plan/01-implementation-plan.md
+- plan/02-wrapper-safe-outputerr-plan.md — active follow-up plan for `research/02-wrapper-safe-outputerr-spec.md`
 
 Plan checks:
 - plan/checks/01-plan-sanity.md — approved
@@ -32,4 +33,4 @@ Review:
 - qa/summary.md — auto CLI QA passed (`bun run typecheck`, `bun run test`, `bun run lint`)
 
 ## Next suggested step
-- Draft implementation plan for `research/02-wrapper-safe-outputerr-spec.md`.
+- {{/skill:plan-check 11w2y-public-command-descriptors}}
