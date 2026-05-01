@@ -1296,6 +1296,13 @@ function wrapperAddsTypedErrorHandling<
     },
   };
 
+  const mergedOutputErrHandlers: OutputErrHandlers<
+    TError | AuthenticatedSessionError,
+    TOutput,
+    TWrappedCtx,
+    TWrappedInput
+  > = mergeOutputErrHandlers(definition.outputErr, authenticatedOutputErr);
+
   return {
     ...definition,
     inputSchema: wrapper.inputSchema,
@@ -1315,13 +1322,17 @@ function wrapperAddsTypedErrorHandling<
       const _sessionCheck: AuthenticatedSession = ctx.session;
       return definition.tags(ctx);
     },
-    payload: (ctx) => definition.payload(ctx),
+    payload: (ctx) => {
+      const _sessionCheck: AuthenticatedSession = ctx.session;
+      const _candidatePayload: EventPayloadInputOf<TEventDefinition> = definition.payload(ctx);
+      return _candidatePayload;
+    },
     output: (event, ctx) => {
       const _eventCheck: EventOf<TEventDefinition> = event;
       const _sessionCheck: AuthenticatedSession = ctx.session;
       return definition.output(event, ctx);
     },
-    outputErr: mergeOutputErrHandlers(definition.outputErr, authenticatedOutputErr),
+    outputErr: mergedOutputErrHandlers,
   };
 }
 
@@ -1359,6 +1370,42 @@ const _authenticatedWrappedBookingCandidate: EventCandidateOf<typeof BookingConf
     confirmedAt: "2026-05-01T00:00:00.000Z",
     session: { userId: "user-1" },
   });
+const _authenticatedWrappedEventDefinitionCheck: typeof BookingConfirmedEvent =
+  _authenticatedWrappedBookingDefinition.event;
+const _authenticatedWrappedPayloadCheck: EventPayloadInputOf<typeof BookingConfirmedEvent> =
+  _authenticatedWrappedBookingDefinition.payload({
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    propertyId: "00000000-0000-4000-8000-000000000002",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+    sessionToken: "token-1",
+    pricing: {
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      pricePerNight: 100,
+    },
+    confirmedAt: "2026-05-01T00:00:00.000Z",
+    session: { userId: "user-1" },
+  });
+const _authenticatedWrappedOutputResult = _authenticatedWrappedBookingDefinition.output(
+  _bookingConfirmedCreatedEvent,
+  {
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    propertyId: "00000000-0000-4000-8000-000000000002",
+    checkIn: "2026-05-01",
+    checkOut: "2026-05-05",
+    sessionToken: "token-1",
+    pricing: {
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      pricePerNight: 100,
+    },
+    confirmedAt: "2026-05-01T00:00:00.000Z",
+    session: { userId: "user-1" },
+  },
+);
+const _authenticatedWrappedOutputResultCheck: Result<
+  z.output<typeof createBookingOutputSchema>,
+  WrappedBookingCommandError | AuthenticatedSessionError
+> = _authenticatedWrappedOutputResult;
 
 const _mergedAuthenticatedErrResult =
   _authenticatedWrappedBookingDefinition.outputErr.Unauthenticated(
@@ -1402,6 +1449,27 @@ const _mergedBaseErrTypeCheck: Result<
   z.output<typeof createBookingOutputSchema>,
   WrappedBookingCommandError | AuthenticatedSessionError
 > = _mergedBaseErrResult;
+const _mergedBaseErrWithWrappedInputResult =
+  _authenticatedWrappedBookingDefinition.outputErr.WrapperPricingMissing(
+    [
+      {
+        type: "WrapperPricingMissing",
+        code: "WRAPPER_PRICING_MISSING",
+        message: "Pricing row not found",
+      },
+    ],
+    {
+      tenantId: "00000000-0000-4000-8000-000000000001",
+      propertyId: "00000000-0000-4000-8000-000000000002",
+      checkIn: "2026-05-01",
+      checkOut: "2026-05-05",
+      sessionToken: "token-1",
+    },
+  );
+const _mergedBaseErrWithWrappedInputTypeCheck: Result<
+  z.output<typeof createBookingOutputSchema>,
+  WrappedBookingCommandError | AuthenticatedSessionError
+> = _mergedBaseErrWithWrappedInputResult;
 
 const _authOnlyOutputErrHandlers: OutputErrHandlers<
   AuthenticatedSessionError,
