@@ -3,7 +3,7 @@
 ## Current state
 
 Lane: in-progress
-Status: implementation reviewed; no actionable code findings; gates next.
+Status: gates passed; QA planning next.
 
 ## Active artifacts
 
@@ -27,6 +27,7 @@ Implementation checkpoints:
 
 Reviews:
 - review/diff/01-review-diff.md — no actionable code findings
+- review/findings/01-gate-results.md — passed
 
 ## Source context
 
@@ -35,4 +36,4 @@ Reviews:
 
 ## Next suggested step
 
-Run gates for reviewed change set: {{/skill:gates ovl0d-command-outputerr-overloads}}
+Plan QA for gated change set: {{/skill:plan-qa ovl0d-command-outputerr-overloads}}
