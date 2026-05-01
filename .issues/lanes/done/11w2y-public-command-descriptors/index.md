@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: done
-Status: PR-ready/direct-push-ready; gates pass; QA passed; deploy preflight recorded
+Status: done; direct push to main completed; gates pass; QA passed
 
 ## Active artifacts
 Description:
@@ -39,7 +39,8 @@ Review:
 
 ## Deploy
 - deploy/01-preflight.md — direct push preflight recorded; lane moved to done before push
+- deploy/02-release.md — direct `main` push evidence recorded
 
 ## Next suggested step
-- Push `main`, then record deploy/release evidence.
+- None for repo-local deploy. External review/closure only if user requests it.
 
