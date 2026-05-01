@@ -1,7 +1,8 @@
 # qa-public-command-lint Status
 
-status: pending
+status: passed
 mode: auto-cli
 blocked: false
-last_result: superseded — prior pass was for commit `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49` before wrapper-safe outputErr public API/docs changes
-next_action: run `bun run lint` via /skill:qa
+last_result: passed at commit `3ba61c7c6c46a5a4d8ff8f5cb1a6b7f9f2bb546e`
+last_run: 2026-05-01
+next_action: none
