@@ -24,6 +24,7 @@ import {
   defineReadModel,
   generate,
   lookup,
+  mergeOutputErrHandlers,
   processorEvent,
   readModelEvent,
   type RegisterableOperation,
@@ -236,6 +237,241 @@ describe("command pipeline v2 — wiring", () => {
     }
     expect(queried.state).toHaveLength(1);
     expect(queried.state[0]?.payload.a).toBe(7);
+  });
+
+  test("merged outputErr handlers route base and added errors after command normalization", async () => {
+    type BaseWrapperError = { readonly type: "BaseWrapperError"; readonly code: "base" };
+    type AddedWrapperError = { readonly type: "AddedWrapperError"; readonly code: "added" };
+    type WrappedOutput = {
+      readonly handledBy: "base" | "added" | "success";
+      readonly code: string;
+    };
+
+    const outputErr = mergeOutputErrHandlers<
+      AddedWrapperError,
+      WrappedOutput,
+      ProbeInput,
+      ProbeInput,
+      BaseWrapperError
+    >(
+      {
+        BaseWrapperError: (errors) => ok({ handledBy: "base", code: errors[0].code }),
+      },
+      {
+        AddedWrapperError: (errors) => ok({ handledBy: "added", code: errors[0].code }),
+      },
+    );
+
+    const slice = defineCommand({
+      name: "probe-merged-outputErr-routing",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({
+        handledBy: z.union([z.literal("base"), z.literal("added"), z.literal("success")]),
+        code: z.string(),
+      }),
+      input: compose<ProbeInput>(),
+      validate: [
+        (ctx): ReadonlyArray<BaseWrapperError | AddedWrapperError> =>
+          ctx.a === 1
+            ? [{ type: "BaseWrapperError", code: "base" }]
+            : [{ type: "AddedWrapperError", code: "added" }],
+      ],
+      event: ProbeEventDefinition,
+      tags: (ctx: ProbeInput) => ["merge-outputErr", `probe:${ctx.a}`],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: (event: ProbeEvent) =>
+        ok({ handledBy: "success", code: String(event.payload.a ?? 0) }),
+      outputErr,
+    });
+
+    const { app, eventStore } = buildAppWith(slice);
+
+    const baseResult = await app.dispatch("probe-merged-outputErr-routing", { a: 1 });
+    const addedResult = await app.dispatch("probe-merged-outputErr-routing", { a: 2 });
+
+    expect(baseResult.isOk()).toBe(true);
+    if (baseResult.isOk()) {
+      expect(baseResult.value).toEqual({ handledBy: "base", code: "base" });
+    }
+    expect(addedResult.isOk()).toBe(true);
+    if (addedResult.isOk()) {
+      expect(addedResult.value).toEqual({ handledBy: "added", code: "added" });
+    }
+    const queried = await eventStore.queryByTags(["merge-outputErr"], probeEventsReducer);
+    expect(queried.state).toEqual([]);
+  });
+
+  test("merged outputErr handlers support undefined base handlers after wrapper error widening", async () => {
+    type AddedOnlyError = { readonly type: "AddedOnlyWrapperError"; readonly code: "added-only" };
+    type WrappedOutput = { readonly handledBy: "added" | "success"; readonly code: string };
+
+    const outputErr = mergeOutputErrHandlers<AddedOnlyError, WrappedOutput, ProbeInput, ProbeInput>(
+      undefined,
+      {
+        AddedOnlyWrapperError: (errors) => ok({ handledBy: "added", code: errors[0].code }),
+      },
+    );
+
+    const slice = defineCommand({
+      name: "probe-undefined-base-outputErr-routing",
+      inputSchema: probeInputSchema,
+      outputSchema: z.object({
+        handledBy: z.union([z.literal("added"), z.literal("success")]),
+        code: z.string(),
+      }),
+      input: compose<ProbeInput>(),
+      validate: [
+        (): ReadonlyArray<AddedOnlyError> => [
+          { type: "AddedOnlyWrapperError", code: "added-only" },
+        ],
+      ],
+      event: ProbeEventDefinition,
+      tags: (ctx: ProbeInput) => ["undefined-base-outputErr", `probe:${ctx.a}`],
+      payload: (ctx: ProbeInput) => ({ a: ctx.a }),
+      output: (event: ProbeEvent) =>
+        ok({ handledBy: "success", code: String(event.payload.a ?? 0) }),
+      outputErr,
+    });
+
+    const { app, eventStore } = buildAppWith(slice);
+    const result = await app.dispatch("probe-undefined-base-outputErr-routing", { a: 1 });
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ handledBy: "added", code: "added-only" });
+    }
+    const queried = await eventStore.queryByTags(["undefined-base-outputErr"], probeEventsReducer);
+    expect(queried.state).toEqual([]);
+  });
+
+  test("wrapped definition-backed command rejects malformed event before append and fanout", async () => {
+    const WrappedStrictEventDefinition = defineEvent({
+      type: "WrappedStrictEventValidated",
+      payload: z.object({ required: z.string() }),
+    });
+    type WrappedStrictEvent = EventOf<typeof WrappedStrictEventDefinition>;
+    const wrappedStrictReducer = defineReducer({
+      name: "wrapped-strict-event-validation-events",
+      schemas: [WrappedStrictEventDefinition.schema] as const,
+      initial: [] as WrappedStrictEvent[],
+      reduce: (events, event): WrappedStrictEvent[] => [...events, event],
+    });
+
+    let appendCalls = 0;
+    let projectorCalled = 0;
+    let processorCalled = 0;
+    let effectCalled = 0;
+    let outputCalled = false;
+    const baseEventStore = createInMemoryEventStore();
+    const eventStore: EventStore = {
+      ...baseEventStore,
+      async append(events, options) {
+        appendCalls += 1;
+        return baseEventStore.append(events, options);
+      },
+    };
+
+    const projectionModel = defineReadModel({
+      name: "wrapped_strict_event_validation_projection",
+      schema: z.object({ id: z.string() }),
+      key: "id",
+      events: [
+        readModelEvent<
+          { readonly id: string },
+          typeof WrappedStrictEventDefinition.schema,
+          unknown
+        >({
+          schema: WrappedStrictEventDefinition.schema,
+          handler: (event, ctx) => {
+            projectorCalled += 1;
+            return ctx.project({ id: event.payload.required });
+          },
+        }),
+      ],
+    });
+    const { adapter: projectionAdapter, get } = createInMemoryProjectionAdapter(projectionModel);
+
+    const processor = defineProcessor({
+      name: "wrapped_strict_event_validation_processor",
+      events: [
+        processorEvent({
+          schema: WrappedStrictEventDefinition.schema,
+          handler: () => {
+            processorCalled += 1;
+            return { type: "effect", kind: "wrapped-strict-event-validation" };
+          },
+        }),
+      ],
+    });
+    const effectAdapter: EffectAdapter = {
+      name: "wrapped_strict_event_validation_effect",
+      match: (effect) => effect["kind"] === "wrapped-strict-event-validation",
+      execute: async (effect) => {
+        effectCalled += 1;
+        return effect;
+      },
+    };
+
+    const addWrapperMetadata = commandDefinitionWrapper((definition) =>
+      commandDefinition({
+        ...definition,
+        extensionBehavior: "preserveDefinitionBackedEventValidation" as const,
+      }),
+    );
+    const wrappedDefinition = addWrapperMetadata({
+      name: "wrapped-strict-event-validation-command",
+      inputSchema: probeInputSchema,
+      outputSchema: probeOutputSchema<{ readonly ok: boolean }>(),
+      input: compose<ProbeInput>(),
+      validate: [],
+      event: WrappedStrictEventDefinition,
+      tags: () => ["wrapped-strict:bad"],
+      payload: () => ({ required: 42 }) as unknown as WrappedStrictEvent["payload"],
+      output: () => {
+        outputCalled = true;
+        return ok({ ok: true });
+      },
+    });
+
+    const slice = defineCommand(wrappedDefinition);
+    expect(slice.eventSchema).toBe(WrappedStrictEventDefinition.schema);
+    expect("extensionBehavior" in wrappedDefinition).toBe(true);
+
+    const { adapter, bind } = createInMemoryAdapter();
+    const app = createApp({
+      eventStore,
+      inputAdapter: { adapter, bind },
+      operations: [slice],
+      projectionAdapters: [
+        {
+          kind: "table",
+          adapter: projectionAdapter,
+          get,
+          constraints: {},
+          tableName: "wrapped_strict_event_validation_projection",
+          handle: projectionModel,
+        },
+      ],
+      processors: [processor],
+      effectAdapters: [effectAdapter],
+    });
+
+    const result = await app.dispatch("wrapped-strict-event-validation-command", { a: 1 });
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error).toMatchObject({
+        _tag: "SchemaError",
+        message: "Event validation failed",
+      });
+    }
+    expect(appendCalls).toBe(0);
+    expect(outputCalled).toBe(false);
+    expect(projectorCalled).toBe(0);
+    expect(processorCalled).toBe(0);
+    expect(effectCalled).toBe(0);
+    const queried = await eventStore.queryByTags(["wrapped-strict:bad"], wrappedStrictReducer);
+    expect(queried.state).toEqual([]);
   });
 
   test("event-definition-backed command validates event before append and downstream work", async () => {
