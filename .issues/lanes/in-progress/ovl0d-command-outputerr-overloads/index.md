@@ -3,7 +3,7 @@
 ## Current state
 
 Lane: in-progress
-Status: gates passed; QA planning next.
+Status: QA planned; ready for QA execution.
 
 ## Active artifacts
 
@@ -29,6 +29,10 @@ Reviews:
 - review/diff/01-review-diff.md — no actionable code findings
 - review/findings/01-gate-results.md — passed
 
+QA:
+- qa/tasks/qa-required-outputerr-overloads-cli.md — pending auto-cli
+- qa/summary.md — planned
+
 ## Source context
 
 - CMS feedback after `290e142`
@@ -36,4 +40,4 @@ Reviews:
 
 ## Next suggested step
 
-Plan QA for gated change set: {{/skill:plan-qa ovl0d-command-outputerr-overloads}}
+Run QA for planned CLI task: {{/skill:qa ovl0d-command-outputerr-overloads}}
