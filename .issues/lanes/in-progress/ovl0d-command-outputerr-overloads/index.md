@@ -2,8 +2,8 @@
 
 ## Current state
 
-Lane: backlog
-Status: breakdown complete; 1 pending implementation task.
+Lane: in-progress
+Status: implementation reviewed; no actionable code findings; gates next.
 
 ## Active artifacts
 
@@ -19,16 +19,20 @@ Plan:
 Plan checks:
 - plan/checks/01-plan-sanity.md — approved
 
+Implementation tasks:
+- impl/01.md — Accept required-outputErr command descriptors
+
+Implementation checkpoints:
+- impl/checkpoints/01.md — aligned
+
+Reviews:
+- review/diff/01-review-diff.md — no actionable code findings
+
 ## Source context
 
 - CMS feedback after `290e142`
 - Related completed issue: `.issues/lanes/done/11w2y-public-command-descriptors/`
 
-Implementation tasks:
-- impl/01.md — Accept required-outputErr command descriptors
-
 ## Next suggested step
 
-Implement pending task: {{/skill:impl ovl0d-command-outputerr-overloads}}
-
-Skill-chain alternative: {{/skill-chain impl-to-qa ovl0d-command-outputerr-overloads}}
+Run gates for reviewed change set: {{/skill:gates ovl0d-command-outputerr-overloads}}
