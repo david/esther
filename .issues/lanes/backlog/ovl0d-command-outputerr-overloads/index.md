@@ -3,7 +3,7 @@
 ## Current state
 
 Lane: backlog
-Status: implementation plan drafted; ready for plan check.
+Status: plan check approved; ready for breakdown.
 
 ## Active artifacts
 
@@ -16,6 +16,9 @@ Feature spec:
 Plan:
 - plan/01-implementation-plan.md
 
+Plan checks:
+- plan/checks/01-plan-sanity.md — approved
+
 ## Source context
 
 - CMS feedback after `290e142`
@@ -23,4 +26,4 @@ Plan:
 
 ## Next suggested step
 
-Run plan check, then break down into focused type/API overload task: {{/skill:plan-check .issues/lanes/backlog/ovl0d-command-outputerr-overloads}}
+Break down approved plan into focused type/API overload task: {{/skill:breakdown .issues/lanes/backlog/ovl0d-command-outputerr-overloads --from plan/01-implementation-plan.md}}
