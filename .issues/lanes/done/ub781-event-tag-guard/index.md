@@ -1,8 +1,8 @@
 # ub781-event-tag-guard Index
 
 ## Current state
-Lane: in-progress
-Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates passed; QA planning complete; no executable QA tasks needed
+Lane: done
+Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates passed; QA planning complete; no executable QA tasks needed; deploy preflight passed; ready for direct push to origin/main
 
 ## Active artifacts
 Description:
@@ -36,8 +36,11 @@ Review:
 QA:
 - qa/summary.md
 
+Deploy:
+- deploy/01-preflight.md
+
 ## Next suggested step
-- {{/skill:deploy ub781-event-tag-guard}}
+- `git push origin HEAD:main`
 
 ## Re-run from same source then continue through QA
 - {{/skill-chain breakdown-to-qa ub781-event-tag-guard --from plan/01-implementation-plan.md}}
