@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates passed; QA planning pending
+Status: implementation complete; semantic diff review complete; no actionable review findings recorded; formal gates passed; QA planning complete; no executable QA tasks needed
 
 ## Active artifacts
 Description:
@@ -33,8 +33,11 @@ Review:
 - Result: no actionable code findings
 - Highest risk to keep visible: intentional stricter DCB behavior can break apps whose commands read one tag boundary and emit events missing those observed tags
 
+QA:
+- qa/summary.md
+
 ## Next suggested step
-- {{/skill:plan-qa ub781-event-tag-guard}}
+- {{/skill:deploy ub781-event-tag-guard}}
 
 ## Re-run from same source then continue through QA
 - {{/skill-chain breakdown-to-qa ub781-event-tag-guard --from plan/01-implementation-plan.md}}
