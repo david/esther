@@ -7,6 +7,7 @@ import { err, ok, type Result } from "neverthrow";
 import { z } from "zod";
 import {
   BoundaryObservationError,
+  EventTagMismatchError,
   castTagQuery,
   compose,
   createApp,
@@ -41,6 +42,7 @@ import {
   type DispatchFn,
   type EventCandidateOf,
   type EventDefinition,
+  type EventTagMismatchError as EventTagMismatchErrorType,
   type EventOf,
   type EventPayloadInputOf,
   type EventRecordInput,
@@ -240,6 +242,16 @@ const _boundaryObservationError: BoundaryObservationErrorType = BoundaryObservat
 ]);
 const _boundaryObservationSliceError: SliceError = _boundaryObservationError;
 const _boundaryObservationErrorTag: "BoundaryObservationError" = _boundaryObservationError._tag;
+
+const _eventTagMismatchError: EventTagMismatchErrorType = EventTagMismatchError(
+  "create-booking",
+  "BookingCreated",
+  ["property:property-1"],
+  ["property:property-2"],
+  ["property:property-1"],
+);
+const _eventTagMismatchSliceError: SliceError = _eventTagMismatchError;
+const _eventTagMismatchErrorTag: "EventTagMismatchError" = _eventTagMismatchError._tag;
 
 // @ts-expect-error ambiguous raw-only CommandDefinition is not root-public; use RawCommandDefinition or DefinitionBackedCommandDefinition
 type _RemovedCommandDefinition = import("../index").CommandDefinition;

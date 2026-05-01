@@ -153,6 +153,7 @@ export {
   BoundaryObservationError,
   ConstraintError,
   EventId,
+  EventTagMismatchError,
   ReadModelSchemaError,
 } from "./core/types.js";
 export type {

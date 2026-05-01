@@ -56,6 +56,32 @@ export const ConcurrencyError = (
   boundaryTags,
 });
 
+export type EventTagMismatchError = {
+  readonly _tag: "EventTagMismatchError";
+  readonly message: string;
+  readonly commandName: string;
+  readonly eventType: string;
+  readonly observedTags: ReadonlyArray<string>;
+  readonly eventTags: ReadonlyArray<string>;
+  readonly missingTags: ReadonlyArray<string>;
+};
+
+export const EventTagMismatchError = (
+  commandName: string,
+  eventType: string,
+  observedTags: ReadonlyArray<string>,
+  eventTags: ReadonlyArray<string>,
+  missingTags: ReadonlyArray<string>,
+): EventTagMismatchError => ({
+  _tag: "EventTagMismatchError",
+  message: "Command emitted event missing observed DCB tags",
+  commandName,
+  eventType,
+  observedTags: [...observedTags],
+  eventTags: [...eventTags],
+  missingTags: [...missingTags],
+});
+
 export type BoundaryObservation = {
   readonly tags: ReadonlyArray<string>;
   readonly maxPosition: bigint | undefined;
@@ -137,6 +163,7 @@ export const ReadModelSchemaError = (
 export type SliceError =
   | ValidationError
   | ConcurrencyError
+  | EventTagMismatchError
   | BoundaryObservationError
   | ConstraintError
   | SchemaError

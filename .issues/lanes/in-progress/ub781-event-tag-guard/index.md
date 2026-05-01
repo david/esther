@@ -1,8 +1,8 @@
 # ub781-event-tag-guard Index
 
 ## Current state
-Lane: backlog
-Status: breakdown complete; 4 pending implementation tasks
+Lane: in-progress
+Status: implementation started; task 01 complete; 3 pending implementation tasks
 
 ## Active artifacts
 Description:
@@ -21,8 +21,8 @@ Implementation tasks:
 - impl/01.md through impl/04.md
 
 ## Pending implementation
-- Pending implementation task count: 4
-- Next suggested step: {{/skill:impl ub781-event-tag-guard}}
+- Pending implementation task count: 3
+- Next suggested step: {{/skill:impl ub781-event-tag-guard --task 02}}
 - Skill-chain alternative: {{/skill-chain impl-to-qa ub781-event-tag-guard}}
 
 ## Re-run from same source then continue through QA
