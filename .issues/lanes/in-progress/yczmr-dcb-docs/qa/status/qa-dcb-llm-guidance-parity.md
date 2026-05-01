@@ -1,13 +1,13 @@
 # QA Status — qa-dcb-llm-guidance-parity
 
-status: pending
+status: passed
 mode: manual
-owner: unassigned
-last_updated: 2026-04-30
+owner: pi-agent
+last_updated: 2026-05-01
 
 ## State
-- Task planned, not executed.
-- Manual runner should use `qa/tasks/qa-dcb-llm-guidance-parity.md`.
+- Passed by pi-agent manual Markdown parity review on 2026-05-01.
+- Evidence recorded in `qa/results/qa-dcb-llm-guidance-parity.md`.
 
 ## Dependencies
 - `qa-dcb-human-docs-comprehension`

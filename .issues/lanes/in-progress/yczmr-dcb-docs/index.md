@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: QA planned; manual QA pending
+Status: QA complete; all planned manual tasks passed
 
 ## Active artifacts
 Description:
@@ -28,9 +28,13 @@ Findings:
 - review/findings/02-gate-results.md — gates passed
 
 QA:
-- qa/summary.md
+- qa/summary.md — all planned manual QA passed
 - qa/tasks/qa-dcb-human-docs-comprehension.md
 - qa/tasks/qa-dcb-llm-guidance-parity.md
+- qa/status/qa-dcb-human-docs-comprehension.md — passed
+- qa/status/qa-dcb-llm-guidance-parity.md — passed
+- qa/results/qa-dcb-human-docs-comprehension.md
+- qa/results/qa-dcb-llm-guidance-parity.md
 
 ## Next suggested step
-- {{/skill:manual-qa yczmr-dcb-docs}}
+- {{/skill:deploy yczmr-dcb-docs}}
