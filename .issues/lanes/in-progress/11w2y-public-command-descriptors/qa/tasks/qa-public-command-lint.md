@@ -11,11 +11,16 @@ workflow:
   name: none
   path: none
   missing: none
+ui:
+  source:
+    - none
+  verified_against: none
+  stale_risk: none — CLI-only lint/dependency check
 cli:
   needed:
-    - install project dependencies if missing
-    - run ESLint over source
-    - run dependency-cruiser architecture checks
+    - setup/install project dependencies when missing
+    - assertion/run ESLint over source
+    - assertion/run dependency-cruiser architecture checks
   covered:
     - bun install --frozen-lockfile
     - bun run lint
@@ -23,17 +28,18 @@ cli:
     - none
 
 ## Goal
-Prove public descriptor API changes, docs updates, and tests satisfy repository lint and architecture-boundary rules.
+Prove public descriptor API changes, wrapper-safe `outputErr` helper, docs updates, and tests satisfy repository lint and architecture-boundary rules.
 
 ## Setup Notes
-- Use issue branch checkout containing public command descriptor implementation and `llms.txt` updates.
-- If dependencies are not installed, run `bun install --frozen-lockfile` first.
-- No database, browser, fixture user, or persisted app state is required.
-- `bun run lint` covers `bun run lint:code` and `bun run lint:deps` per `doc/commands.md`.
+- Repository checkout: `/home/david/esther-w0` (source: current issue context and prior QA context).
+- Dependencies: if `node_modules` is missing, run `bun install --frozen-lockfile` before the check (source: `doc/commands.md`).
+- No database, browser, fixture user, persisted app state, route, or feature flag is required (source: `plan/01-implementation-plan.md` and `plan/02-wrapper-safe-outputerr-plan.md` QA contracts).
+- `bun run lint` covers `bun run lint:code` and `bun run lint:deps` (source: `doc/commands.md`).
+- Prior result/context at commit `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49` is superseded because wrapper-safe `outputErr` follow-up changed public API/docs/tests after that run (source: `qa/summary.md`, impl checkpoints 07–09).
 
 ## Start
 - URL: none — CLI-only repository check
-- Page: none — terminal in repository root
+- Page: terminal in repository root
 - Device: desktop
 
 ## Steps
@@ -43,7 +49,7 @@ Prove public descriptor API changes, docs updates, and tests satisfy repository 
    Expect: Command exits `0` with no ESLint or dependency-cruiser failures.
 2. Page: terminal output
    Locate: ESLint diagnostics, if any
-   Action: Confirm no diagnostics reference `src/core/slice.ts`, `src/core/event.ts`, `src/index.ts`, or descriptor type tests.
+   Action: Confirm no diagnostics reference `src/core/slice.ts`, `src/core/event.ts`, `src/index.ts`, descriptor type tests, runtime tests, or `llms.txt`-adjacent docs examples.
    Expect: No code-style failures.
 3. Page: terminal output
    Locate: dependency-cruiser diagnostics, if any
@@ -55,7 +61,8 @@ Prove public descriptor API changes, docs updates, and tests satisfy repository 
 | --- | --- | --- | --- | --- |
 | ESLint code gate | `bun run lint:code` via `bun run lint` | issue branch | No lint diagnostics | Covers TypeScript source and tests. |
 | Dependency boundary gate | `bun run lint:deps` via `bun run lint` | issue branch | No dependency-cruiser violations | Core remains adapter-independent. |
-| Public export/doc cleanup | `src/index.ts`, `llms.txt` | issue branch | No lint fallout from new exports/docs-adjacent tests | `llms.txt` itself is not linted but API tests are. |
+| Public export/doc cleanup | `src/index.ts`, `llms.txt` | issue branch | No lint fallout from new exports/docs-adjacent tests | `llms.txt` itself is not linted; code examples are guarded by tests where applicable. |
+| Cast policy containment | `src/core/slice.ts`, tests | issue branch | Lint does not flag unsafe or unused helper code | Bounded casts are reviewed in checkpoints/review. |
 
 ## Pass Criteria
 - `bun run lint` exits `0`.

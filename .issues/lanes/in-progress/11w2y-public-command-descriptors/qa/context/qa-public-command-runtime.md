@@ -1,27 +1,28 @@
 # qa-public-command-runtime Context
 
+status: planned
+supersedes: prior context from commit `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49`
+
 ## Fixture
-- Repository checkout: `/home/david/esther-w0`
-- Issue: `.issues/lanes/in-progress/11w2y-public-command-descriptors`
-- Dependencies: `node_modules` present; no install needed.
-- Git commit: `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49`
+- Repository checkout: `/home/david/esther-w0`.
+- Issue: `.issues/lanes/in-progress/11w2y-public-command-descriptors`.
+- Dependencies: QA runner should use existing `node_modules` if present; otherwise run `bun install --frozen-lockfile`.
+- Git commit: record current commit during QA execution.
 
 ## Preflight
-- `git status --porcelain`: clean before QA artifact writes.
-- `cd be && bun run migrate:data:check`: not applicable; repo has no `be/` directory and project docs define no data migration check.
+- `git status --porcelain`: QA runner should record clean/dirty state before command execution.
+- Data migration check: not applicable; repo docs define no data migration QA command and issue plans state no persistence/migration change.
 
-## Commands
+## Commands planned
 - `bun run test`
 
-## Evidence collected
-- exit code: 0
-- Bun summary: `281 pass`, `0 fail`, `698 expect() calls`, `Ran 281 tests across 21 files.`
-- Runtime invariant coverage observed in `src/__tests__/pipeline-wiring.test.ts`:
-  - `commandDefinition returns the same descriptor identity`
-  - `commandDefinitionWrapper can add metadata without changing command runtime`
-  - `event-definition-backed transform command rejects malformed candidate before downstream work`
-  - `raw command event path remains unvalidated by event definitions`
+## Evidence to collect
+- exit code
+- Bun test summary
+- any failing test file/name/stack trace
+- current git commit hash
 
 ## Notes
 - No browser workflow needed.
-- Runtime invariant coverage is deterministic library test coverage, not manual QA.
+- Runtime checks are deterministic library tests covering command descriptor helpers, event validation, raw command path, and `outputErr` handler merge routing.
+- Planned from `doc/commands.md`, impl checkpoints 03, 06, 09, and `review/diff/04-review-diff.md`.

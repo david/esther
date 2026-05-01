@@ -1,28 +1,14 @@
 # qa-public-command-lint Results
 
-verdict: passed
-status: passed
+verdict: superseded
+status: pending
 mode: auto-cli
 
-## Task
-Public command descriptor lint and dependency gates pass.
+## Superseded result
+Prior pass at commit `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49` is superseded by public wrapper-safe `outputErr` API/docs/test changes.
 
-## Commands run
-- `bun run lint`
-
-## Setup entities / IDs
-- Git commit: `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49`
-- Dependencies: `node_modules` present; no install needed.
-
-## Evidence
-- exit code: 0
-- ESLint: no diagnostics from `eslint src --max-warnings=0`.
-- Dependency-cruiser: `✔ no dependency violations found (57 modules, 175 dependencies cruised)`.
-- context artifact: `.issues/lanes/in-progress/11w2y-public-command-descriptors/qa/context/qa-public-command-lint.md`
-
-## Expected vs actual
-- Expected: `bun run lint` exits 0 with no ESLint or dependency-cruiser failures.
-- Actual: command exited 0; no ESLint diagnostics; no dependency violations.
+## Current run
+Not executed by plan-qa. Run `bun run lint` through `/skill:qa`.
 
 ## Workflow gaps
 - none
@@ -32,6 +18,3 @@ Public command descriptor lint and dependency gates pass.
 
 ## HTML discoverability gaps
 - none — CLI-only library QA.
-
-## Next handoff
-{{/skill:deploy 11w2y-public-command-descriptors}}

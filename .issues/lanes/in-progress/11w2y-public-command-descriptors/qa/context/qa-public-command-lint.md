@@ -1,24 +1,28 @@
 # qa-public-command-lint Context
 
+status: planned
+supersedes: prior context from commit `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49`
+
 ## Fixture
-- Repository checkout: `/home/david/esther-w0`
-- Issue: `.issues/lanes/in-progress/11w2y-public-command-descriptors`
-- Dependencies: `node_modules` present; no install needed.
-- Git commit: `c054514d12aeebfc6fa1f63ec7b230c4c7dd2b49`
+- Repository checkout: `/home/david/esther-w0`.
+- Issue: `.issues/lanes/in-progress/11w2y-public-command-descriptors`.
+- Dependencies: QA runner should use existing `node_modules` if present; otherwise run `bun install --frozen-lockfile`.
+- Git commit: record current commit during QA execution.
 
 ## Preflight
-- `git status --porcelain`: clean before QA artifact writes.
-- `cd be && bun run migrate:data:check`: not applicable; repo has no `be/` directory and project docs define no data migration check.
+- `git status --porcelain`: QA runner should record clean/dirty state before command execution.
+- Data migration check: not applicable; repo docs define no data migration QA command and issue plans state no persistence/migration change.
 
-## Commands
+## Commands planned
 - `bun run lint`
 
-## Evidence collected
-- exit code: 0
-- ESLint command: `eslint src --max-warnings=0`
-- dependency-cruiser command: `depcruise src --config .dependency-cruiser.cjs --output-type err`
-- dependency-cruiser summary: `✔ no dependency violations found (57 modules, 175 dependencies cruised)`
+## Evidence to collect
+- exit code
+- ESLint output
+- dependency-cruiser output
+- current git commit hash
 
 ## Notes
 - No browser workflow needed.
-- This covers lint and dependency-boundary rules from `doc/commands.md`.
+- `bun run lint` covers ESLint and dependency-cruiser per `doc/commands.md`.
+- Planned from `doc/commands.md`, impl checkpoints 04 and 07, and `review/diff/04-review-diff.md`.
