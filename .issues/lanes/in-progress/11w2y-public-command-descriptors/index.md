@@ -2,7 +2,7 @@
 
 ## Current state
 Lane: in-progress
-Status: wrapper-safe outputErr implementation plan drafted; needs plan check
+Status: wrapper-safe outputErr implementation plan approved; ready for breakdown
 
 ## Active artifacts
 Description:
@@ -18,6 +18,7 @@ Implementation plan:
 
 Plan checks:
 - plan/checks/01-plan-sanity.md — approved
+- plan/checks/02-wrapper-safe-outputerr-plan-sanity.md — approved for `plan/02-wrapper-safe-outputerr-plan.md`
 
 Implementation tasks:
 - impl/01.md through impl/06.md — completed; checkpoints recorded in impl/checkpoints/01.md through impl/checkpoints/06.md
@@ -33,4 +34,4 @@ Review:
 - qa/summary.md — auto CLI QA passed (`bun run typecheck`, `bun run test`, `bun run lint`)
 
 ## Next suggested step
-- {{/skill:plan-check 11w2y-public-command-descriptors}}
+- {{/skill:breakdown 11w2y-public-command-descriptors --from plan/02-wrapper-safe-outputerr-plan.md}}
