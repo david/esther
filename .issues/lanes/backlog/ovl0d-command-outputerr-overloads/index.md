@@ -3,7 +3,7 @@
 ## Current state
 
 Lane: backlog
-Status: intake captured; feature spec drafted; ready for implementation planning.
+Status: implementation plan drafted; ready for plan check.
 
 ## Active artifacts
 
@@ -13,6 +13,9 @@ Description:
 Feature spec:
 - research/01-feature-spec.md
 
+Plan:
+- plan/01-implementation-plan.md
+
 ## Source context
 
 - CMS feedback after `290e142`
@@ -20,4 +23,4 @@ Feature spec:
 
 ## Next suggested step
 
-Plan implementation from `research/01-feature-spec.md`, then break down into focused type/API overload task.
+Run plan check, then break down into focused type/API overload task: {{/skill:plan-check .issues/lanes/backlog/ovl0d-command-outputerr-overloads}}
