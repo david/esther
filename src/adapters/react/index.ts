@@ -109,3 +109,6 @@ export {
   type NotifyingReadModelStore,
   type ReadModelStore,
 } from "./notifying-adapter";
+export { createLocalStorageReadModelStore } from "./local-storage-read-model-store";
+export { createReadModelStoreProjectionRegistration } from "./read-model-store-projection-registration";
+export { createRoutedReadModelStore } from "./routed-read-model-store";
