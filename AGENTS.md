@@ -9,7 +9,7 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 - Type rules, cast policy, and app-module constraints: [doc/code-style.md](doc/code-style.md)
 - Terms like slice, DCB, projector, and processor: [doc/domain-language.md](doc/domain-language.md)
 - Scope, commits, and “ready to push” expectations: [doc/project-management.md](doc/project-management.md)
-- Issue lanes, references, and workflow artifacts: [doc/workflow.md](doc/workflow.md)
+- GitHub issue workflow: [doc/workflow.md](doc/workflow.md)
 
 ## Gotchas
 - `bun run typecheck`, `bun run lint`, and `bun run test` must pass for the whole repo, not just changed files.
@@ -22,7 +22,7 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 - No `Record<string, unknown>` as a value type, and no bare `object`. Use explicit shapes, `Record<never, never>` for intentionally empty object shapes, or named internal patch/dictionary types when keyed dynamic data is genuinely required.
 - Keep `llms.txt` current when public API, DSL behavior, adapter usage, errors, or canonical examples change; if no update is needed, record why.
 - Avoid files becoming mixed-responsibility catchalls; extract cohesive abstractions into colocated modules while preserving architecture boundaries.
-- Issues use nested lanes under `.issues/lanes/`: `backlog`, `in-progress`, and `done`. Do not create top-level `.issues/backlog` or separate local `ready`/`qa` lanes.
+- Use GitHub Issues only for durable work tracking.
 
 ## TOC
 - [doc/architecture.md](doc/architecture.md) — Open first when changing core DSL, app wiring, adapters, or dependency boundaries.
@@ -31,4 +31,4 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 - [doc/domain-language.md](doc/domain-language.md) — Read when framework terms in code or discussions are unclear, especially slice/read-model/DCB vocabulary.
 - [doc/project-management.md](doc/project-management.md) — Use when planning work, deciding commit shape, or checking what “done” means for a change.
 - [doc/testing.md](doc/testing.md) — Read when adding or updating tests, choosing test placement, or preserving API/type-level guarantees.
-- [doc/workflow.md](doc/workflow.md) — Use when creating or moving `.issues` work items, storing references, or writing issue artifacts.
+- [doc/workflow.md](doc/workflow.md) — Use when filing, updating, or closing GitHub Issues.
