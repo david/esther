@@ -27,6 +27,10 @@ Keep durable product and engineering decisions in `doc/`, then link them from re
 
 Put implementation plans, review notes, QA outcomes, and completion evidence in the GitHub issue or associated PR. If an issue needs a larger design document, commit it under `doc/` with a stable name and link to it from the GitHub issue.
 
+## Documentation maintenance
+
+Keep `AGENTS.md`, linked docs (recursively), and `llms.txt` current as part of normal workflow. Update them when repository guidance, public API, DSL behavior, adapter usage, errors, or canonical examples change. If no update is needed, record why in the issue, PR, or handoff notes.
+
 ## Shipping completed work
 
 Default shipping path is direct push to `origin/main`. Do not create separate branches or PRs unless explicitly requested.

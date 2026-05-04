@@ -21,7 +21,7 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 - Command/query invocation belongs at input adapter boundaries. Keep `app.dispatch(sliceName: string, input: unknown)` dynamic for adapters; prefer typed adapter route/binding configuration over public in-process app clients.
 - Typecheck uses `tsgo`. Lint means ESLint plus dependency-cruiser. Biome is formatting only.
 - No `Record<string, unknown>` as a value type, and no bare `object`. Use explicit shapes, `Record<never, never>` for intentionally empty object shapes, or named internal patch/dictionary types when keyed dynamic data is genuinely required.
-- Keep `llms.txt` current when public API, DSL behavior, adapter usage, errors, or canonical examples change; if no update is needed, record why.
+- Keep `AGENTS.md`, linked docs (recursively), and `llms.txt` current when repository guidance, public API, DSL behavior, adapter usage, errors, or canonical examples change; if no update is needed, record why.
 - Avoid files becoming mixed-responsibility catchalls; extract cohesive abstractions into colocated modules while preserving architecture boundaries.
 - Track durable project work in GitHub Issues.
 
