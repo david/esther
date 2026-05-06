@@ -75,11 +75,11 @@ An internal abstraction used by the state resolver to read from projection adapt
 
 ## Projector
 
-A pure function on a command that maps a stored event to a `ProjectionResult` via `model.project(value, operation?)`. Runs synchronously after event append.
+A read-model event handler that maps a stored event plus declared reads to a `ProjectionResult` via `model.project(value, operation?)`. Runs synchronously after event append. See [App Module Standards](./app-module-standards.md) for projector guidance.
 
 ## Processor
 
-A pure function on a command that maps a stored event to an effect descriptor. The effect is executed by a matching effect adapter.
+An event handler that maps a committed stored event plus declared reads to an effect descriptor. The effect is executed by a matching effect adapter. See [App Module Standards](./app-module-standards.md) for processor guidance.
 
 ## Input Adapter
 

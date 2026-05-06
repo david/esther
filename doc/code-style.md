@@ -43,6 +43,8 @@ Rules:
 
 ## Slices, read models, and processors
 
+See [app-module-standards.md](app-module-standards.md) for detailed command, query, projector/read-model, and processor standards.
+
 Do:
 - keep app-module logic declarative
 - resolve reads through the framework DSL

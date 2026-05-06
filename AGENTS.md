@@ -7,6 +7,7 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 - Daily commands, CI-parity checks, and formatting: [doc/commands.md](doc/commands.md)
 - Where tests live and what to add for changes: [doc/testing.md](doc/testing.md)
 - Type rules, cast policy, and app-module constraints: [doc/code-style.md](doc/code-style.md)
+- Processor, projector, read-model, command, and query standards: [doc/app-module-standards.md](doc/app-module-standards.md)
 - Terms like slice, DCB, projector, and processor: [doc/domain-language.md](doc/domain-language.md)
 - Scope, commits, and “ready to push” expectations: [doc/project-management.md](doc/project-management.md)
 - GitHub issue workflow: [doc/workflow.md](doc/workflow.md)
@@ -26,7 +27,8 @@ Esther is a TypeScript event-sourcing framework built around Dynamic Consistency
 
 ## TOC
 - [doc/architecture.md](doc/architecture.md) — Open first when changing core DSL, app wiring, adapters, or dependency boundaries.
-- [doc/code-style.md](doc/code-style.md) — Read before editing types, adding schemas, introducing casts, or writing slice/read-model/processor logic.
+- [doc/app-module-standards.md](doc/app-module-standards.md) — Read before writing commands, queries, read models, projectors, processors, or app-module examples.
+- [doc/code-style.md](doc/code-style.md) — Read before editing types, adding schemas, introducing casts, or changing app-module constraints.
 - [doc/commands.md](doc/commands.md) — Use for install, typecheck, lint, test, build, and CI-equivalent local verification.
 - [doc/domain-language.md](doc/domain-language.md) — Read when framework terms in code or discussions are unclear, especially slice/read-model/DCB vocabulary.
 - [doc/project-management.md](doc/project-management.md) — Use when planning work, deciding commit shape, or checking what “done” means for a change.
