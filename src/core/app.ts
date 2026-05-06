@@ -9,8 +9,11 @@ import { createReadInterpreter, type ReadInterpreter } from "./read-interpreter.
 import type {
   ProjectionAdapter,
   ProjectionQueryAdapter,
+  Projector,
   ReadDescriptor,
   ReadModelNotFound,
+  ReadModelQueryCardinality,
+  ReadModelQueryHandle,
 } from "./read-model.js";
 import { ReadModelNotFound as mkReadModelNotFound } from "./read-model.js";
 import {
@@ -20,7 +23,9 @@ import {
   type ProjectionQuery,
   type ReadModelRegistration,
 } from "./read-model-registration.js";
+import { validateReadModelRow, validateReadModelRows } from "./read-model-validation.js";
 import type { CompiledOperation, ProjectionStore, RegisterableOperation } from "./slice.js";
+import { SchemaError } from "./types.js";
 
 export type {
   ProjectionAdapterEntry,
@@ -39,6 +44,10 @@ export type AppConfig = {
   readonly inputAdapter?: InputAdapterBinding | undefined;
   readonly operations: ReadonlyArray<RegisterableOperation>;
   readonly processors?: ReadonlyArray<Processor> | undefined;
+  readonly projectors?: ReadonlyArray<Projector> | undefined;
+  readonly readModelQueries?:
+    | ReadonlyArray<ReadModelQueryHandle<unknown, unknown, ReadModelQueryCardinality>>
+    | undefined;
   /** @deprecated Prefer per-model `query` on `readModels`. */
   readonly projectionQuery?: ProjectionQueryAdapter | undefined;
 };
@@ -49,6 +58,10 @@ export type App = {
   readonly start: () => Promise<void>;
   readonly stop: () => Promise<void>;
   readonly dispatch: (sliceName: string, input: unknown) => Promise<Result<unknown, unknown>>;
+  readonly executeReadModelQuery: (
+    queryName: string,
+    input: unknown,
+  ) => Promise<Result<unknown, unknown>>;
 };
 
 // ── Create app ─────────────────────────────────────────────────────────
@@ -171,8 +184,13 @@ export function createApp(config: AppConfig): App {
     }
   }
 
+  const projectors = [
+    ...collectLegacyProjectors(projectionAdapters),
+    ...(config.projectors ?? []),
+  ];
+
   // Wire read model event bindings via onAfterInsert
-  wireReadModelEvents(projectionAdapters, eventStore, getReadInterpreter());
+  wireReadModelEvents(projectors, projectionAdapters, eventStore, getReadInterpreter());
 
   // Compile each operation — the compile closure captured the generics
   // at defineCommand/defineQuery time, so no casts here.
@@ -183,6 +201,17 @@ export function createApp(config: AppConfig): App {
     compiled.set(operation.name, operation.compile(deps));
   }
 
+  const readModelQueries = new Map<
+    string,
+    ReadModelQueryHandle<unknown, unknown, ReadModelQueryCardinality>
+  >();
+  for (const query of config.readModelQueries ?? []) {
+    if (readModelQueries.has(query.name)) {
+      throw new Error(`Duplicate read model query registration: "${query.name}"`);
+    }
+    readModelQueries.set(query.name, query);
+  }
+
   async function dispatch(sliceName: string, input: unknown): Promise<Result<unknown, unknown>> {
     const entry = compiled.get(sliceName);
     if (!entry) {
@@ -191,7 +220,67 @@ export function createApp(config: AppConfig): App {
     return entry.execute(input);
   }
 
+  async function executeReadModelQuery(
+    queryName: string,
+    input: unknown,
+  ): Promise<Result<unknown, unknown>> {
+    const queryHandle = readModelQueries.get(queryName);
+    if (queryHandle === undefined) {
+      return err(mkReadModelNotFound(queryName, "query"));
+    }
+
+    const parsedInput = queryHandle.inputSchema.safeParse(input);
+    if (!parsedInput.success) {
+      return err(
+        SchemaError(
+          `Invalid input for read model query "${queryName}"`,
+          parsedInput.error.issues.map((issue) => issue.message),
+        ),
+      );
+    }
+
+    const query = queryHandle.buildQuery(parsedInput.data);
+    const queryFn = projectionQueries.get(query.sourceName);
+    const rows =
+      queryFn !== undefined
+        ? await queryFn(query.entries, query.orderBy, query.limit, query.orderDirection)
+        : await config.projectionQuery?.query(
+            query.sourceName,
+            query.entries,
+            query.orderBy,
+            query.limit,
+            query.orderDirection,
+          );
+
+    if (rows === undefined) {
+      return err(mkReadModelNotFound(queryName, "query"));
+    }
+
+    if (queryHandle.cardinality === "many") {
+      const validatedRows = validateReadModelRows({
+        model: queryHandle.source,
+        rows,
+        queryName: queryHandle.name,
+      });
+      if (validatedRows.isErr()) return err(validatedRows.error);
+      return ok(validatedRows.value);
+    }
+
+    const row = rows[0];
+    if (row === undefined) {
+      return err(mkReadModelNotFound(queryName, "query"));
+    }
+    const validatedRow = validateReadModelRow({
+      model: queryHandle.source,
+      row,
+      queryName: queryHandle.name,
+    });
+    if (validatedRow.isErr()) return err(validatedRow.error);
+    return ok(validatedRow.value);
+  }
+
   inputAdapter?.bind(dispatch);
+  inputAdapter?.bindReadModelQuery?.(executeReadModelQuery);
 
   return {
     async start() {
@@ -201,6 +290,7 @@ export function createApp(config: AppConfig): App {
       await inputAdapter?.adapter.stop();
     },
     dispatch,
+    executeReadModelQuery,
   };
 }
 
@@ -226,22 +316,47 @@ function iterateReadMap(reads: ReadMapShape): ReadonlyArray<readonly [string, Re
   return result;
 }
 
+function collectLegacyProjectors(
+  projectionAdapters: ReadonlyArray<NormalizedReadModelRegistration>,
+): ReadonlyArray<Projector> {
+  const projectors: Projector[] = [];
+  for (const entry of projectionAdapters) {
+    if (entry.kind !== "table") continue;
+    if (entry.handle === undefined) continue;
+    if (entry.handle.events === undefined) continue;
+    projectors.push({
+      _tag: "Projector",
+      model: { name: entry.name, project: entry.handle.project },
+      events: entry.handle.events,
+    });
+  }
+  return projectors;
+}
+
 function wireReadModelEvents(
+  projectors: ReadonlyArray<Projector>,
   projectionAdapters: ReadonlyArray<NormalizedReadModelRegistration>,
   eventStore: EventStore,
   readInterpreter: ReadInterpreter,
 ): void {
+  const writableEntries = new Map<string, Extract<NormalizedReadModelRegistration, { readonly kind: "table" }>>();
   for (const entry of projectionAdapters) {
-    if (entry.kind !== "table") continue;
-    if (entry.handle === undefined) continue;
-    const events = entry.handle.events;
-    if (events === undefined) continue;
+    if (entry.kind === "table") {
+      writableEntries.set(entry.name, entry);
+    }
+  }
+
+  for (const projector of projectors) {
+    const entry = writableEntries.get(projector.model.name);
+    if (entry === undefined) {
+      throw new Error(`Projector registered for unknown writable read model: "${projector.model.name}"`);
+    }
 
     const adapter = entry.adapter;
-    const boundProject = entry.handle.project;
+    const boundProject = projector.model.project;
     const boundGet = entry.get;
 
-    for (const binding of events) {
+    for (const binding of projector.events) {
       const eventType = extractEventType(binding.schema);
       const readEntries = binding.reads !== undefined ? iterateReadMap(binding.reads) : [];
 

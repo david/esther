@@ -13,8 +13,10 @@
     "./postgres": "./src/adapters/postgres/index.ts",
     "./filesystem": "./src/adapters/filesystem/index.ts",
     "./fastify": "./src/adapters/fastify/index.ts",
+    "./http": "./src/adapters/http/index.ts",
     "./test": "./src/adapters/in-memory/index.ts",
-    "./react": "./src/adapters/react/index.ts"
+    "./react": "./src/adapters/react/index.ts",
+    "./react-http": "./src/adapters/react-http/index.tsx"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit -p tsconfig.json",

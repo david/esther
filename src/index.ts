@@ -17,6 +17,7 @@ export {
   type DispatchFn as AppDispatchFn,
   type InputAdapter,
   type InputAdapterBinding,
+  type ReadModelQueryDispatchFn,
 } from "./core/input-adapter.js";
 // ── Filesystem adapter ────────────────────────────────────────────────
 export {
@@ -83,6 +84,7 @@ export {
 // ── Read model ─────────────────────────────────────────────────────────
 export {
   type Constraints,
+  defineProjector,
   defineReadModel,
   defineReadModelQuery,
   type EventsByTagsDescriptor,
@@ -94,14 +96,18 @@ export {
   type ProjectionAdapter,
   type ProjectionQueryAdapter,
   type ProjectionResult,
+  type Projector,
   type QueryDescriptor,
   queryDescriptor,
   type ReadDescriptor,
   readModelEvent,
   type ReadModelEventBinding,
   type ReadModelHandle,
+  type ReadModelSchemaHandle,
   ReadModelNotFound,
+  type ReadModelQueryCardinality,
   type ReadModelQueryHandle,
+  type ReadModelQueryResult,
   type Where,
   type WhereClause,
   type WhereEntry,

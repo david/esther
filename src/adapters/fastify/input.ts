@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Result } from "neverthrow";
-import type { DispatchFn, InputAdapter, InputAdapterBinding } from "../../core/input-adapter.js";
+import type {
+  DispatchFn,
+  InputAdapter,
+  InputAdapterBinding,
+  ReadModelQueryDispatchFn,
+} from "../../core/input-adapter.js";
 import type {
   OperationByName,
   OperationInput,
@@ -8,6 +13,7 @@ import type {
   OperationResult,
   RegisterableOperation,
 } from "../../core/slice.js";
+import { SchemaError } from "../../core/types.js";
 
 export type FastifyRouteMethod = "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT";
 
@@ -126,10 +132,54 @@ export function createFastifyInputAdapter(
   config: FastifyAdapterConfig,
 ): InputAdapterBinding<FastifyInputAdapter> {
   let boundDispatch: DispatchFn | undefined;
+  let boundReadModelQuery: ReadModelQueryDispatchFn | undefined;
 
   const Fastify = require("fastify") as typeof import("fastify");
   const app = Fastify.default();
   const hostname = config.hostname ?? "0.0.0.0";
+
+  app.get("/read-model/*", async (request, reply) => {
+    if (!boundReadModelQuery) {
+      throw new Error("Fastify adapter not bound to read model query executor");
+    }
+
+    const url = new URL(request.url, `http://${hostname}:${config.port}`);
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    const modelName = pathParts[1];
+    const queriesSegment = pathParts[2];
+    const queryPathParts = pathParts.slice(3);
+
+    if (
+      pathParts[0] !== "read-model" ||
+      modelName === undefined ||
+      queriesSegment !== "queries" ||
+      queryPathParts.length === 0
+    ) {
+      return reply.status(404).send({
+        error: { _tag: "ReadModelNotFound", name: url.pathname, id: "query" },
+      });
+    }
+
+    const rawArgs = url.searchParams.get("args");
+    if (rawArgs === null) {
+      return reply.status(400).send({
+        error: SchemaError("Missing required read model query args"),
+      });
+    }
+
+    let args: unknown;
+    try {
+      args = JSON.parse(rawArgs) as unknown;
+    } catch (_error) {
+      return reply.status(400).send({
+        error: SchemaError("Invalid read model query args JSON"),
+      });
+    }
+
+    const queryName = [modelName, ...queryPathParts].join("/");
+    const result = await boundReadModelQuery(queryName, args);
+    return sendDefaultResult(reply, result);
+  });
 
   for (const route of config.routes ?? []) {
     app.route({
@@ -197,6 +247,9 @@ export function createFastifyInputAdapter(
     adapter,
     bind(dispatch: DispatchFn) {
       boundDispatch = dispatch;
+    },
+    bindReadModelQuery(dispatch: ReadModelQueryDispatchFn) {
+      boundReadModelQuery = dispatch;
     },
   };
 }

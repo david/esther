@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "neverthrow";
 import type { z } from "zod";
-import type { ReadModelHandle } from "./read-model";
+import type { ReadModelHandle, ReadModelSchemaHandle } from "./read-model";
 import { ReadModelSchemaError as mkReadModelSchemaError, type ReadModelSchemaError } from "./types";
 
 function formatReadModelIssues(issues: ReadonlyArray<z.ZodIssue>): ReadonlyArray<string> {
@@ -11,7 +11,7 @@ function formatReadModelIssues(issues: ReadonlyArray<z.ZodIssue>): ReadonlyArray
 }
 
 export function validateReadModelRow<T>(input: {
-  readonly model: ReadModelHandle<T>;
+  readonly model: ReadModelSchemaHandle<T>;
   readonly row: unknown;
   readonly queryName?: string | undefined;
 }): Result<T, ReadModelSchemaError> {
@@ -31,7 +31,7 @@ export function validateReadModelRow<T>(input: {
 }
 
 export function validateReadModelRows<T>(input: {
-  readonly model: ReadModelHandle<T>;
+  readonly model: ReadModelSchemaHandle<T>;
   readonly rows: ReadonlyArray<unknown>;
   readonly queryName?: string | undefined;
 }): Result<ReadonlyArray<T>, ReadModelSchemaError> {

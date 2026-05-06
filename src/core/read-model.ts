@@ -33,6 +33,11 @@ export type Constraints = {
   readonly unique?: ReadonlyArray<ReadonlyArray<string>>;
 };
 
+export type ReadModelSchemaHandle<_T> = {
+  readonly name: string;
+  readonly schema: z.ZodType;
+};
+
 export type ReadModelHandle<
   T,
   S extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>,
@@ -43,7 +48,14 @@ export type ReadModelHandle<
   readonly schema: S;
   readonly constraints: Constraints;
   project(value: T, operation?: Operation): ProjectionResult<T>;
+  /** @deprecated Use defineProjector({ model, events }) and register projectors in createApp. */
   readonly events?: ReadonlyArray<ReadModelEventBinding<T, z.ZodType, unknown>> | undefined;
+};
+
+export type Projector<T = unknown> = {
+  readonly _tag: "Projector";
+  readonly model: Pick<ReadModelHandle<T>, "name" | "project">;
+  readonly events: ReadonlyArray<ReadModelEventBinding<T, z.ZodType, unknown>>;
 };
 
 export type ProjectionAdapter<T> = {
@@ -73,9 +85,21 @@ export function readModelEvent<T, TEventSchema extends z.ZodType, TReads>(
   return binding;
 }
 
+export function defineProjector<T>(input: {
+  readonly model: ReadModelHandle<T>;
+  readonly events: ReadonlyArray<ReadModelEventBinding<T, z.ZodType, unknown>>;
+}): Projector<T> {
+  return {
+    _tag: "Projector",
+    model: input.model,
+    events: input.events,
+  };
+}
+
 // ── Validation ──────────────────────────────────────────────────────
 
 const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+const QUERY_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*(\/[a-zA-Z][a-zA-Z0-9_]*)*$/;
 
 // ZodString covers z.string(), z.string().uuid(), and z.string().datetime()
 // (datetime/uuid are ZodString with checks, not separate types)
@@ -463,12 +487,26 @@ export function defineReadModel<
 
 export type OrderDirection = "asc" | "desc";
 
-export type ReadModelQueryHandle<T, TArgs = unknown> = {
+export type ReadModelQueryCardinality = "one" | "many";
+
+export type ReadModelQueryResult<TRow, TCardinality extends ReadModelQueryCardinality> =
+  TCardinality extends "one" ? TRow : ReadonlyArray<TRow>;
+
+export type ReadModelQueryHandle<
+  T,
+  TInput = unknown,
+  TCardinality extends ReadModelQueryCardinality = "one",
+> = {
   readonly _tag: "ReadModelQueryHandle";
   readonly name: string;
-  readonly source: ReadModelHandle<T>;
-  readonly argsSchema: z.ZodObject<z.ZodRawShape>;
-  readonly buildQuery: (args: TArgs) => {
+  readonly source: ReadModelSchemaHandle<T>;
+  readonly inputSchema: z.ZodType;
+  /** @deprecated Use inputSchema. */
+  readonly argsSchema: z.ZodType;
+  readonly input: unknown;
+  readonly _input?: TInput | undefined;
+  readonly cardinality: TCardinality;
+  readonly buildQuery: (input: unknown) => {
     readonly sourceName: string;
     readonly entries: ReadonlyArray<WhereEntry>;
     readonly orderBy: string | undefined;
@@ -477,26 +515,60 @@ export type ReadModelQueryHandle<T, TArgs = unknown> = {
   };
 };
 
-type DefineReadModelQueryInput<T, TArgsSchema extends z.ZodObject<z.ZodRawShape>> = {
-  readonly name: string;
-  readonly source: ReadModelHandle<T>;
-  readonly args: TArgsSchema;
-  readonly resolve: (args: z.infer<TArgsSchema>) => {
-    readonly where: Where<T>;
-    readonly orderBy?: (keyof T & string) | undefined;
-    readonly orderDirection?: OrderDirection | undefined;
-    readonly limit?: number | undefined;
-  };
+type ReadModelQueryResolve<T, TInput> = (input: TInput) => {
+  readonly where: Where<T>;
+  readonly orderBy?: (keyof T & string) | undefined;
+  readonly orderDirection?: OrderDirection | undefined;
+  readonly limit?: number | undefined;
 };
 
-export function defineReadModelQuery<T, TArgsSchema extends z.ZodObject<z.ZodRawShape>>(
-  input: DefineReadModelQueryInput<T, TArgsSchema>,
-): ReadModelQueryHandle<T, z.infer<TArgsSchema>> {
-  const { name, source, args, resolve } = input;
+type DefineReadModelQueryInput<T, TInputSchema extends z.ZodType, TCardinality extends ReadModelQueryCardinality> = {
+  readonly name: string;
+  readonly source: ReadModelHandle<T>;
+  readonly inputSchema: TInputSchema;
+  readonly input: unknown;
+  readonly cardinality: TCardinality;
+  readonly resolve: ReadModelQueryResolve<T, z.infer<TInputSchema>>;
+};
+
+type LegacyDefineReadModelQueryInput<T, TInputSchema extends z.ZodType> = {
+  readonly name: string;
+  readonly source: ReadModelHandle<T>;
+  readonly args: TInputSchema;
+  readonly resolve: ReadModelQueryResolve<T, z.infer<TInputSchema>>;
+};
+
+export function defineReadModelQuery<
+  T,
+  TInputSchema extends z.ZodType,
+  const TCardinality extends ReadModelQueryCardinality,
+>(
+  input: DefineReadModelQueryInput<T, TInputSchema, TCardinality>,
+): ReadModelQueryHandle<T, z.infer<TInputSchema>, TCardinality>;
+
+export function defineReadModelQuery<T, TInputSchema extends z.ZodType>(
+  input: LegacyDefineReadModelQueryInput<T, TInputSchema>,
+): ReadModelQueryHandle<T, z.infer<TInputSchema>, "one">;
+
+export function defineReadModelQuery<
+  T,
+  TInputSchema extends z.ZodType,
+  TCardinality extends ReadModelQueryCardinality,
+>(
+  input:
+    | DefineReadModelQueryInput<T, TInputSchema, TCardinality>
+    | LegacyDefineReadModelQueryInput<T, TInputSchema>,
+): ReadModelQueryHandle<T, z.infer<TInputSchema>, TCardinality | "one"> {
+  const { name, source, resolve } = input;
+  const inputSchema = "inputSchema" in input ? input.inputSchema : input.args;
+  const queryInput = "input" in input ? input.input : undefined;
+  const cardinality = "cardinality" in input ? input.cardinality : "one";
 
   // Validate name
-  if (!NAME_PATTERN.test(name)) {
-    throw new Error(`Invalid read model query name "${name}": must match [a-zA-Z][a-zA-Z0-9_]*`);
+  if (!QUERY_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid read model query name "${name}": must match slash-separated [a-zA-Z][a-zA-Z0-9_]* segments`,
+    );
   }
 
   // Reject query-on-query: source must have a `project` property (ReadModelHandle has it)
@@ -519,9 +591,14 @@ export function defineReadModelQuery<T, TArgsSchema extends z.ZodObject<z.ZodRaw
     _tag: "ReadModelQueryHandle",
     name,
     source,
-    argsSchema: args,
-    buildQuery(queryArgs: z.infer<TArgsSchema>) {
-      const resolved = resolve(queryArgs);
+    inputSchema,
+    argsSchema: inputSchema,
+    input: queryInput,
+    cardinality,
+    buildQuery(queryInputValue: unknown) {
+      // Query handles are validated at external adapters. Internal projection reads may
+      // intentionally pass sentinel values to model absence as ReadModelNotFound.
+      const resolved = resolve(queryInputValue as z.infer<TInputSchema>);
       const entries = normalizeWhereForModel(
         source,
         resolved.where,
