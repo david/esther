@@ -34,9 +34,7 @@ export function readModelQueryRoute(queryName: string): string {
     );
   }
 
-  return `/read/${encodeURIComponent(modelName)}/queries/${queryParts
-    .map((part) => encodeURIComponent(part))
-    .join("/")}`;
+  return `/${[modelName, ...queryParts].map((part) => encodeURIComponent(part)).join("/")}`;
 }
 
 function buildUrl(baseUrl: string, queryName: string, input: unknown): string {

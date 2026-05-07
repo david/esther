@@ -92,7 +92,7 @@ describe("HTTP read model query support", () => {
   });
 
   test("route derivation uses query name segments", () => {
-    expect(readModelQueryRoute("people/by_org")).toBe("/read/people/queries/by_org");
+    expect(readModelQueryRoute("people/by_org")).toBe("/people/by_org");
   });
 
   test("Fastify read route requires JSON args without leaking read-model error tags", async () => {
@@ -100,13 +100,16 @@ describe("HTTP read model query support", () => {
     adapter.bind(async () => {
       throw new Error("operation dispatch should not run");
     });
-    adapter.bindReadModelQuery?.(async () => {
-      throw new Error("query dispatch should not run");
-    });
+    adapter.bindReadModelQuery?.(
+      async () => {
+        throw new Error("query dispatch should not run");
+      },
+      ["people/by_org"],
+    );
 
     const response = await adapter.adapter.instance.inject({
       method: "GET",
-      url: "/read/people/queries/by_org",
+      url: "/people/by_org",
     });
 
     expect(response.statusCode).toBe(400);
@@ -121,15 +124,36 @@ describe("HTTP read model query support", () => {
     adapter.bind(async () => {
       throw new Error("operation dispatch should not run");
     });
-    adapter.bindReadModelQuery?.((queryName, input) => app.executeReadModelQuery(queryName, input));
+    adapter.bindReadModelQuery?.(
+      (queryName, input) => app.executeReadModelQuery(queryName, input),
+      ["people/by_id"],
+    );
 
     const response = await adapter.adapter.instance.inject({
       method: "GET",
-      url: `/read/people/queries/by_id?args=${encodeURIComponent(JSON.stringify({ id: "missing" }))}`,
+      url: `/people/by_id?args=${encodeURIComponent(JSON.stringify({ id: "missing" }))}`,
     });
 
     expect(response.statusCode).toBe(404);
     expect(response.json() as unknown).toEqual({ error: { _tag: "NotFound" } });
+  });
+
+  test("Fastify read route registration rejects public path collisions", () => {
+    const adapter = createFastifyInputAdapter({
+      port: 0,
+      routes: [
+        {
+          method: "GET",
+          path: "/people/by_org",
+          slice: "people/by_org",
+          input: () => ({}),
+        },
+      ],
+    });
+
+    expect(() => {
+      adapter.bindReadModelQuery?.(async () => ok([]), ["people/by_org"]);
+    }).toThrow("Duplicate Fastify route registration: GET /people/by_org");
   });
 
   test("HTTP client validates input locally before fetch", async () => {
@@ -163,15 +187,18 @@ describe("HTTP read model query support", () => {
     adapter.bind(async () => {
       throw new Error("operation dispatch should not run");
     });
-    adapter.bindReadModelQuery?.(async (queryName, input) => {
-      expect(queryName).toBe("people/by_org");
-      expect(input).toEqual({ orgId: "o1" });
-      return ok([]);
-    });
+    adapter.bindReadModelQuery?.(
+      async (queryName, input) => {
+        expect(queryName).toBe("people/by_org");
+        expect(input).toEqual({ orgId: "o1" });
+        return ok([]);
+      },
+      ["people/by_org"],
+    );
 
     const response = await adapter.adapter.instance.inject({
       method: "GET",
-      url: `/read/people/queries/by_org?args=${encodeURIComponent(JSON.stringify({ orgId: "o1" }))}`,
+      url: `/people/by_org?args=${encodeURIComponent(JSON.stringify({ orgId: "o1" }))}`,
     });
 
     expect(response.statusCode).toBe(200);

@@ -13,6 +13,7 @@ import type {
   OperationResult,
   RegisterableOperation,
 } from "../../core/slice.js";
+import { readModelQueryRoute } from "../http/index.js";
 
 export type FastifyRouteMethod = "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT";
 
@@ -127,6 +128,19 @@ function sendDefaultResult(reply: FastifyReply, result: Result<unknown, unknown>
   return reply.status(422).send({ error });
 }
 
+function routeKey(method: string, path: string): string {
+  const normalizedPath = path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+  return `${method.toUpperCase()} ${normalizedPath}`;
+}
+
+function registerRouteKey(keys: Set<string>, method: string, path: string): void {
+  const key = routeKey(method, path);
+  if (keys.has(key)) {
+    throw new Error(`Duplicate Fastify route registration: ${key}`);
+  }
+  keys.add(key);
+}
+
 function sendReadQueryResult(reply: FastifyReply, result: Result<unknown, unknown>) {
   if (result.isOk()) {
     return reply.send({ data: result.value });
@@ -151,54 +165,14 @@ export function createFastifyInputAdapter(
   config: FastifyAdapterConfig,
 ): InputAdapterBinding<FastifyInputAdapter> {
   let boundDispatch: DispatchFn | undefined;
-  let boundReadModelQuery: ReadModelQueryDispatchFn | undefined;
 
   const Fastify = require("fastify") as typeof import("fastify");
   const app = Fastify.default();
   const hostname = config.hostname ?? "0.0.0.0";
-
-  app.get("/read/*", async (request, reply) => {
-    if (!boundReadModelQuery) {
-      throw new Error("Fastify adapter not bound to read model query executor");
-    }
-
-    const url = new URL(request.url, `http://${hostname}:${config.port}`);
-    const pathParts = url.pathname.split("/").filter(Boolean);
-    const modelName = pathParts[1];
-    const queriesSegment = pathParts[2];
-    const queryPathParts = pathParts.slice(3);
-
-    if (
-      pathParts[0] !== "read" ||
-      modelName === undefined ||
-      queriesSegment !== "queries" ||
-      queryPathParts.length === 0
-    ) {
-      return reply.status(404).send({ error: { _tag: "NotFound" } });
-    }
-
-    const rawArgs = url.searchParams.get("args");
-    if (rawArgs === null) {
-      return reply.status(400).send({
-        error: { _tag: "BadRequest", message: "Missing required query args" },
-      });
-    }
-
-    let args: unknown;
-    try {
-      args = JSON.parse(rawArgs) as unknown;
-    } catch (_error) {
-      return reply.status(400).send({
-        error: { _tag: "BadRequest", message: "Invalid query args JSON" },
-      });
-    }
-
-    const queryName = [modelName, ...queryPathParts].join("/");
-    const result = await boundReadModelQuery(queryName, args);
-    return sendReadQueryResult(reply, result);
-  });
+  const routeKeys = new Set<string>();
 
   for (const route of config.routes ?? []) {
+    registerRouteKey(routeKeys, route.method, route.path);
     app.route({
       method: route.method,
       url: route.path,
@@ -265,8 +239,32 @@ export function createFastifyInputAdapter(
     bind(dispatch: DispatchFn) {
       boundDispatch = dispatch;
     },
-    bindReadModelQuery(dispatch: ReadModelQueryDispatchFn) {
-      boundReadModelQuery = dispatch;
+    bindReadModelQuery(dispatch: ReadModelQueryDispatchFn, queryNames: ReadonlyArray<string>) {
+      for (const queryName of queryNames) {
+        const path = readModelQueryRoute(queryName);
+        registerRouteKey(routeKeys, "GET", path);
+        app.get(path, async (request, reply) => {
+          const url = new URL(request.url, `http://${hostname}:${config.port}`);
+          const rawArgs = url.searchParams.get("args");
+          if (rawArgs === null) {
+            return reply.status(400).send({
+              error: { _tag: "BadRequest", message: "Missing required query args" },
+            });
+          }
+
+          let args: unknown;
+          try {
+            args = JSON.parse(rawArgs) as unknown;
+          } catch (_error) {
+            return reply.status(400).send({
+              error: { _tag: "BadRequest", message: "Invalid query args JSON" },
+            });
+          }
+
+          const result = await dispatch(queryName, args);
+          return sendReadQueryResult(reply, result);
+        });
+      }
     },
   };
 }

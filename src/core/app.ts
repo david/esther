@@ -280,7 +280,7 @@ export function createApp(config: AppConfig): App {
   }
 
   inputAdapter?.bind(dispatch);
-  inputAdapter?.bindReadModelQuery?.(executeReadModelQuery);
+  inputAdapter?.bindReadModelQuery?.(executeReadModelQuery, [...readModelQueries.keys()]);
 
   return {
     async start() {

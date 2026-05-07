@@ -15,5 +15,8 @@ export type InputAdapter = {
 export type InputAdapterBinding<TAdapter extends InputAdapter = InputAdapter> = {
   readonly adapter: TAdapter;
   readonly bind: (dispatch: DispatchFn) => void;
-  readonly bindReadModelQuery?: (dispatch: ReadModelQueryDispatchFn) => void;
+  readonly bindReadModelQuery?: (
+    dispatch: ReadModelQueryDispatchFn,
+    queryNames: ReadonlyArray<string>,
+  ) => void;
 };
